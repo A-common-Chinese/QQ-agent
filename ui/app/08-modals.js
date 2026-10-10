@@ -1453,6 +1453,10 @@ async function saveConfig({ quiet = false } = {}) {
     // 关掉 = 不接管任何消息（ingest 里那一分支直接不认领），也不接受 /api/inbound 的主动推送。
     const dshTransport = String(val('#cfg-dsh-transport', c.dsh?.transport || 'headless'));
     const dshProgress = String(val('#cfg-dsh-progress', c.dsh?.showProgress || 'private'));
+    // 隐私过滤：白名单会话原样放行，其他会话打码/拒发（细节在 src/privacy.js）
+    const dshPrivacyMode = String(val('#cfg-dsh-privacy-mode', c.dsh?.privacy?.mode || 'redact'));
+    const dshPrivacyChats = String(val('#cfg-dsh-privacy-chats', (c.dsh?.privacy?.allowedChats || ['private:85946573']).join(', ')))
+      .split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
     patch.dsh = {
       ...(c.dsh || {}),
       enabled: chk('#cfg-dsh-enabled', !!c.dsh?.enabled),
@@ -1464,7 +1468,15 @@ async function saveConfig({ quiet = false } = {}) {
       transport: ['headless', 'plugin'].includes(dshTransport) ? dshTransport : 'headless',
       showProgress: ['off', 'private', 'all'].includes(dshProgress) ? dshProgress : 'private',
       pluginUrl: String(val('#cfg-dsh-pluginurl', c.dsh?.pluginUrl || '')).trim(),
-      pluginToken: String(val('#cfg-dsh-plugintoken', c.dsh?.pluginToken || '')).trim()
+      pluginToken: String(val('#cfg-dsh-plugintoken', c.dsh?.pluginToken || '')).trim(),
+      // 只覆盖界面上这三个；其余（scanFileContents / logMatches / noticeSuffix / extraPatterns…）
+      // 保持配置文件里的原值，别在这个界面里被抹掉。
+      privacy: {
+        ...(c.dsh?.privacy || {}),
+        enabled: chk('#cfg-dsh-privacy-enabled', c.dsh?.privacy?.enabled !== false),
+        allowedChats: dshPrivacyChats.length ? dshPrivacyChats : ['private:85946573'],
+        mode: ['redact', 'block'].includes(dshPrivacyMode) ? dshPrivacyMode : 'redact'
+      }
     };
   }
 

@@ -1010,6 +1010,30 @@ return `
         <div class="field"><label>plugin 通道令牌（dsh-qq 的 bridgeToken）</label>
           <input type="text" id="cfg-dsh-plugintoken" value="${esc(c.dsh?.pluginToken || '')}" placeholder="留空 = 不校验" /></div>
       </div>
+      <div class="checkbox-row"><input type="checkbox" id="cfg-dsh-privacy-enabled" ${c.dsh?.privacy?.enabled !== false ? 'checked' : ''} />
+        <label for="cfg-dsh-privacy-enabled">出站隐私过滤（不向白名单之外的会话发送隐私信息）</label></div>
+      <div class="hint">
+        <b>开</b>：DSH 的内容发往<b>不在下面白名单里的会话</b>时 —— 邮箱 / 手机号 / 身份证 / 卡号 /
+        <code>C:\\Users\\&lt;用户名&gt;\\…</code> / 内网 IP / 本机用户名与主机名 <b>就地打码</b>；
+        密钥与口令类（<code>sk-…</code>、<code>ghp_…</code>、<code>token: xxx</code>、私钥块、带凭据的连接串）
+        <b>整条拒发</b>；打码后只剩占位符也拒发。覆盖桥回传的回复、<b>qq_send</b> 主动推送、
+        <b>qq_send_file</b> 的文件名与文本类文件内容。<b>关</b>：所有会话都原样收到。
+      </div>
+      <div class="field-row">
+        <div class="field"><label>隐私白名单会话（逗号分隔，这些会话原样放行）</label>
+          <input type="text" id="cfg-dsh-privacy-chats" value="${esc((c.dsh?.privacy?.allowedChats || ['private:85946573']).join(', '))}" placeholder="private:85946573" />
+          <div class="hint">裸 QQ 号按私聊算。<b>群默认不在白名单里</b>（群消息所有成员都能看到），确要放行请写 <code>group:群号</code>。</div></div>
+        <div class="field"><label>命中后的处理方式</label>
+          <select id="cfg-dsh-privacy-mode">
+            <option value="redact" ${(c.dsh?.privacy?.mode || 'redact') === 'redact' ? 'selected' : ''}>打码后照发（推荐）</option>
+            <option value="block" ${c.dsh?.privacy?.mode === 'block' ? 'selected' : ''}>有命中就整条拒发</option>
+          </select></div>
+      </div>
+      <div class="hint">
+        更细的开关在 <code>data/config.json</code> 的 <code>dsh.privacy</code> 里改：
+        <code>scanFileContents</code>（发文件前扫文本类内容）、<code>logMatches</code>（命中是否在日志留痕）、
+        <code>noticeSuffix</code>（打码时是否附一句说明）、<code>extraPatterns</code>（封自己项目的代号/域名等自定义规则）。
+      </div>
       <div class="hint">
         在 QQ 里发 <b>${esc(c.dsh?.prefix || '/dsh')} 状态</b> 看当前会话、<b>${esc(c.dsh?.prefix || '/dsh')} 帮助</b> 看全部命令。
         DSH 侧还能用 <b>qq_send</b> 主动发消息、<b>qq_send_file</b> 把本机文件发到 QQ（群文件 / 私聊文件）。
