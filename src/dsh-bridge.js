@@ -18,6 +18,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { getPrivacyFilter, privacyBlockedReply } from './privacy.js';
 import { spawn } from 'node:child_process';
 import { DATA_DIR, ROOT } from './config.js';
 
@@ -131,9 +132,18 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
 
   async function reply(chatKey, text, replyToMessageId = null) {
     try {
+      // 隐私闸门：DSH 的答案与提示在离开本机前统一过一遍。白名单会话原样放行；
+      // 其他会话命中隐私规则就打码，命中密钥类直接换成提示语（fail-closed）。
+      const gate = getPrivacyFilter().filterText(chatKey, text);
+      let out = gate.ok ? gate.text : privacyBlockedReply();
+      if (!gate.bypass && !gate.ok) {
+        log(`[privacy] 拦截 → ${chatKey}（命中 ${gate.blockedBy}），已替换为提示语`);
+      } else if (!gate.bypass && gate.hits.length) {
+        log(`[privacy] 打码 → ${chatKey}：${gate.hits.map((h) => `${h.id}×${h.count}`).join('、')}`);
+      }
       // skipDedupe：命令通道的两次任务完全可能给出同一句话（都回 "OK"），
       // 不能被"防模型复读"的 8 秒去重窗口吞掉 —— 那是静默丢消息。
-      await sender.sendTextBatch(chatKey, [String(text ?? '')], { replyToMessageId, skipDedupe: true });
+      await sender.sendTextBatch(chatKey, [String(out ?? '')], { replyToMessageId, skipDedupe: true });
       emit('chat-update', chatKey);
     } catch (error) {
       log(`[dsh] 回发失败：${error?.message ?? error}`);

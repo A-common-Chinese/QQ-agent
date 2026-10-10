@@ -97,3 +97,38 @@ Start-Process "$env:LOCALAPPDATA\Programs\QQ Agent DSH\QQ Agent DSH.exe"
 另外：从 DSH 派生的终端里启动 Electron 应用，必须清掉继承来的 `ELECTRON_RUN_AS_NODE`
 （否则 Electron 会当纯 Node 跑，秒退且不写任何日志 —— 这个坑很容易误判成"程序坏了"）。
 
+## DSH 出站隐私过滤（fork 侧）
+
+目的：**DSH 的内容发往非白名单会话时不得携带隐私信息**；白名单会话（默认 `private:85946573`）
+原样放行。实现见 `src/privacy.js`，与 dsh-qq 插件的 `privacy.js` **同源同规则**
+（由 `ref-qqagent/build-fork-privacy.cjs` 从插件那份生成，避免两边跑偏）。
+
+为什么 fork 侧也要做一层：fork 才是所有 DSH 内容落到 QQ 的**咽喉** —— `/api/inbound` 主动推送
+和桥回传的回复都经它的 sender 出去；而且改这里只要重启 QQ Agent（约 6 秒），不必重启 DSH
+（DSH 会缓存插件的 ESM 模块，插件侧那层要等下次重启 DSH 才生效）。
+
+| 闸门 | 位置 | 覆盖 |
+|---|---|---|
+| 桥回传回复 | `src/dsh-bridge.js` 的 `reply()` | DSH 的答案、进度提示、错误提示（主要泄漏面） |
+| 主动推送 | `src/routes.js` `POST /api/inbound` | 插件 `qq_send` 工具 |
+| 发文件 | `src/routes.js` `POST /api/inbound-file` | 文件名按文本规则；文本类文件内容只做拒发级扫描 |
+
+配置在 `data/config.json` 的 `dsh.privacy`（默认值见 `src/config.js`）：`enabled` /
+`allowedChats` / `mode`(redact|block) / `blockOnSecrets` / `blockedReply` / `noticeSuffix` /
+`logMatches` / `scanFileContents` / `maxScanBytes` / `extraPatterns`。改完**立即生效**
+（过滤器按配置内容做缓存，配置一变就重建），不需要重启。
+
+实测（2026-10-11，本机安装版）：
+
+```
+打码级  POST /api/inbound → 200 {"privacy":{"redacted":[email×1,cn-mobile×1,win-user-path×1,ipv4×1]}}
+        实际发出：测试A：邮箱 [已隐去:邮箱]，手机 [已隐去:手机号]，路径 C:\Users\***\dsh-workspace\note.txt，内网 [已隐去:IP]
+拒发级  POST /api/inbound → 403 {"error":"隐私过滤拦截（命中 openai-key）"}
+白名单  恢复 allowedChats 后同一条文本原样发出（一个字没动）
+单测    node test/privacy.test.mjs → 26/26；回归 test/selftest.mjs → 41/41
+```
+
+> 注：桥回传回复那条闸门的**运行位置**在 fork 的 `reply()`，只有真实 QQ 消息触发 `/dsh` 时才会走到；
+> 上面的实测覆盖的是同一个 `filterText()` 在推送路径上的行为 + 单测。要眼见为实，可以在**群里**
+> 发一条 `/dsh 请原样回复：邮箱 someone@example.com` —— 群不在隐私白名单里，回复应当收到打码版。
+

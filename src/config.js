@@ -399,7 +399,25 @@ export const DEFAULT_CONFIG = {
     maxProgress: 6,            // 单个任务最多发几条进度
     maxReplyChars: 0,          // 0 = 不额外截断（发送器仍按 send.hardSplitAt 分片）
     replyPrefix: '',           // 回发答案前面的固定前缀
-    extraArgs: []              // 追加给 dsh headless 的额外参数
+    extraArgs: [],             // 追加给 dsh headless 的额外参数
+    // ── 隐私过滤（实现见 src/privacy.js）────────────────────────────────
+    // 白名单会话原样放行；其他任何会话（所有群 + 其他私聊）命中即处理：
+    //   密钥/口令/连接串/私钥等高置信秘密 → 整条拒发（fail-closed）
+    //   邮箱/手机/身份证/卡号/本机用户名·主机名/用户目录路径/内网 IP → 打码后照发
+    //   打码后只剩占位符 → 拒发
+    // 覆盖三处出口：桥回传给 QQ 的回复、/api/inbound 主动推送、/api/inbound-file。
+    privacy: {
+      enabled: true,
+      allowedChats: ['private:85946573'],  // 可以收到原样（含隐私）内容的会话；裸 QQ 号按私聊算
+      mode: 'redact',                      // redact = 打码后照发；block = 有命中就整条拒发
+      blockOnSecrets: true,                // 密钥/口令类永不发（即使 mode=redact）
+      blockedReply: '（这条内容含不宜发往该会话的隐私信息，已被隐私过滤拦截）',
+      noticeSuffix: false,                 // 打码时是否在末尾附一句"已隐去 N 处"
+      logMatches: true,                    // 命中时在日志留痕（只记规则名，不记内容）
+      scanFileContents: true,              // 发文件前扫文本类文件内容，命中密钥类就拒发
+      maxScanBytes: 2097152,
+      extraPatterns: []                    // [{ id, regex, action: 'redact'|'block', replace }]
+    }
   },
   ui: {
     // 主题：'dark' | 'light' | 'system'（system = 跟随系统偏好）。

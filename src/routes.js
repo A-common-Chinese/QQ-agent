@@ -25,6 +25,7 @@ import {
 import { scanModelsVision, visionResults, modelImageVerdict } from './vision-scan.js';
 import { builtinVisionResults } from './model-vision-docs.js';
 import { todayKey } from './util.js';
+import { getPrivacyFilter } from './privacy.js';
 import { logger } from './logger.js';
 import { skillManager } from './skills/manager.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
@@ -1448,11 +1449,24 @@ export function createRoutes(deps) {
           ? allowList.map(String).includes(id)
           : cfgNow.allowAllWhenEmpty === true;
         if (!allowedNow) return json(res, 403, { ok: false, error: '该会话不在白名单内，不能发送' });
+        // 隐私闸门：主动推送同样不许把隐私信息发往非白名单会话
+        const gate = getPrivacyFilter().filterText(chatKey, text);
+        if (!gate.bypass && !gate.ok) {
+          return json(res, 403, {
+            ok: false,
+            error: `隐私过滤拦截（命中 ${gate.blockedBy}）：这条内容不能发往 ${chatKey}`,
+            privacy: { blocked: true, rules: gate.hits.map((h) => h.id) }
+          });
+        }
         try {
           // skipDedupe：主动推送与本轮回复可能一字不差，不能被去重窗口吞掉
-          const r = await sender.sendTextBatch(chatKey, [text], { skipDedupe: true });
+          const r = await sender.sendTextBatch(chatKey, [gate.text], { skipDedupe: true });
           emit('chat-update', chatKey);
-          return json(res, 200, { ok: true, messageId: r?.sent?.[0]?.messageId ?? null });
+          return json(res, 200, {
+            ok: true,
+            messageId: r?.sent?.[0]?.messageId ?? null,
+            ...(gate.hits.length ? { privacy: { redacted: gate.hits.map((h) => ({ id: h.id, count: h.count })) } } : {})
+          });
         } catch (error) {
           return json(res, 502, { ok: false, error: String(error?.message ?? error) });
         }
@@ -1509,10 +1523,30 @@ export function createRoutes(deps) {
           });
           if (!inside) return json(res, 403, { ok: false, error: '文件不在 dsh.fileRoots 允许的目录内' });
         }
+        // 隐私闸门：文件名按文本规则处理；文本类文件的内容只做「拒发」级扫描
+        // （读不了或不认识的扩展名就只判文件名，不阻断正常发文件）。
+        const fileGate = getPrivacyFilter().filterFile(chatKey, filePath);
+        if (!fileGate.bypass && !fileGate.ok) {
+          const byContent = String(fileGate.blockedBy || '').startsWith('file-content:');
+          return json(res, 403, {
+            ok: false,
+            error: byContent
+              ? `隐私过滤拦截：文件内容命中 ${fileGate.blockedBy}，不能发往 ${chatKey}`
+              : `隐私过滤拦截（文件名命中 ${fileGate.blockedBy}），不能发往 ${chatKey}`,
+            privacy: { blocked: true, rules: fileGate.hits.map((h) => h.id) }
+          });
+        }
+        const safeName = fileGate.bypass ? wantName : (fileGate.safeName || wantName);
         try {
-          const r = await sender.sendFile(chatKey, { path: filePath, name: wantName });
+          const r = await sender.sendFile(chatKey, { path: filePath, name: safeName });
           emit('chat-update', chatKey);
-          return json(res, 200, { ok: true, fileId: r.fileId, name: r.name, bytes: st.size });
+          return json(res, 200, {
+            ok: true,
+            fileId: r.fileId,
+            name: r.name,
+            bytes: st.size,
+            ...(fileGate.hits.length ? { privacy: { redacted: fileGate.hits.map((h) => h.id) } } : {})
+          });
         } catch (error) {
           return json(res, 502, { ok: false, error: String(error?.message ?? error) });
         }
