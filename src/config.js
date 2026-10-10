@@ -373,6 +373,29 @@ export const DEFAULT_CONFIG = {
     autoStart: false,         // 开机自启（仅 Electron 桌面端生效）
     closeToTray: true         // 点关闭 = 最小化到托盘
   },
+  // ── DSH 桥（联动本机 DeepSeek Harness）──────────────────────────────────
+  // 命中 prefix 的消息**不进大模型**，直接交给 `dsh headless` 执行，结果原样回发 QQ。
+  // 默认关闭。开启前请先填 allowedSenderIds —— 否则等于把本机命令执行权交给
+  // 所有在白名单群里的人（任务只在 workdir 内可写，需要审批的操作会失败关闭，
+  // 但"能在你目录里跑 agent"这件事本身就需要授权）。
+  dsh: {
+    enabled: false,
+    prefix: '/dsh',            // 命令前缀（必须成词：`/dshx` 不算）
+    allowedSenderIds: [],      // 允许下指令的 QQ 号；**空 = 谁都不响应**（安全默认）
+    workdir: '',               // DSH 任务的工作目录；空 = QQ Agent 自己的目录
+    exePath: '',               // DeepSeek Harness.exe；空 = 内置默认路径
+    overlayPath: '',           // 模型 overlay（yml）；空 = 仓库根的 dsh-model-overlay.yml
+    timeoutMs: 900000,         // 单次任务超时（毫秒），到点杀进程树
+    permissionMode: '',        // '' = 用 DSH 默认（workspace-write）；'danger-full-access' = 完全放开（危险，见文档）
+    maxConcurrent: 1,          // 同时执行的 DSH 任务数上限
+    sessionMode: 'per-chat',   // per-chat = 每个会话一条上下文；global = 共用；none = 每次新会话
+    showProgress: 'private',   // off | private | all：执行中的工具进度提示发到哪
+    progressMinGapMs: 8000,    // 进度提示最小间隔
+    maxProgress: 6,            // 单个任务最多发几条进度
+    maxReplyChars: 0,          // 0 = 不额外截断（发送器仍按 send.hardSplitAt 分片）
+    replyPrefix: '',           // 回发答案前面的固定前缀
+    extraArgs: []              // 追加给 dsh headless 的额外参数
+  },
   ui: {
     // 主题：'dark' | 'light' | 'system'（system = 跟随系统偏好）。
     // 前端以 localStorage 为准做到即时生效，这里只是跨设备/重装后保留用。

@@ -130,12 +130,15 @@ export class SendQueue {
 
   /**
    * 发送一批文本消息（一条或多条）。
-   * options: { replyToMessageId, atUserId }
+   * options: { replyToMessageId, atUserId, skipDedupe }
+   *   skipDedupe：命令通道（如 DSH 桥）用。去重窗口本意是防"模型复读/超时重发"，
+   *   但两次不同任务的答案**合法地**可能一字不差（都回 "OK"），被吞掉就是静默丢消息。
    * 返回 { sent: [{text, messageId}], failed: [{text, error}] }；全部失败时抛错。
    */
   async sendTextBatch(chatKey, messages, options = {}) {
     const [kind, id] = String(chatKey).split(':');
     if (kind !== 'group' && kind !== 'private') throw new Error(`非法会话 key：${chatKey}`);
+    const skipDedupe = options.skipDedupe === true;
     const list = Array.isArray(messages) ? messages : [messages];
     if (!list.length) throw new Error('消息列表为空');
     const hardSplitAt = Number(getConfig().send?.hardSplitAt) || 0;
@@ -161,7 +164,7 @@ export class SendQueue {
         this.#checkRate(chatKey);
         if (gap > 0) await sleep(gap);
         // 发送去重：窗口期内 identical 文本跳过（防模型重复调用/超时重试造成的重复发言）
-        if (this.#isDuplicate(chatKey, text)) {
+        if (!skipDedupe && this.#isDuplicate(chatKey, text)) {
           console.warn(`[sender] 跳过重复消息（${this.#dedupeWindow()}ms 内已发过相同内容）：${String(text).slice(0, 30)}`);
           return { text, messageId: null, at: formatClockTime(Date.now()), deduped: true };
         }

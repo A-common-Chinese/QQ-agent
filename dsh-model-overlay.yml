@@ -1,0 +1,17 @@
+# DSH headless 的模型 overlay（给 QQ Agent 的 DSH 桥用）。
+#
+# 为什么必须有这个文件：`dsh --profile headless` 出厂走 deepseek-official 路由，
+# 需要 DEEPSEEK_API_KEY；而本机桌面端登录的是 deepseek-account。这个 overlay 把
+# headless 的默认模型改成走账号，于是 QQ 触发的任务不用额外配 key。
+#
+# 换模型：改下面的 provider / model（可选 deepseek-flash / deepseek-pro 等，
+# 以 DSH 的模型选择器里列出的为准）。换文件位置：config.dsh.overlayPath。
+#
+# 注意：这是 `--patch` 覆盖层，行 id 必须与 profile 里的行 id 一致（agent-default-model）。
+
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: deepseek-account
+    model: deepseek-flash
+    reasoningEffort: high

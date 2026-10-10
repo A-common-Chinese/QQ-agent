@@ -13,6 +13,7 @@ import { ChatStore } from './store.js';
 import { MemoryStore } from './memory.js';
 import { StickerManager } from './sticker-manager.js';
 import { SendQueue } from './sender.js';
+import { createDshBridge } from './dsh-bridge.js';
 import { SessionRegistry } from './sessions.js';
 import { Orchestrator } from './orchestrator.js';
 import { ReminderStore } from './reminders.js';
@@ -645,6 +646,8 @@ export function createApp({ log = console.log } = {}) {
   });
   const reminders = new ReminderStore();
   const videoReader = new VideoReader(onebot);
+  // DSH 桥：/dsh 前缀命令绕过大模型，直接交给本机 dsh headless（详见 src/dsh-bridge.js）
+  const dshBridge = createDshBridge({ getConfig, sender, log, emit });
   const orchestrator = new Orchestrator({ store, memory, stickers, sender, sessions, onebot, emit, reminders, videoReader });
 
   // 远程价格表固定为官网公开地址；不从用户配置读取，避免被页面/配置篡改。
@@ -909,6 +912,13 @@ export function createApp({ log = console.log } = {}) {
       atNames
     });
     emit('chat-update', `${kind}:${id}`);
+    // DSH 桥（确定性，2026-10-10）：/dsh 前缀的命令不进大模型，直接交给本机
+    // DeepSeek Harness 执行。认领后立即标已读并结束本轮 —— 不这么做的话这条消息
+    // 会留在未读里，被后面的 drain 当成积压喂给模型，变成"模型再答一遍"。
+    if (dshBridge.handle(`${kind}:${id}`, entry)) {
+      store.markEntryRead(`${kind}:${id}`, entry.id);
+      return;
+    }
     // 逐条触发判定：把刚入库的条目交给编排器（entry 让它能精确标这一条已读）
     orchestrator.onIncoming(`${kind}:${id}`, entry);
 
@@ -1639,6 +1649,8 @@ export function createApp({ log = console.log } = {}) {
     pluginWatcher = null;
     await orchestrator.abortAll();
     orchestrator.stopReminderLoop();
+    // DSH 桥：退出时把还在跑的 headless 子进程树一起带走，别留孤儿
+    dshBridge.abortAll();
     if (communitySyncTimer) clearInterval(communitySyncTimer);
     if (obPortPollTimer) clearInterval(obPortPollTimer);
     // 索引缓存立刻落盘：正常运行中靠防抖（5s），退出前必须写一次，
