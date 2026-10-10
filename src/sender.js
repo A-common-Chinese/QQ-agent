@@ -199,6 +199,43 @@ export class SendQueue {
     return { sent, failed };
   }
 
+  /**
+   * 发送本地文件到 QQ（群 → upload_group_file；私聊 → upload_private_file）。
+   *
+   * 与 sendImage 同一个理由传 file:// URI 而不是把内容塞进 body：协议端自己读盘，
+   * 上百 MB 的文件也只发一个路径过去。超时给足，上传大文件本来就慢。
+   *
+   * @param {object} file { path } 或 { file }：本机绝对路径
+   * @param {object} options { name }
+   * @returns {Promise<{fileId: string|null, name: string, kind: string, label: string}>}
+   */
+  sendFile(chatKey, file, options = {}) {
+    const [kind, id] = String(chatKey).split(':');
+    if (kind !== 'group' && kind !== 'private') return Promise.reject(new Error(`非法会话 key：${chatKey}`));
+    const rawPath = String(file?.path ?? file?.file ?? '').trim();
+    const wantName = String(options?.name ?? file?.name ?? '').trim();
+    if (!rawPath) return Promise.reject(new Error('文件路径为空'));
+    const fallbackName = rawPath.split(/[\\/]/).filter(Boolean).pop() || 'file';
+    const name = wantName || fallbackName;
+    const chain = this.#chain(chatKey);
+    return chain(async () => {
+      this.#checkRate(chatKey);
+      const ref = toFileUri(rawPath);
+      // 上传是慢操作：显式给 5 分钟，别用查询类的默认超时
+      const params = kind === 'group'
+        ? { group_id: Number(id), file: ref, name }
+        : { user_id: Number(id), file: ref, name };
+      const data = await this.onebot.call(kind === 'group' ? 'upload_group_file' : 'upload_private_file', params, 300000);
+      const fileId = data?.file_id ?? null;
+      const ts = Date.now();
+      const label = `[文件：${name}]`;
+      // 留档：不留档的话下一轮模型不知道自己发过文件
+      this.store.appendSelf(chatKey, { text: label, ts, mid: null });
+      this.onSent?.({ chatKey, text: label, messageId: fileId, kind: 'file' });
+      return { fileId, name, kind, label };
+    });
+  }
+
   /** 发送一个收藏表情（独立气泡）。 */
   sendSticker(chatKey, sticker, options = {}) {
     const [kind, id] = String(chatKey).split(':');

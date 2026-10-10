@@ -1459,6 +1459,66 @@ export function createRoutes(deps) {
       }
     },
     {
+      // DSH → QQ 发文件：dsh-qq 插件的 qq_send_file 工具打这里。
+      // 闸门与 /api/inbound 完全一致（总开关 / 白名单 / token），额外校验文件本身。
+      method: 'POST', pattern: '/api/inbound-file',
+      handler: async ({ req, res, json }) => {
+        const cfgDsh = getConfig().dsh || {};
+        if (cfgDsh.enabled !== true) {
+          return json(res, 403, { ok: false, error: 'DSH 桥已关闭（设置 → 聊天设置 → DSH 桥）' });
+        }
+        const body = await bodyOf(req);
+        const chatKey = String(body.chat ?? body.chatKey ?? '').trim();
+        const filePath = String(body.path ?? body.file ?? '').trim();
+        const wantName = String(body.name ?? '').trim();
+        if (!chatKey || !filePath) return json(res, 400, { ok: false, error: '缺少 chat 或 path' });
+        const m = chatKey.match(/^(group|private):(\d+)$/);
+        if (!m) return json(res, 400, { ok: false, error: 'chat 必须是 group:<群号> 或 private:<QQ号>' });
+        const kind = m[1];
+        const id = m[2];
+        const cfgNow = getConfig();
+        const denyList = cfgNow.deny?.[kind] ?? cfgNow.deny?.[`${kind}s`] ?? [];
+        if (denyList.map(String).includes(id)) return json(res, 403, { ok: false, error: '该会话在黑名单内，不能发送' });
+        const allowList = cfgNow.allow?.[kind] ?? cfgNow.allow?.[`${kind}s`] ?? [];
+        const allowedNow = allowList.length > 0
+          ? allowList.map(String).includes(id)
+          : cfgNow.allowAllWhenEmpty === true;
+        if (!allowedNow) return json(res, 403, { ok: false, error: '该会话不在白名单内，不能发送' });
+
+        let st;
+        try {
+          st = fs.statSync(filePath);
+        } catch (error) {
+          return json(res, 400, { ok: false, error: `读不到文件：${filePath}（${error?.code ?? error?.message}）` });
+        }
+        if (!st.isFile()) return json(res, 400, { ok: false, error: '不是普通文件（目录/设备）' });
+        const maxBytes = Math.max(0, Number(cfgDsh.maxFileBytes) || 0);
+        if (maxBytes > 0 && st.size > maxBytes) {
+          return json(res, 413, {
+            ok: false,
+            error: `文件过大：${(st.size / 1048576).toFixed(1)}MB > 上限 ${(maxBytes / 1048576).toFixed(0)}MB（改 config.dsh.maxFileBytes）`
+          });
+        }
+        // 允许目录闸：只在配置了 dsh.fileRoots 时生效（空 = 不限制）
+        const roots = Array.isArray(cfgDsh.fileRoots) ? cfgDsh.fileRoots.map(String).filter(Boolean) : [];
+        if (roots.length) {
+          const resolved = path.resolve(filePath);
+          const inside = roots.some((r) => {
+            const root = path.resolve(r);
+            return resolved === root || resolved.toLowerCase().startsWith(root.toLowerCase() + path.sep);
+          });
+          if (!inside) return json(res, 403, { ok: false, error: '文件不在 dsh.fileRoots 允许的目录内' });
+        }
+        try {
+          const r = await sender.sendFile(chatKey, { path: filePath, name: wantName });
+          emit('chat-update', chatKey);
+          return json(res, 200, { ok: true, fileId: r.fileId, name: r.name, bytes: st.size });
+        } catch (error) {
+          return json(res, 502, { ok: false, error: String(error?.message ?? error) });
+        }
+      }
+    },
+    {
       method: 'POST', pattern: /^\/api\/chats\/(group|private)_(\d+)\/mark-read$/,
       handler: async ({ res, json, match }) => json(res, 200, { ok: true, marked: store.drainUnread(`${match[1]}:${match[2]}`).length })
     },

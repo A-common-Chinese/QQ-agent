@@ -971,7 +971,7 @@ return `
       id: 'card-dsh',
       icon: '🔗',
       title: 'DSH 桥',
-      sub: '开 = 用 QQ 给本机 DeepSeek Harness 下指令；关 = 和原版一样',
+      sub: '用QQ给本机DeepSeek Harness下指令',
       open: false,
       body: `
       <div class="checkbox-row"><input type="checkbox" id="cfg-dsh-enabled" ${c.dsh?.enabled ? 'checked' : ''} />
@@ -1012,6 +1012,7 @@ return `
       </div>
       <div class="hint">
         在 QQ 里发 <b>${esc(c.dsh?.prefix || '/dsh')} 状态</b> 看当前会话、<b>${esc(c.dsh?.prefix || '/dsh')} 帮助</b> 看全部命令。
+        DSH 侧还能用 <b>qq_send</b> 主动发消息、<b>qq_send_file</b> 把本机文件发到 QQ（群文件 / 私聊文件）。
         改动即时生效（自动保存），无需重启。
       </div>`
     })}

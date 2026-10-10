@@ -388,6 +388,8 @@ export const DEFAULT_CONFIG = {
     overlayPath: '',           // 模型 overlay（yml）；空 = 仓库根的 dsh-model-overlay.yml
     pluginUrl: '',             // transport=plugin 时的入口；空 = http://127.0.0.1:19387/__dsh-qq/message
     pluginToken: '',           // dsh-qq 插件的 bridgeToken（插件侧留空则这里也留空）
+    maxFileBytes: 104857600,   // DSH 主动发文件的大小上限（默认 100MB，0 = 不限制）
+    fileRoots: [],             // 允许发送的目录白名单；空 = 不限制（只校验存在/大小）
     timeoutMs: 900000,         // 单次任务超时（毫秒），到点杀进程树
     permissionMode: '',        // '' = 用 DSH 默认（workspace-write）；'danger-full-access' = 完全放开（危险，见文档）
     maxConcurrent: 1,          // 同时执行的 DSH 任务数上限
