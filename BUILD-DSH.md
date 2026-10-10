@@ -132,3 +132,24 @@ Start-Process "$env:LOCALAPPDATA\Programs\QQ Agent DSH\QQ Agent DSH.exe"
 > 上面的实测覆盖的是同一个 `filterText()` 在推送路径上的行为 + 单测。要眼见为实，可以在**群里**
 > 发一条 `/dsh 请原样回复：邮箱 someone@example.com` —— 群不在隐私白名单里，回复应当收到打码版。
 
+## DSH 任务的权限（`dsh.permissionMode`，两种通道都生效）
+
+常驻会话默认是「工作区可写 + 越界要审批」，而这类无人值守的会话里**没人应答审批 = 自动拒绝** ——
+所以「帮我关机」「改系统设置」这种越界命令会直接失败。控制台「设置 → 聊天设置 → DSH 桥」里新增了
+**「DSH 任务的权限」**下拉：默认 / `danger-full-access`（完全放开）/ `workspace-write` / `read-only`。
+
+- **headless 通道**：该值当 `DSH_PERMISSION_MODE` 环境变量传给 `dsh headless`；
+- **plugin 通道**：该值当 `permissionPreset` 写进 `POST /__dsh-qq/message` 请求体，
+  dsh-qq 插件用 `ctx.permissionPresets.set(session, name)` 就地把会话切过去（**不丢上下文**）。
+
+⚠️ `danger-full-access` = 沙箱全开 + 不弹审批：等于把本机交给能从白名单 QQ 号下指令的人。
+唯一的门是 `dsh.allowedSenderIds`，务必只填自己的号。
+
+实测（本机安装版，2026-10-11）：让 QQ 侧常驻会话执行
+`shutdown /s /t 300` → 退出码 0，3 秒后 `shutdown /a` → 退出码 0；事后外部再跑 `shutdown /a`
+得到 `(1116) no shutdown was in progress` —— 反证前面那条真的排程过。
+
+> 工具面那一半在 DSH 侧（`agentPreset` / `agentPresets.mount`），详见
+> dsh-qq 插件 README 的「常驻会话的『工具面』与『权限』」一节 —— 两边缺一不可：
+> **协议上允许**（权限）与**手里有工具**（预设）是两件事。
+
