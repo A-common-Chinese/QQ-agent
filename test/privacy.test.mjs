@@ -81,6 +81,17 @@ const strict = createPrivacyFilter({ allowedChats: [ALLOWED], mode: 'block' });
 check('mode=block 邮箱也拒发', strict.filterText(OTHER, 'a@b.com').ok, false);
 check('mode=block 白名单仍放行', strict.filterText(ALLOWED, 'a@b.com').ok, true);
 
+// ── blockOnSecrets=false：密钥类降级为打码（不是死开关）────────────────────
+const soft = createPrivacyFilter({ allowedChats: [ALLOWED], mode: 'redact', blockOnSecrets: false });
+const softResult = soft.filterText(OTHER, 'key 是 sk-abcdefghijklmnopqrstuvwx 请收好');
+check('blockOnSecrets=false → 密钥打码而非拒发',
+  [softResult.ok, softResult.text.includes('sk-abcdefghijklmnopqrstuvwx'), softResult.blockedBy],
+  [true, false, null]);
+check('blockOnSecrets=false 时 mode=block 仍拒发',
+  createPrivacyFilter({ allowedChats: [ALLOWED], mode: 'block', blockOnSecrets: false })
+    .filterText(OTHER, 'sk-abcdefghijklmnopqrstuvwx').ok,
+  false);
+
 // ── 额外规则 ──────────────────────────────────────────────────────────────
 const custom = createPrivacyFilter({
   allowedChats: [ALLOWED],

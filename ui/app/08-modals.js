@@ -1484,7 +1484,15 @@ async function saveConfig({ quiet = false } = {}) {
         enabled: chk('#cfg-dsh-privacy-enabled', c.dsh?.privacy?.enabled !== false),
         allowedChats: dshPrivacyChats.length ? dshPrivacyChats : ['private:85946573'],
         mode: ['redact', 'block'].includes(dshPrivacyMode) ? dshPrivacyMode : 'redact',
-        extraPatterns: dshPrivacyParsed.errors.length ? (c.dsh?.privacy?.extraPatterns || []) : dshPrivacyParsed.list
+        extraPatterns: dshPrivacyParsed.errors.length ? (c.dsh?.privacy?.extraPatterns || []) : dshPrivacyParsed.list,
+        scanFileContents: chk('#cfg-dsh-privacy-scanfile', c.dsh?.privacy?.scanFileContents !== false),
+        // 界面里填 KB，存进去换算成字节；下限 1KB，避免填 0 把扫描关成"永不扫"
+        maxScanBytes: Math.max(1024, Math.round((Number(val('#cfg-dsh-privacy-maxscan',
+          String(Math.round((c.dsh?.privacy?.maxScanBytes ?? 2097152) / 1024)))) || 2048) * 1024)),
+        logMatches: chk('#cfg-dsh-privacy-logmatches', c.dsh?.privacy?.logMatches !== false),
+        noticeSuffix: String(val('#cfg-dsh-privacy-noticesuffix', c.dsh?.privacy?.noticeSuffix === true ? '1' : '0')) === '1'
+        // blockOnSecrets 故意不在这里：名字含 secret，控制台读不到它的值（会被脱敏成 hasBlockOnSecrets），
+        // 硬写一个勾选框反而可能把用户的设置覆盖掉。留在 config.json 里手改。
       }
     };
   }

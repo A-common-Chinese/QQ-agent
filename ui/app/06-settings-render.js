@@ -1110,10 +1110,24 @@ return `
           命中后会被替换成 <code>[已隐去:名字]</code>，用于封自己项目里的代号 / 内部域名 / 人名等。
         </div>
       </div>
+      <div class="checkbox-row"><input type="checkbox" id="cfg-dsh-privacy-scanfile" ${c.dsh?.privacy?.scanFileContents !== false ? 'checked' : ''} />
+        <label for="cfg-dsh-privacy-scanfile">发文件前扫描文本类文件内容（命中密钥/口令类就不发）</label></div>
+      <div class="field-row">
+        <div class="field"><label>内容扫描上限（KB）</label>
+          <input type="number" id="cfg-dsh-privacy-maxscan" min="1" step="1" value="${Math.max(1, Math.round((c.dsh?.privacy?.maxScanBytes ?? 2097152) / 1024))}" /></div>
+        <div class="field"><label>打码时的末尾说明</label>
+          <select id="cfg-dsh-privacy-noticesuffix">
+            <option value="0" ${c.dsh?.privacy?.noticeSuffix !== true ? 'selected' : ''}>不加说明</option>
+            <option value="1" ${c.dsh?.privacy?.noticeSuffix === true ? 'selected' : ''}>附一句"已隐去 N 处"</option>
+          </select></div>
+      </div>
+      <div class="checkbox-row"><input type="checkbox" id="cfg-dsh-privacy-logmatches" ${c.dsh?.privacy?.logMatches !== false ? 'checked' : ''} />
+        <label for="cfg-dsh-privacy-logmatches">命中时在日志留痕（只记规则名与次数，不记内容）</label></div>
       <div class="hint">
-        更细的开关在 <code>data/config.json</code> 的 <code>dsh.privacy</code> 里改：
-        <code>scanFileContents</code>（发文件前扫文本类内容）、<code>logMatches</code>（命中是否在日志留痕）、
-        <code>noticeSuffix</code>（打码时是否附一句说明）。
+        只剩 <code>blockOnSecrets</code> 还在 <code>data/config.json</code> 的 <code>dsh.privacy</code> 里：
+        它控制"密钥/口令类整条拒发"（关掉 = 降级为打码）。之所以没搬上来 —— 这个键名含 <code>secret</code>，
+        会被控制台的配置脱敏机制（<code>sanitizeConfig</code>）抹成 <code>hasBlockOnSecrets</code>，
+        界面上读不到它的当前值，勾选框状态会骗人。
       </div>
       <div class="hint">
         在 QQ 里发 <b>${esc(c.dsh?.prefix || '/dsh')} 状态</b> 看当前会话、<b>${esc(c.dsh?.prefix || '/dsh')} 帮助</b> 看全部命令。
