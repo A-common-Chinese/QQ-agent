@@ -150,7 +150,7 @@ export function createPrivacyFilter(options = {}) {
 
     if (mustBlock) {
       if (logMatches && hits.length) {
-        console.log(`[dsh-qq][privacy] 拦截 → ${key}：命中 ${hits.map((h) => `${h.id}×${h.count}`).join('、')}`);
+        console.log(`[privacy] 拦截 → ${key}：命中 ${hits.map((h) => `${h.id}×${h.count}`).join('、')}`);
       }
       return { bypass: false, ok: false, text: '', hits, blockedBy: blockedBy || hits[0]?.id || 'mode-block' };
     }
@@ -162,13 +162,13 @@ export function createPrivacyFilter(options = {}) {
       .replace(/\[已隐去[^\]]*\]/g, '')
       .replace(/[\s，。、,.;:!?！？~～\-—_（）()【】[\]"']/g, '');
     if (hits.length && (!trimmed || !withoutMasks)) {
-      if (logMatches) console.log(`[dsh-qq][privacy] 拦截 → ${key}：打码后无可传达内容`);
+      if (logMatches) console.log(`[privacy] 拦截 → ${key}：打码后无可传达内容`);
       return { bypass: false, ok: false, text: '', hits, blockedBy: 'empty-after-redact' };
     }
 
     if (hits.length) {
       const summary = hits.map((h) => `${h.id}×${h.count}`).join('、');
-      if (logMatches) console.log(`[dsh-qq][privacy] 打码 → ${key}：${summary}`);
+      if (logMatches) console.log(`[privacy] 打码 → ${key}：${summary}`);
       const suffix = noticeSuffix ? `\n${MASK} 已隐去 ${hits.reduce((n, h) => n + h.count, 0)} 处隐私信息` : '';
       return { bypass: false, ok: true, text: redacted + suffix, hits, blockedBy: null };
     }
@@ -208,7 +208,7 @@ export function createPrivacyFilter(options = {}) {
     }
 
     if (contentBlock) {
-      if (logMatches) console.log(`[dsh-qq][privacy] 拦截文件 → ${key}：文件内容命中 ${contentBlock}`);
+      if (logMatches) console.log(`[privacy] 拦截文件 → ${key}：文件内容命中 ${contentBlock}`);
       return { bypass: false, ok: false, safeName: nameResult.text, hits: nameResult.hits, blockedBy: `file-content:${contentBlock}`, scanned };
     }
     if (!nameResult.ok) {

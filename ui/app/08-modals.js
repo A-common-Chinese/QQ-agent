@@ -1457,6 +1457,14 @@ async function saveConfig({ quiet = false } = {}) {
     const dshPrivacyMode = String(val('#cfg-dsh-privacy-mode', c.dsh?.privacy?.mode || 'redact'));
     const dshPrivacyChats = String(val('#cfg-dsh-privacy-chats', (c.dsh?.privacy?.allowedChats || ['private:85946573']).join(', ')))
       .split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
+    // 自定义规则：多行文本 → extraPatterns。写错的行跳过并保留原值（不给整份设置添堵），
+    // 非静默保存（手动保存 / 切页 flush）时再弹一次，免得静默丢规则。
+    const dshPrivacyParsed = parsePrivacyPatterns(
+      String(val('#cfg-dsh-privacy-patterns', formatPrivacyPatterns(c.dsh?.privacy?.extraPatterns)))
+    );
+    if (dshPrivacyParsed.errors.length && !quiet) {
+      alert(`自定义隐私规则有 ${dshPrivacyParsed.errors.length} 行没生效（已保留原来的规则）：\n${dshPrivacyParsed.errors.join('\n')}`);
+    }
     patch.dsh = {
       ...(c.dsh || {}),
       enabled: chk('#cfg-dsh-enabled', !!c.dsh?.enabled),
@@ -1475,7 +1483,8 @@ async function saveConfig({ quiet = false } = {}) {
         ...(c.dsh?.privacy || {}),
         enabled: chk('#cfg-dsh-privacy-enabled', c.dsh?.privacy?.enabled !== false),
         allowedChats: dshPrivacyChats.length ? dshPrivacyChats : ['private:85946573'],
-        mode: ['redact', 'block'].includes(dshPrivacyMode) ? dshPrivacyMode : 'redact'
+        mode: ['redact', 'block'].includes(dshPrivacyMode) ? dshPrivacyMode : 'redact',
+        extraPatterns: dshPrivacyParsed.errors.length ? (c.dsh?.privacy?.extraPatterns || []) : dshPrivacyParsed.list
       }
     };
   }

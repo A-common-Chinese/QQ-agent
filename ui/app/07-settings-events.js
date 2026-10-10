@@ -135,6 +135,23 @@ function bindSettingsEvents(c) {
     };
     form.addEventListener('input', (e) => form.__settingsBound.markDirty(e.target), { passive: true });
     form.addEventListener('change', (e) => form.__settingsBound.markDirty(e.target), { passive: true });
+    // 自定义隐私规则：边打字边校验，合法条数 / 哪几行有问题直接显示在输入框下面。
+    // 保存时不合法的行会被跳过（保留原规则），所以这里只是即时反馈，不拦保存。
+    form.addEventListener('input', (e) => {
+      if (e.target?.id !== 'cfg-dsh-privacy-patterns') return;
+      if (typeof parsePrivacyPatterns !== 'function') return;
+      const hint = form.querySelector('#cfg-dsh-privacy-patterns-hint');
+      if (!hint) return;
+      const parsed = parsePrivacyPatterns(e.target.value);
+      if (parsed.errors.length) {
+        hint.innerHTML = `<b style="color:#e5534b">✗ 这些行不会生效：</b><br>${parsed.errors.map((x) => esc(x)).join('<br>')}`;
+      } else if (parsed.list.length) {
+        hint.textContent = '✓ 识别到 ' + parsed.list.length + ' 条规则：'
+          + parsed.list.map((r) => r.id + (r.action === 'block' ? '(拒发)' : '(打码)')).join('、');
+      } else {
+        hint.textContent = '留空 = 不使用自定义规则。';
+      }
+    }, { passive: true });
     // 页面关闭/刷新兜底：防抖窗口内直接关页面前，先把挂起的保存发出去。
     // fetch keepalive 让请求在页面卸载后仍能完成（sendBeacon 带不了
     // 自定义头，这里用同款 api() 的 POST + keepalive 更简单可靠）。

@@ -34,6 +34,78 @@ function visionVerdictOf(providerId, model) {
 
 
 
+/* ── DSH 隐私过滤：自定义规则的多行文本 ⇄ config.dsh.privacy.extraPatterns ──
+   界面格式（一行一条）：
+     名字 = 正则             默认「打码」、忽略大小写
+     拒发: 名字 = 正则        命中就整条拒发
+     名字 = 正则 = g         第三段是 flags（比如要区分大小写）
+     # 开头 / 空行            忽略
+   正则写错的行会被跳过并在输入框下面标红，不会把整份设置的保存卡住。 */
+function formatPrivacyPatterns(list) {
+  if (!Array.isArray(list) || !list.length) return '';
+  return list.map((r) => {
+    const action = r?.action === 'block' ? '拒发: ' : '';
+    const id = String(r?.id || 'custom');
+    const regex = String(r?.regex || '');
+    const flags = String(r?.flags || 'gi');
+    return `${action}${id} = ${regex} = ${flags}`;
+  }).join('\n');
+}
+
+function parsePrivacyPatterns(text) {
+  const list = [];
+  const errors = [];
+  String(text || '').split(/\r?\n/).forEach((rawLine, idx) => {
+    const line = String(rawLine || '').trim();
+    if (!line || line.startsWith('#')) return;
+    const lineNo = idx + 1;
+    let action = 'redact';
+    let body = line;
+    const m = line.match(/^(打码|拒发|redact|block)\s*[:：]\s*(.+)$/i);
+    if (m) {
+      action = /^(拒发|block)$/i.test(m[1]) ? 'block' : 'redact';
+      body = m[2].trim();
+    }
+    const parts = body.split('=').map((s) => s.trim());
+    let id = '';
+    let regex = '';
+    let flags = 'gi';
+    if (parts.length === 1) {
+      regex = parts[0];
+    } else {
+      id = parts[0];
+      regex = parts.slice(1).join('=');
+      // 只有「正好三段」且第三段长得像 flags 时才当 flags —— 正则里带 = 也不会被拆坏
+      if (parts.length === 3 && /^[gimsuy]{1,6}$/.test(parts[2])) {
+        regex = parts[1];
+        flags = parts[2];
+      }
+    }
+    if (!regex) {
+      errors.push(`第 ${lineNo} 行：只写了名字，没有正则`);
+      return;
+    }
+    if (!id) id = `custom-${list.length + 1}`;
+    try {
+      new RegExp(regex, flags);
+    } catch (e) {
+      errors.push(`第 ${lineNo} 行：正则不合法（${e.message}）`);
+      return;
+    }
+    const rule = { id, regex, flags, action };
+    if (action === 'redact') rule.replace = `[已隐去:${id}]`;
+    list.push(rule);
+  });
+  return { list, errors };
+}
+
+function privacyPatternsHint(list) {
+  const items = Array.isArray(list) ? list : [];
+  if (!items.length) return '留空 = 不使用自定义规则。';
+  return '✓ 识别到 ' + items.length + ' 条规则：'
+    + items.map((r) => esc(String(r?.id || '') + (r?.action === 'block' ? '(拒发)' : '(打码)'))).join('、');
+}
+
 function renderSettingsSidebar() {
   const s = state.status;
   const sidebar = $('#settings-sidebar');
@@ -1029,10 +1101,19 @@ return `
             <option value="block" ${c.dsh?.privacy?.mode === 'block' ? 'selected' : ''}>有命中就整条拒发</option>
           </select></div>
       </div>
+      <div class="field"><label>自定义规则（每行一条，留空 = 不用）</label>
+        <textarea id="cfg-dsh-privacy-patterns" rows="4" spellcheck="false" placeholder="代号 = 夜莺计划&#10;拒发: 内部域名 = .*\\.corp\\.example\\.com">${esc(formatPrivacyPatterns(c.dsh?.privacy?.extraPatterns))}</textarea>
+        <div class="hint" id="cfg-dsh-privacy-patterns-hint">${privacyPatternsHint(c.dsh?.privacy?.extraPatterns)}</div>
+        <div class="hint">
+          格式 <code>名字 = 正则</code>（默认<b>打码</b>、忽略大小写）；要整条拒发写 <code>拒发: 名字 = 正则</code>；
+          要区分大小写就在末尾再加一段 flags，例如 <code>名字 = 正则 = g</code>；<code>#</code> 开头是注释。
+          命中后会被替换成 <code>[已隐去:名字]</code>，用于封自己项目里的代号 / 内部域名 / 人名等。
+        </div>
+      </div>
       <div class="hint">
         更细的开关在 <code>data/config.json</code> 的 <code>dsh.privacy</code> 里改：
         <code>scanFileContents</code>（发文件前扫文本类内容）、<code>logMatches</code>（命中是否在日志留痕）、
-        <code>noticeSuffix</code>（打码时是否附一句说明）、<code>extraPatterns</code>（封自己项目的代号/域名等自定义规则）。
+        <code>noticeSuffix</code>（打码时是否附一句说明）。
       </div>
       <div class="hint">
         在 QQ 里发 <b>${esc(c.dsh?.prefix || '/dsh')} 状态</b> 看当前会话、<b>${esc(c.dsh?.prefix || '/dsh')} 帮助</b> 看全部命令。
