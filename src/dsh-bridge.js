@@ -291,7 +291,13 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
           'content-type': 'application/json',
           ...(c.pluginToken ? { 'x-dsh-qq-token': String(c.pluginToken) } : {})
         },
-        body: JSON.stringify({ chatKey, text: task }),
+        body: JSON.stringify({
+          chatKey,
+          text: task,
+          // 权限预设：把控制台里那个 permissionMode 一并交给 plugin 通道
+          // （空 = 不动，用插件/部署的默认值）。老会话会在这一轮就地切换，不丢上下文。
+          ...(String(c.permissionMode || '').trim() ? { permissionPreset: String(c.permissionMode).trim() } : {})
+        }),
         signal: AbortSignal.timeout(timeoutMs)
       });
       const body = await response.json().catch(() => ({}));

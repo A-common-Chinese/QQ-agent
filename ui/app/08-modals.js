@@ -1477,6 +1477,11 @@ async function saveConfig({ quiet = false } = {}) {
       showProgress: ['off', 'private', 'all'].includes(dshProgress) ? dshProgress : 'private',
       pluginUrl: String(val('#cfg-dsh-pluginurl', c.dsh?.pluginUrl || '')).trim(),
       pluginToken: String(val('#cfg-dsh-plugintoken', c.dsh?.pluginToken || '')).trim(),
+      // headless 通道拿它当 DSH_PERMISSION_MODE；plugin 通道当 permissionPreset 传给 dsh-qq
+      permissionMode: (() => {
+        const v = String(val('#cfg-dsh-permissionmode', c.dsh?.permissionMode || '')).trim();
+        return ['', 'danger-full-access', 'workspace-write', 'read-only'].includes(v) ? v : '';
+      })(),
       // 只覆盖界面上这三个；其余（scanFileContents / logMatches / noticeSuffix / extraPatterns…）
       // 保持配置文件里的原值，别在这个界面里被抹掉。
       privacy: {

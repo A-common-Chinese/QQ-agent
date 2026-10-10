@@ -1082,6 +1082,20 @@ return `
         <div class="field"><label>plugin 通道令牌（dsh-qq 的 bridgeToken）</label>
           <input type="text" id="cfg-dsh-plugintoken" value="${esc(c.dsh?.pluginToken || '')}" placeholder="留空 = 不校验" /></div>
       </div>
+      <div class="field"><label>DSH 任务的权限（两种通道都生效）</label>
+        <select id="cfg-dsh-permissionmode">
+          <option value="" ${!c.dsh?.permissionMode ? 'selected' : ''}>默认（工作区可写 + 越界要审批）</option>
+          <option value="danger-full-access" ${c.dsh?.permissionMode === 'danger-full-access' ? 'selected' : ''}>完全放开（danger-full-access：不弹审批，可越界操作）</option>
+          <option value="workspace-write" ${c.dsh?.permissionMode === 'workspace-write' ? 'selected' : ''}>只用工作区（workspace-write）</option>
+          <option value="read-only" ${c.dsh?.permissionMode === 'read-only' ? 'selected' : ''}>只读（read-only）</option>
+        </select>
+        <div class="hint">
+          常驻会话默认是「工作区可写 + 越界要审批」，而这类会话里<b>没人应答审批 = 自动拒绝</b> ——
+          于是「帮我关机」「改系统设置」这类越界命令会失败。选<b>完全放开</b>它才能做（含关机 / 重启）。
+          改动会在<b>下一次 /dsh 任务</b>时就地切换，不丢会话上下文。
+          <b>注意</b>：这等于把本机完全交给能从白名单 QQ 号下指令的人（也就是你），谨慎开启。
+        </div>
+      </div>
       <div class="checkbox-row"><input type="checkbox" id="cfg-dsh-privacy-enabled" ${c.dsh?.privacy?.enabled !== false ? 'checked' : ''} />
         <label for="cfg-dsh-privacy-enabled">出站隐私过滤（不向白名单之外的会话发送隐私信息）</label></div>
       <div class="hint">
