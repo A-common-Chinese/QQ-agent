@@ -1428,6 +1428,10 @@ export function createRoutes(deps) {
       // 业务闸与 app.allowed() 同口径（deny 优先，allow 非空必须在名单内）。
       method: 'POST', pattern: '/api/inbound',
       handler: async ({ req, res, json }) => {
+        // 总开关关掉时整条通道下线（等价于"没装过这个改动"）
+        if (getConfig().dsh?.enabled !== true) {
+          return json(res, 403, { ok: false, error: 'DSH 桥已关闭（设置 → 聊天设置 → DSH 桥）' });
+        }
         const body = await bodyOf(req);
         const chatKey = String(body.chat ?? body.chatKey ?? '').trim();
         const text = String(body.text ?? '').trim();

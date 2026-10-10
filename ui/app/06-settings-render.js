@@ -967,6 +967,55 @@ return `
       </div>`
     })}
 
+    ${fold({
+      id: 'card-dsh',
+      icon: '🔗',
+      title: 'DSH 桥',
+      sub: '开 = 用 QQ 给本机 DeepSeek Harness 下指令；关 = 和原版一样',
+      open: false,
+      body: `
+      <div class="checkbox-row"><input type="checkbox" id="cfg-dsh-enabled" ${c.dsh?.enabled ? 'checked' : ''} />
+        <label for="cfg-dsh-enabled">启用 DSH 桥（QQ ↔ DeepSeek Harness 联通）</label></div>
+      <div class="hint">
+        <b>开</b>：白名单里的 QQ 号发 <b>${esc(c.dsh?.prefix || '/dsh')} &lt;任务&gt;</b> 会绕过大模型直接交给本机 DSH 执行，
+        结果原样回发；不命中前缀的消息照旧交给你自己配的模型。<b>关</b>：不接管任何消息、也不接受 DSH 侧的主动推送，
+        行为与未改过的原版一致。
+      </div>
+      <div class="field-row">
+        <div class="field"><label>命令前缀</label>
+          <input type="text" id="cfg-dsh-prefix" value="${esc(c.dsh?.prefix || '/dsh')}" placeholder="/dsh" /></div>
+        <div class="field"><label>允许下指令的 QQ 号（逗号分隔，空 = 谁都不许）</label>
+          <input type="text" id="cfg-dsh-senders" value="${esc((c.dsh?.allowedSenderIds || []).join(', '))}" placeholder="85946573" /></div>
+      </div>
+      <div class="field"><label>DSH 任务的工作目录</label>
+        <input type="text" id="cfg-dsh-workdir" value="${esc(c.dsh?.workdir || '')}" placeholder="留空 = 用 QQ Agent 自己的目录" />
+        <div class="hint">建议填你有<b>完全控制权</b>的目录（如 C:\\Users\\你\\dsh-workspace）。DSH 的 workspace-write 沙箱要靠目录 ACL 授权，只有 Modify 权限的目录会让"写文件"类任务失败。</div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>通道</label>
+          <select id="cfg-dsh-transport">
+            <option value="headless" ${(c.dsh?.transport || 'headless') === 'headless' ? 'selected' : ''}>headless（每次起进程；不需要 DSH 开着）</option>
+            <option value="plugin" ${c.dsh?.transport === 'plugin' ? 'selected' : ''}>plugin（常驻会话；需要 DSH 在运行）</option>
+          </select></div>
+        <div class="field"><label>执行进度提示</label>
+          <select id="cfg-dsh-progress">
+            <option value="off" ${(c.dsh?.showProgress || 'private') === 'off' ? 'selected' : ''}>不发</option>
+            <option value="private" ${(c.dsh?.showProgress || 'private') === 'private' ? 'selected' : ''}>只在私聊发</option>
+            <option value="all" ${(c.dsh?.showProgress || 'private') === 'all' ? 'selected' : ''}>所有会话都发</option>
+          </select></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>plugin 通道入口（留空 = 默认）</label>
+          <input type="text" id="cfg-dsh-pluginurl" value="${esc(c.dsh?.pluginUrl || '')}" placeholder="http://127.0.0.1:19387/__dsh-qq/message" /></div>
+        <div class="field"><label>plugin 通道令牌（dsh-qq 的 bridgeToken）</label>
+          <input type="text" id="cfg-dsh-plugintoken" value="${esc(c.dsh?.pluginToken || '')}" placeholder="留空 = 不校验" /></div>
+      </div>
+      <div class="hint">
+        在 QQ 里发 <b>${esc(c.dsh?.prefix || '/dsh')} 状态</b> 看当前会话、<b>${esc(c.dsh?.prefix || '/dsh')} 帮助</b> 看全部命令。
+        改动即时生效（自动保存），无需重启。
+      </div>`
+    })}
+
     <div class="field" style="margin-top:14px">
       <button class="btn" id="blocklist-btn" style="height:44px;padding:0 28px;font-size:14px">管理屏蔽名单</button>
     </div>`;

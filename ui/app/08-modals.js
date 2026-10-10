@@ -1449,6 +1449,23 @@ async function saveConfig({ quiet = false } = {}) {
       command: String(val('#ac-cmdmute-command', c.commandMute?.command || '/安静')).trim() || '/安静',
       durationMin: Math.max(0, Number(val('#ac-cmdmute-duration', c.commandMute?.durationMin ?? 30)) || 0)
     };
+    // DSH 桥（折叠卡「DSH 桥」）：总开关 + 命令前缀/白名单/工作目录/通道/进度/插件入口。
+    // 关掉 = 不接管任何消息（ingest 里那一分支直接不认领），也不接受 /api/inbound 的主动推送。
+    const dshTransport = String(val('#cfg-dsh-transport', c.dsh?.transport || 'headless'));
+    const dshProgress = String(val('#cfg-dsh-progress', c.dsh?.showProgress || 'private'));
+    patch.dsh = {
+      ...(c.dsh || {}),
+      enabled: chk('#cfg-dsh-enabled', !!c.dsh?.enabled),
+      prefix: String(val('#cfg-dsh-prefix', c.dsh?.prefix || '/dsh')).trim() || '/dsh',
+      // QQ 号：逗号/空格/中文逗号分隔都认，过滤空项
+      allowedSenderIds: String(val('#cfg-dsh-senders', (c.dsh?.allowedSenderIds || []).join(', ')))
+        .split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean),
+      workdir: String(val('#cfg-dsh-workdir', c.dsh?.workdir || '')).trim(),
+      transport: ['headless', 'plugin'].includes(dshTransport) ? dshTransport : 'headless',
+      showProgress: ['off', 'private', 'all'].includes(dshProgress) ? dshProgress : 'private',
+      pluginUrl: String(val('#cfg-dsh-pluginurl', c.dsh?.pluginUrl || '')).trim(),
+      pluginToken: String(val('#cfg-dsh-plugintoken', c.dsh?.pluginToken || '')).trim()
+    };
   }
 
   if (sec === 'desktop') {
