@@ -55,3 +55,9 @@ nsis:
   shortcutName: QQ Agent DSH
   createDesktopShortcut: true
   createStartMenuShortcut: true
+
+# Local hosts maps github.com to 127.0.0.1 (a local proxy that hangs on big files -> 600s timeout),
+# so the electron artifact and the nsis/winCodeSign toolsets come from npmmirror.
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+  customDir: '{{ version }}'
