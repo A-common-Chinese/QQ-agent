@@ -1,0 +1,57 @@
+# 专门给"DSH 版"打包用的 electron-builder 配置。
+#
+# 为什么不直接用 package.json 里的 build 段：
+#   1. 那份 productName/appId 与上游正式版完全相同（QQ Agent / cn.kondius.qq-agent），
+#      装上去会顶掉你已装的那份，而旧安装目录里放着 SnowLuma 和 QQ 登录态；
+#   2. 它 include 了 build/installer.nsh —— 那个自定义脚本会主动检测旧版
+#      "直接覆盖升级"、杀掉正在运行的 QQ Agent、把用户数据备份到
+#      %LOCALAPPDATA%\QQ Agent\upgrade-backup。对"并行安装一个改造版"来说这是灾难。
+# 所以这里用独立身份 + 标准 NSIS 安装流程，与上游正式版互不影响。
+#
+# 用法（在仓库根目录）：
+#   <DSH 自带 node> <DSH 自带 pnpm.cjs> exec electron-builder --config electron-builder-dsh.yml --win nsis --publish never
+
+appId: cn.kondius.qq-agent.dsh
+productName: QQ Agent DSH
+artifactName: QQ-Agent-DSH-Setup.exe
+
+# 与上游一致：不打包进 asar，安装目录里就是可读可改的源码
+asar: false
+
+directories:
+  output: dist
+
+files:
+  - '**/*'
+  - '!data/**'
+  - '!dist/**'
+  - '!test/**'
+  - '!doc/**'
+  - '!scripts/**'
+  - '!dev-tools/**'
+  - '!community.key'
+  - '!community.key.example'
+  - '!server/**'
+  - '!snowluma/config/**'
+  - '!snowluma/data/**'
+  - '!snowluma/logs/**'
+  - '!**/*.map'
+  - '!*.log'
+  - '!pnpm-lock.yaml'
+  - '!pnpm-workspace.yaml'
+  - '!启动控制台.bat'
+
+win:
+  target:
+    - nsis
+  icon: assets/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: false
+  deleteAppDataOnUninstall: false
+  shortcutName: QQ Agent DSH
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

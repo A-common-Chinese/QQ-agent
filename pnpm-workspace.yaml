@@ -1,3 +1,7 @@
 allowBuilds:
   electron: true
   electron-winstaller: true
+# electron-builder 打包时需要一个扁平（非符号链接）的 node_modules：
+# pnpm 默认的 isolated 布局会把 js-yaml/undici/ws 放成 junction，
+# 打进安装包后运行时解析不可靠。hoisted 是 electron + pnpm 的官方推荐组合。
+nodeLinker: hoisted
