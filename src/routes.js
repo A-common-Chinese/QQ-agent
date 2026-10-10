@@ -40,7 +40,7 @@ import { detectDialect as detectThinkingDialect } from './thinking.js';
  */
 export function createRoutes(deps) {
   const {
-    store, memory, sessions, onebot, orchestrator,
+    store, memory, sessions, onebot, orchestrator, sender,
     emit, log,
     // app.js 内部的过程/状态
     localVersion, compareSemver, UPDATE_INFO_URL,
@@ -1419,6 +1419,38 @@ export function createRoutes(deps) {
           return json(res, 200, { ok: true, messageId: data?.message_id ?? null });
         } catch (error) {
           return json(res, 502, { error: String(error?.message ?? error) });
+        }
+      }
+    },
+    {
+      // DSH → QQ 主动推送：dsh-qq 插件的 qq_send 工具打这里。
+      // 鉴权走 /api/* 的统一 authorize()（server.token）+ 回环 Host 校验；
+      // 业务闸与 app.allowed() 同口径（deny 优先，allow 非空必须在名单内）。
+      method: 'POST', pattern: '/api/inbound',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        const chatKey = String(body.chat ?? body.chatKey ?? '').trim();
+        const text = String(body.text ?? '').trim();
+        if (!chatKey || !text) return json(res, 400, { ok: false, error: '缺少 chat 或 text' });
+        const m = chatKey.match(/^(group|private):(\d+)$/);
+        if (!m) return json(res, 400, { ok: false, error: 'chat 必须是 group:<群号> 或 private:<QQ号>' });
+        const kind = m[1];
+        const id = m[2];
+        const cfgNow = getConfig();
+        const denyList = cfgNow.deny?.[kind] ?? cfgNow.deny?.[`${kind}s`] ?? [];
+        if (denyList.map(String).includes(id)) return json(res, 403, { ok: false, error: '该会话在黑名单内，不能发送' });
+        const allowList = cfgNow.allow?.[kind] ?? cfgNow.allow?.[`${kind}s`] ?? [];
+        const allowedNow = allowList.length > 0
+          ? allowList.map(String).includes(id)
+          : cfgNow.allowAllWhenEmpty === true;
+        if (!allowedNow) return json(res, 403, { ok: false, error: '该会话不在白名单内，不能发送' });
+        try {
+          // skipDedupe：主动推送与本轮回复可能一字不差，不能被去重窗口吞掉
+          const r = await sender.sendTextBatch(chatKey, [text], { skipDedupe: true });
+          emit('chat-update', chatKey);
+          return json(res, 200, { ok: true, messageId: r?.sent?.[0]?.messageId ?? null });
+        } catch (error) {
+          return json(res, 502, { ok: false, error: String(error?.message ?? error) });
         }
       }
     },

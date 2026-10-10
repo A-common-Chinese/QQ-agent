@@ -381,10 +381,13 @@ export const DEFAULT_CONFIG = {
   dsh: {
     enabled: false,
     prefix: '/dsh',            // 命令前缀（必须成词：`/dshx` 不算）
+    transport: 'headless',     // headless = 每次起一个 dsh 进程；plugin = 走 dsh-qq 插件的常驻会话
     allowedSenderIds: [],      // 允许下指令的 QQ 号；**空 = 谁都不响应**（安全默认）
     workdir: '',               // DSH 任务的工作目录；空 = QQ Agent 自己的目录
     exePath: '',               // DeepSeek Harness.exe；空 = 内置默认路径
     overlayPath: '',           // 模型 overlay（yml）；空 = 仓库根的 dsh-model-overlay.yml
+    pluginUrl: '',             // transport=plugin 时的入口；空 = http://127.0.0.1:19387/__dsh-qq/message
+    pluginToken: '',           // dsh-qq 插件的 bridgeToken（插件侧留空则这里也留空）
     timeoutMs: 900000,         // 单次任务超时（毫秒），到点杀进程树
     permissionMode: '',        // '' = 用 DSH 默认（workspace-write）；'danger-full-access' = 完全放开（危险，见文档）
     maxConcurrent: 1,          // 同时执行的 DSH 任务数上限

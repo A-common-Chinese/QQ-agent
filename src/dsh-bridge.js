@@ -266,6 +266,58 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
     });
   }
 
+  /**
+   * 常驻会话模式：把任务交给 DSH 侧的 dsh-qq 插件（它在同一个 agent 上追加一轮对话）。
+   * 返回形状与 runOnce 对齐，后面的结果处理两模式共用。
+   */
+  async function askPlugin(chatKey, task) {
+    const c = readCfg();
+    const url = String(c.pluginUrl || '').trim() || 'http://127.0.0.1:19387/__dsh-qq/message';
+    const timeoutMs = Math.max(10_000, Number(c.timeoutMs) || 900_000);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(c.pluginToken ? { 'x-dsh-qq-token': String(c.pluginToken) } : {})
+        },
+        body: JSON.stringify({ chatKey, text: task }),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body?.ok === false) {
+        return {
+          answer: null,
+          sessionId: body?.sessionId ?? null,
+          code: response.status,
+          stderr: String(body?.error ?? `HTTP ${response.status}`),
+          killed: false,
+          timedOut: false
+        };
+      }
+      return {
+        answer: typeof body.reply === 'string' ? body.reply : '',
+        sessionId: body?.sessionId ?? null,
+        code: 0,
+        stderr: '',
+        killed: false,
+        timedOut: false
+      };
+    } catch (error) {
+      const timedOut = error?.name === 'TimeoutError'
+        || error?.name === 'AbortError'
+        || /timeout|timed out/i.test(String(error?.message ?? ''));
+      return {
+        answer: null,
+        sessionId: null,
+        code: -1,
+        stderr: String(error?.message ?? error),
+        killed: false,
+        timedOut
+      };
+    }
+  }
+
   /** 进度提示：只在私聊（默认）或全部会话里发，且限频、限量。 */
   function maybeProgress(chatKey, kind, toolName) {
     const c = readCfg();
@@ -362,27 +414,35 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
         }
 
         const startedAt = Date.now();
-        await reply(chatKey, `⏳ 已交给 DSH：${task.length > 60 ? `${task.slice(0, 60)}…` : task}`, replyTo);
+        const transportName = String(c.transport || 'headless') === 'plugin' ? 'DSH 常驻会话' : 'DSH';
+        await reply(chatKey, `⏳ 已交给 ${transportName}：${task.length > 60 ? `${task.slice(0, 60)}…` : task}`, replyTo);
 
         let sessionId = parsed.kind === 'new' ? null : (record.sessionId || null);
         const onProgress = (toolName) => maybeProgress(chatKey, kind, toolName);
-        let result = await runOnce({ chatKey, task, sessionId, onProgress });
+        const usePlugin = String(c.transport || 'headless') === 'plugin';
+        let result;
+        if (usePlugin) {
+          // 常驻会话模式：交给 dsh-qq 插件（同一个 DSH 会话连续对话，不新起进程）
+          result = await askPlugin(chatKey, task);
+        } else {
+          result = await runOnce({ chatKey, task, sessionId, onProgress });
 
-        // 会话续接失败（会话不存在 / 记录的目录和现在不一致）→ 清记录、开新会话重试一次
-        const failed = result.spawnError || result.killed || result.timedOut || result.code !== 0 || !result.answer;
-        if (failed && sessionId && !result.killed && !result.timedOut) {
-          log(`[dsh] 续接会话失败（${result.code}），改用新会话重试一次`);
-          if (skey) {
-            delete state[skey];
+          // 会话续接失败（会话不存在 / 记录的目录和现在不一致）→ 清记录、开新会话重试一次
+          const failed = result.spawnError || result.killed || result.timedOut || result.code !== 0 || !result.answer;
+          if (failed && sessionId && !result.killed && !result.timedOut) {
+            log(`[dsh] 续接会话失败（${result.code}），改用新会话重试一次`);
+            if (skey) {
+              delete state[skey];
+              saveState(state);
+            }
+            sessionId = null;
+            result = await runOnce({ chatKey, task, sessionId, onProgress });
+          }
+
+          if (skey && result.sessionId) {
+            state[skey] = { sessionId: result.sessionId, updatedAt: Date.now(), cwd: resolvePaths().cwd };
             saveState(state);
           }
-          sessionId = null;
-          result = await runOnce({ chatKey, task, sessionId, onProgress });
-        }
-
-        if (skey && result.sessionId) {
-          state[skey] = { sessionId: result.sessionId, updatedAt: Date.now(), cwd: resolvePaths().cwd };
-          saveState(state);
         }
 
         const took = ((Date.now() - startedAt) / 1000).toFixed(1);
