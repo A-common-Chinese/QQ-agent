@@ -82,3 +82,18 @@ cd <仓库根>
 
 **顺序很重要**：先装新版并验证能连 QQ、`/dsh` 正常，再卸载旧版。验证期间不要同时跑两个核心
 （同一个 QQ 号会被两条核心处理 → 群里重复回复）。
+
+### 卸载旧版时的一个坑（实测）
+
+旧版的卸载器 `Uninstall QQ Agent.exe` 里带着上游的 `installer.nsh` 逻辑：**它会先"关掉正在运行的
+QQ Agent"** —— 按进程名匹配，所以 `QQ Agent DSH.exe` 也会被它一起杀掉（我们的新版进程名以
+"QQ Agent" 开头）。卸完**重新启动一次新版**即可，数据没影响：
+
+```powershell
+Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue   # 从 DSH 的 shell 里启动才需要
+Start-Process "$env:LOCALAPPDATA\Programs\QQ Agent DSH\QQ Agent DSH.exe"
+```
+
+另外：从 DSH 派生的终端里启动 Electron 应用，必须清掉继承来的 `ELECTRON_RUN_AS_NODE`
+（否则 Electron 会当纯 Node 跑，秒退且不写任何日志 —— 这个坑很容易误判成"程序坏了"）。
+
