@@ -901,6 +901,12 @@ export function createApp({ log = console.log } = {}) {
       maybeTriggerCommandMute(id, text, event, atMe);
     }
 
+    // 协议端会把"我们自己刚上传的文件"作为**对方发来的消息**回灌一次（私聊实测必现）。
+    // 在这里挡掉：不进存档、不进提示词，模型就不会以为对方发了文件。
+    if (sender.isOwnFileEcho(`${kind}:${id}`, text)) {
+      log(`[ingest] 忽略自己的文件回显：${String(text).slice(0, 40)}`);
+      return;
+    }
     const entry = store.appendIncoming(`${kind}:${id}`, {
       mid: event.message_id,
       ts: event.time ? Math.round(Number(event.time) * 1000) : Date.now(),

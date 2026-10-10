@@ -51,6 +51,9 @@ export class SendQueue {
     this.minuteTimes = new Map(); // chatKey -> [ts]
     this.hourTimes = new Map();   // chatKey -> [ts]
     this.recentSent = new Map();  // "chatKey::text" -> ts（发送去重窗口）
+    // 最近上传成功的文件：chatKey -> [{ name, ts }]。用来挡掉协议端把"我们自己上传的文件"
+    // 回灌成一条"对方发来的文件"（2026-10-10 实测私聊必现）。
+    this.recentUploads = new Map();
   }
 
   #chain(chatKey) {
@@ -227,6 +230,7 @@ export class SendQueue {
         : { user_id: Number(id), file: ref, name };
       const data = await this.onebot.call(kind === 'group' ? 'upload_group_file' : 'upload_private_file', params, 300000);
       const fileId = data?.file_id ?? null;
+      this.#rememberUpload(chatKey, name);
       const ts = Date.now();
       const label = `[文件：${name}]`;
       // 留档：不留档的话下一轮模型不知道自己发过文件
@@ -234,6 +238,35 @@ export class SendQueue {
       this.onSent?.({ chatKey, text: label, messageId: fileId, kind: 'file' });
       return { fileId, name, kind, label };
     });
+  }
+
+  /** 记一次成功上传（只保留 2 分钟内的，防内存无限增长）。 */
+  #rememberUpload(chatKey, name) {
+    const now = Date.now();
+    const list = (this.recentUploads.get(chatKey) || []).filter((x) => now - x.ts < 120000);
+    list.push({ name: String(name || ''), ts: now });
+    this.recentUploads.set(chatKey, list);
+  }
+
+  /**
+   * 这条"收到的消息"是不是我们自己刚上传文件的回显？
+   *
+   * 背景：私聊里 upload_private_file 成功后，协议端会额外推一条 message 事件，
+   * 却把发送者标成**对方**（实测 SnowLuma：self 条目后 3 秒内必跟一条
+   * from=对方 的 "[文件xxx]"）。不挡掉的话，模型会以为对方发了文件而答非所问。
+   *
+   * 判定刻意保守：只认"纯文件消息"（文本以 [文件 开头）+ 文件名命中 + 120 秒窗口。
+   * 对方在这三条件下还恰好发同名文件，概率可以忽略。
+   */
+  isOwnFileEcho(chatKey, text) {
+    const list = this.recentUploads.get(chatKey);
+    if (!list || !list.length) return false;
+    const now = Date.now();
+    const alive = list.filter((x) => now - x.ts < 120000);
+    if (alive.length !== list.length) this.recentUploads.set(chatKey, alive);
+    const t = String(text || '').trim();
+    if (!t.startsWith('[文件')) return false;
+    return alive.some((x) => x.name && t.includes(x.name));
   }
 
   /** 发送一个收藏表情（独立气泡）。 */
