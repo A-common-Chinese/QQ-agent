@@ -26,7 +26,9 @@ files:
   - '!data/**'
   - '!dist/**'
   - '!test/**'
-  - '!doc/**'
+  # doc/ 必须随包发出去：控制台「插件/技能」页那个"让 AI 写插件"的提示词引用的
+  # doc/extend_development/*.md 就在这里；排掉它，那条流程读不到规范（实测装出来的
+  # 版本里 resources/app/doc 是空的，而提示词却按这个路径去读）。
   - '!scripts/**'
   - '!dev-tools/**'
   - '!community.key'
@@ -40,6 +42,12 @@ files:
   - '!pnpm-lock.yaml'
   - '!pnpm-workspace.yaml'
   - '!启动控制台.bat'
+
+# 提示词里写的是 <安装目录>\doc\extend_development\（在 app 目录之外），
+# 所以除了打包进 resources/app/doc，再往安装根目录放一份，两个路径都能读到。
+extraResources:
+  - from: doc
+    to: doc
 
 win:
   target:
