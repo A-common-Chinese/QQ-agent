@@ -5,6 +5,54 @@
 一个跑在你自己电脑上的 QQ 群聊机器人：装完双击启动，扫码登录，填个模型 Key 就能用。
 事件驱动 + 无状态会话架构，每次处理的 token 成本恒定可控；所有操作都在图形控制台里完成，不用碰命令行。
 从 [Derpyu520/qq-bridge](https://github.com/Derpyu520/qq-bridge) 彻底改造而来的独立 QQ agent 应用。
+> ### 🔧 这是改造版（fork）：在 QQ Agent 上加了「DeepSeek Harness 桥」
+>
+> 上游是 [Kondius](https://github.com/K0nd1us/QQ-agent) 的 QQ Agent。本仓库
+> （**[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**）在它之上加了一组
+> "把机器人接进本机 DSH（DeepSeek Harness）"的能力，并自带一套**与官方版并行安装、互不影响**的打包流程
+> （产物：`QQ Agent DSH`）。**上游功能一个没删** —— 下面这一节是全部改动，其余文档内容对改造版同样适用。
+>
+> 当前版本：`v0.4.0`　·　构建配方见 **[BUILD-DSH.md](BUILD-DSH.md)**
+
+## 本 fork 改了什么
+
+| 改动 | 位置 | 一句话说明 |
+|---|---|---|
+| **DSH 桥** | `src/dsh-bridge.js`、`src/routes.js`、控制台「设置 → 聊天设置 → DSH 桥」 | 在 QQ 里发 `/dsh <指令>`，指令交给本机 DeepSeek Harness 的**常驻会话**执行；回复与文件自动回到 QQ。每轮请求带上 agent 预设与权限预设，并附一段桥注入提示 |
+| **出站隐私过滤** | `src/privacy.js` | DSH 的内容送往**非白名单会话**时按规则处理：邮箱 / 手机号 / 身份证 / 银行卡 / 用户目录路径 / 内网 IP / 本机用户名与主机名 **就地打码**；私钥块、`sk-…` `ghp_…` `AKIA…`、JWT、口令赋值、带凭据的连接串**整条拒发**。白名单会话（默认 `private:85946573`）一个字不动。支持自定义规则、文件内容扫描（文本类扩展名且 ≤ 2MB）、命中留痕（只记规则名与次数） |
+| **按会话的权限档位** | 控制台「DSH 桥 → DSH 任务的权限」 | 默认 / `danger-full-access`（完全放开）/ `workspace-write` / `read-only`，两种通道（headless 的 `DSH_PERMISSION_MODE` 与插件请求参数）同时生效 |
+| **在线状态守卫** | `plugins/qq-presence/`、`src/presence.js` | 被计划任务或策略关掉之前，把 QQ 状态设成「**请勿打扰**」；下次上线时若本地记账显示是我们设的 DND，就自动改回「**在线**」。附带审计文件 `data/presence.log`，可事后追溯 |
+| **定时开关与关机联动** | [`scripts/qq-agent-scheduler/`](scripts/qq-agent-scheduler/)（部署到 `C:\ProgramData\qq-agent-scheduler`） | 开机后**确认真的能上网**再启动（校验连通性探针的返回内容，专治校园网门户认证）、每晚定时关闭、手动关机/注销前先收尾。全部**无窗口**运行（`wscript` + `run-hidden.vbs`，任务也标了 Hidden） |
+| **并行安装的打包流程** | `electron-builder-dsh.yml` | 独立 `appId` / `productName`（`QQ Agent DSH`），与官方版互不覆盖；`asar: false`，装完就是可读可改的源码；`doc/` 随包发布（控制台那个"让 AI 写插件"的提示词要读它） |
+| **DSH 侧插件（独立仓库）** | [A-common-Chinese/dsh-qq](https://github.com/A-common-Chinese/dsh-qq) | 桥的本体：路由 `/__dsh-qq/message`、工具 `qq_send` / `qq_send_file`、隐私过滤、按会话的权限白名单、agent 预设挂载（含老会话 `mount` 恢复）、桥注入提示 |
+
+### 想在 QQ 里指挥本机 DSH？
+
+1. DSH 侧装插件 **[dsh-qq](https://github.com/A-common-Chinese/dsh-qq)**（`plugin-manager` 或 GUI 插件页装本目录即可，改 `index.js` 后需重启 DSH）；
+2. QQ 侧控制台「设置 → 聊天设置 → DSH 桥」填 DSH 的监听地址与令牌；
+3. 在 QQ 里发 `/dsh 帮我看看磁盘占用` —— 指令进入本机 DSH 常驻会话，结果回到 QQ；
+   需要额外发文件就用 `/dsh …` 让它调 `qq_send_file`。
+
+### 构建 `QQ Agent DSH` 安装包
+
+```powershell
+# 完整配方（含本机踩过的坑：pnpm 垫片、electron 镜像、NSIS/winCodeSign 缓存预置）见 BUILD-DSH.md
+<DSH 自带 node> <DSH 自带 pnpm.mjs> exec electron-builder --config electron-builder-dsh.yml --win nsis --publish never
+# 产物：dist/QQ-Agent-DSH-Setup.exe
+```
+
+> ⚠️ 重装前备份 `resources\app\plugins\`：社区插件是你后来在控制台装的，不在本仓库里。
+
+### 本 fork 的实测记录
+
+`BUILD-DSH.md` 里写了这些改动**为什么这么做**，以及踩过的坑，例如：
+
+- 常驻会话是程序化创建的 → `agentPreset` 为空时**没有** `pwsh`/`fs` 工具；恢复老会话必须 `agentPresets.mount()`（`select()` 对已存在的 agent 无效）；
+- 权限被播种成 `workspace-write + approval=ask`，而无人值守会话里**没人应答审批 = 自动拒绝**（"没有权限"的真因）；
+- 宿主**不落盘插件的 `console.log`**，所以诊断信息与审计都搬到了 HTTP 接口 / 文件里；
+- `-WindowStyle Hidden` 仍会闪控制台窗口 → 计划任务改用 `wscript` + VBS 启动；
+- 无 BOM 的 `.ps1` 会被 PowerShell 5.1 按 ANSI 解析，中文注释可能吞掉代码行 → 所有调度脚本保持纯 ASCII。
+
 ## 能实现什么
 - **像真人一样混群**：被 @ 或被叫到时回话，平时看心情插嘴；会发文字、表情包、戳一戳，会引用、会 @ 人，知道什么时候该闭嘴
 - **记住每个群友**：双向长期记忆——它记得谁是什么风格、爱什么梗、雷点是什么，下次聊天自然带上；记忆页随时可查看、手动编辑
