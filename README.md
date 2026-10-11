@@ -7,6 +7,9 @@
 从 [Derpyu520/qq-bridge](https://github.com/Derpyu520/qq-bridge) 彻底改造而来的独立 QQ agent 应用。
 > ### 🔧 这是改造版（fork）：在 QQ Agent 上加了「DeepSeek Harness 桥」
 >
+> **📦 下载安装包**：**[最新 Release](https://github.com/A-common-Chinese/QQ-agent/releases/latest)** ——
+> `QQ-Agent-DSH-Setup.exe`（Windows，装完即用；与官方版**并行安装、互不影响**）
+>
 > 上游是 [Kondius](https://github.com/K0nd1us/QQ-agent) 的 QQ Agent。本仓库
 > （**[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**）在它之上加了一组
 > "把机器人接进本机 DSH（DeepSeek Harness）"的能力，并自带一套**与官方版并行安装、互不影响**的打包流程
