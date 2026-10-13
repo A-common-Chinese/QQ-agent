@@ -28,6 +28,35 @@ function audit(line) {
   } catch { /* 审计失败不影响功能 */ }
 }
 
+// ── 失败去重：连续同因失败只记第一条，重复次数折进下一条日志 ──────────────────────
+// 为什么需要：插件上线恢复要重试（app 常比 SnowLuma 先就绪），原来每次重试都写一行，
+// 一次启动能刷十几到二十行 FAIL，把审计刷得没法看。现在一次失败潮只留两行：
+//   08:16:43  FAIL status=10 source=plugin-activate → ECONNREFUSED …
+//   08:17:25  OK   status=10（在线） source=plugin-activate（此前相同失败重复 13 次，约 42 秒，已省略）
+const FAIL_WINDOW_MS = 10 * 60 * 1000;
+let failStreak = { key: '', count: 0, at: 0 };
+
+/** 取出上一串失败的"折叠说明"（超过 10 分钟就不再挂到新日志上，免得张冠李戴） */
+function takeFailNote() {
+  const { count, at } = failStreak;
+  failStreak = { key: '', count: 0, at: 0 };
+  if (count > 1 && at && Date.now() - at < FAIL_WINDOW_MS) {
+    return `（此前相同失败重复 ${count - 1} 次，约 ${Math.round((Date.now() - at) / 1000)} 秒，已省略）`;
+  }
+  return '';
+}
+
+/** 记一次失败：同因连续失败只累计不写盘，换原因时才把上一串的计数折进新行 */
+function noteFailure(key, statusCode, source, message) {
+  if (failStreak.key === key) {
+    failStreak.count += 1;
+    return;
+  }
+  const note = takeFailNote();
+  audit(`FAIL status=${statusCode} source=${source || '-'} → ${message}${note}`);
+  failStreak = { key, count: 1, at: Date.now() };
+}
+
 
 /** 由 app.js 在启动时注入 OneBot 客户端（避免这个模块反向依赖 app）。 */
 let client = null;
@@ -79,18 +108,20 @@ function clearPresence() {
 
 async function applyStatus(statusCode, source) {
   if (!client || typeof client.call !== 'function') {
-    audit(`FAIL status=${statusCode} source=${source || '-'} → OneBot 客户端不可用`);
-    return { ok: false, error: 'OneBot 客户端不可用（还没注入或连接已断）' };
+    const message = 'OneBot 客户端不可用（还没注入或连接已断）';
+    noteFailure(`${statusCode}|${source}|${message}`, statusCode, source, message);
+    return { ok: false, error: message };
   }
   try {
     await client.call('set_online_status', { status: statusCode, ext_status: 0, battery_status: 100 }, 8000);
     const isDnd = statusCode === codes().dnd;
     writePresence({ status: statusCode, dnd: isDnd, at: Date.now(), source: source || '' });
-    audit(`OK   status=${statusCode}${isDnd ? '（请勿打扰）' : statusCode === codes().online ? '（在线）' : ''} source=${source || '-'}`);
+    audit(`OK   status=${statusCode}${isDnd ? '（请勿打扰）' : statusCode === codes().online ? '（在线）' : ''} source=${source || '-'}${takeFailNote()}`);
     return { ok: true, status: statusCode };
   } catch (error) {
-    audit(`FAIL status=${statusCode} source=${source || '-'} → ${String(error?.message ?? error)}`);
-    return { ok: false, error: String(error?.message ?? error) };
+    const message = String(error?.message ?? error);
+    noteFailure(`${statusCode}|${source}|${message}`, statusCode, source, message);
+    return { ok: false, error: message };
   }
 }
 
