@@ -1477,6 +1477,12 @@ async function saveConfig({ quiet = false } = {}) {
       showProgress: ['off', 'private', 'all'].includes(dshProgress) ? dshProgress : 'private',
       pluginUrl: String(val('#cfg-dsh-pluginurl', c.dsh?.pluginUrl || '')).trim(),
       pluginToken: String(val('#cfg-dsh-plugintoken', c.dsh?.pluginToken || '')).trim(),
+      // DSH 结果进提示词的字数上限（0 = 完全不进上下文）；非数字/负数回落到配置原值
+      resultPromptChars: (() => {
+        const raw = String(val('#cfg-dsh-promptchars', String(c.dsh?.resultPromptChars ?? 200))).trim();
+        const n = Number(raw);
+        return Number.isFinite(n) && n >= 0 ? Math.round(n) : (c.dsh?.resultPromptChars ?? 200);
+      })(),
       // headless 通道拿它当 DSH_PERMISSION_MODE；plugin 通道当 permissionPreset 传给 dsh-qq
       permissionMode: (() => {
         const v = String(val('#cfg-dsh-permissionmode', c.dsh?.permissionMode || '')).trim();

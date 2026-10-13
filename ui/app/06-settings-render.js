@@ -1082,6 +1082,13 @@ return `
         <div class="field"><label>plugin 通道令牌（dsh-qq 的 bridgeToken）</label>
           <input type="text" id="cfg-dsh-plugintoken" value="${esc(c.dsh?.pluginToken || '')}" placeholder="留空 = 不校验" /></div>
       </div>
+      <div class="field"><label>DSH 结果进入提示词的字数上限</label>
+        <input type="text" id="cfg-dsh-promptchars" value="${esc(String(c.dsh?.resultPromptChars ?? 200))}" placeholder="200（0 = 完全不进上下文）" /></div>
+      <div class="hint">
+        DSH 的回复<b>全文照发 QQ</b>，但进模型上下文时只保留这么多字。不设的话，一份长报告会被存进存档，
+        之后<b>每一轮</b>历史都带着它进提示词 —— token 会白白烧掉。填 <b>0</b> = 完全不进上下文；
+        另外 <code>store.maxPromptChars</code>（默认 2000）是"任何单条消息进提示词"的兜底上限。
+      </div>
       <div class="field"><label>DSH 任务的权限（两种通道都生效）</label>
         <select id="cfg-dsh-permissionmode">
           <option value="" ${!c.dsh?.permissionMode ? 'selected' : ''}>默认（工作区可写 + 越界要审批）</option>
