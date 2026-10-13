@@ -29,6 +29,19 @@
 | **并行安装的打包流程** | `electron-builder-dsh.yml` | 独立 `appId` / `productName`（`QQ Agent DSH`），与官方版互不覆盖；`asar: false`，装完就是可读可改的源码；`doc/` 随包发布（控制台那个"让 AI 写插件"的提示词要读它） |
 | **DSH 侧插件（独立仓库）** | [A-common-Chinese/dsh-qq](https://github.com/A-common-Chinese/dsh-qq) | 桥的本体：路由 `/__dsh-qq/message`、工具 `qq_send` / `qq_send_file`、隐私过滤、按会话的权限白名单、agent 预设挂载（含老会话 `mount` 恢复）、桥注入提示 |
 
+### 一句澄清：这不是"又把 QQ Agent 塞回 DSH 里"
+
+上游作者做的一件重要的事，是**把一个原本跑在 DSH 里的 QQ 机器人解耦出来**，让它作为独立应用运行 ——
+不开 DSH 也能用。本 fork **没有推翻这一点**：
+
+| | 上游项目 | 本 fork |
+|---|---|---|
+| QQ Agent 本体 | 独立运行，不依赖 DSH | **完全一样**：独立运行；不装 DSH 也照常工作，行为与上游一致 |
+| DSH 的角色 | — | **只是一个可选的外部能力**：有人发 `/dsh <指令>` 时，把**这一条指令**交给本机 DSH 执行，再把结果送回 QQ |
+
+所以关系是「**独立应用 + 一个调用 DSH 的入口**」，不是「机器人又跑回 DSH 里」。
+解耦带来的好处全部保留：**不填 DSH 配置时桥完全不生效**，上游的任何功能都不受影响 ——
+换句话说，这里的 DSH 通道只是给这个独立应用多加了一个"能指挥本机 DSH"的技能而已。
 ### 想在 QQ 里指挥本机 DSH？
 
 1. DSH 侧装插件 **[dsh-qq](https://github.com/A-common-Chinese/dsh-qq)**（`plugin-manager` 或 GUI 插件页装本目录即可，改 `index.js` 后需重启 DSH）；
