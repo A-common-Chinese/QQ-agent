@@ -1465,6 +1465,12 @@ async function saveConfig({ quiet = false } = {}) {
     if (dshPrivacyParsed.errors.length && !quiet) {
       alert(`自定义隐私规则有 ${dshPrivacyParsed.errors.length} 行没生效（已保留原来的规则）：\n${dshPrivacyParsed.errors.join('\n')}`);
     }
+    // 静默会话（只存档/只转发，不调模型）：整份覆盖；空 = 没有静默会话
+    patch.store = {
+      ...(patch.store || {}),
+      silentChats: String(val('#cfg-silentchats', (c.store?.silentChats || []).join(', ')))
+        .split(/[,，\s]+/).map((x) => x.trim()).filter(Boolean)
+    };
     patch.dsh = {
       ...(c.dsh || {}),
       enabled: chk('#cfg-dsh-enabled', !!c.dsh?.enabled),

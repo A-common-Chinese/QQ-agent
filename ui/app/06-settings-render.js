@@ -1158,6 +1158,15 @@ return `
     })}
 
     <div class="field" style="margin-top:14px">
+      <label>静默会话（只存档 / 只转发，不回复、不消耗 token）</label>
+      <input type="text" id="cfg-silentchats" value="${esc((c.store?.silentChats || []).join(', '))}" placeholder="例：group:759694210, 941199011（裸号按群算）" />
+      <div class="hint">
+        命中的会话<b>永不调用模型</b>：消息照常进存档（历史与记忆素材不丢），链接转发、
+        <code>/dsh</code> 命令等确定性功能照常生效，但不会产生任何回复、也不烧 token。
+        多个用逗号或空格分隔；写裸号按<b>群</b>算。
+      </div>
+    </div>
+    <div class="field" style="margin-top:14px">
       <button class="btn" id="blocklist-btn" style="height:44px;padding:0 28px;font-size:14px">管理屏蔽名单</button>
     </div>`;
 }

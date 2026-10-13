@@ -8,7 +8,7 @@
 //
 // 同一会话（群/私聊）同时最多一个运行；运行期间新消息只写 JSON（未读），不叠加触发。
 // 不同会话之间并行，受 maxConcurrentRuns 全局限流。
-import { getConfig, storeConfigForChat, personaForChat } from './config.js';
+import { getConfig, storeConfigForChat, personaForChat, isSilentChat } from './config.js';
 import { vendorOfConfig } from './model-prices.js';
 import { randInt } from './util.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier } from './prompt.js';
@@ -164,6 +164,13 @@ export class Orchestrator {
    * 与 contextLimit 对不上账）。窗口只是聚批，不是判定窗口。
    */
   onIncoming(chatKey, entry = null) {
+
+  // 静默会话：只存档、不调模型（0 token）。确定性功能（链接转发、/dsh）不走这里，照常生效。
+  if (isSilentChat(chatKey)) {
+    if (entry?.id != null) this.store.markEntryRead(chatKey, entry.id);
+    else this.store.markAllRead(chatKey);
+    return;
+  }
     if (this.paused || this.aborted) return;
     // 运行中 / 倒计时中：消息保持未读（不判定、不重置），由会话结束的
     // drain 路径补判定（见 wake 末尾的 drain 注释）。
@@ -349,6 +356,13 @@ export class Orchestrator {
     if (this.aborted) { if (waitingSessionId) this.#finishWaiting(waitingSessionId, 'aborted'); return; }
     if (this.paused && !proactive) { if (waitingSessionId) this.#finishWaiting(waitingSessionId, 'aborted'); return; }
     if (this.runningChats.has(chatKey)) return;
+
+    // 静默会话：不创建会话、不调模型；未读直接标已读（消息仍在存档里，历史不丢）
+    if (isSilentChat(chatKey)) {
+      this.store.markAllRead(chatKey);
+      if (waitingSessionId) this.#finishWaiting(waitingSessionId, 'aborted', '静默会话');
+      return;
+    }
 
     // 模型未设置：不产生报错会话，消息保留为未读；设置模型后（下一条消息或手动唤醒）自动补处理
     if (!String(getConfig().api.model || '').trim()) {
@@ -1459,6 +1473,8 @@ export class Orchestrator {
     try {
       const cfg = getConfig();
       if (cfg.memory?.consolidateEnabled === false) return;
+      // 静默会话不整理记忆（整理会调模型 → 就不是 0 token 了）
+      if (isSilentChat(chatKey)) return;
       if (this.paused || this.aborted) return;
       if (!cfg.api?.model || !cfg.api?.baseUrl) return;   // 没选模型就不整理
       if (this.consolidating.has(chatKey)) return;

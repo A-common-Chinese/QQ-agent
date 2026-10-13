@@ -187,3 +187,39 @@ Start-Process "$env:LOCALAPPDATA\Programs\QQ Agent DSH\QQ Agent DSH.exe"
 
 > 摘要长这样：`[DSH 执行结果已直接发到本会话（共 592 字，此处只是摘要）] 磁盘占用排查的常规顺序是：…`
 > —— 模型知道"有这么个结果、大致说了什么"，但不跟着读一遍；需要细节时它会去读存档或用工具查。
+
+## 按会话静默（只转发工具人，0 token）
+
+**需求**：白名单里的**部分群**只当转发工具人 —— 不回复、不消耗 token。
+
+**先说结论：靠"人格卡空着"做不到。** 人格卡只决定提示词里写什么人设；
+要不要调模型是另一条链（`resolveContextTier(...).shouldRespond`）—— 空着人设照样调用模型、照样烧 token。
+
+**做法**：`store.silentChats`（控制台「聊天设置 → 静默会话」）
+
+```jsonc
+{ "store": { "silentChats": ["group:759694210", "941199011"] } }
+// 写法 group:123 / private:123；裸数字按【群】算（这个开关主要给群用）
+```
+
+静默会话里：
+
+| 行为 | 结果 |
+|---|---|
+| 调用模型 | **完全不调**（真 0 token）|
+| 消息存档 | 照常（历史与记忆素材不丢）|
+| 链接媒体转发（确定性）| 照常（它在 ingest 阶段就跑，不经模型）|
+| `/dsh` 命令桥 | 照常（桥在 app.js 里先认领，也不经模型）|
+| 主动机会 / 积压 drain | 跳过 |
+| 记忆整理 | 跳过（整理会调模型）|
+
+**实现位置**（三处闸门 + 一个 helper）：
+
+- `config.js`：`silentChats` 默认值 + `isSilentChat(chatKey, list?)`（`list` 只为可测性）；
+- `orchestrator.js`：`onIncoming`（标已读后 return）、`wake`（标已读 + 结束等待会话后 return）、
+  `#maybeConsolidateMemory`（直接 return）；
+- UI：`06-settings-render.js` 输入框 + `08-modals.js` 进 chat 分支的 patch（数组按整体替换语义合并）。
+
+**单测**：`test-silent-chats.mjs` 11 项（带前缀命中、裸号按群算、裸号不误伤同号私聊、严格匹配、脏值容错、空名单）。
+
+> 与「屏蔽名单」的区别：屏蔽名单是**按人**（那个人不存档不触发），静默是**按会话**（整个群静音但消息照存）。

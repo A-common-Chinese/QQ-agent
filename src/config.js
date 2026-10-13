@@ -282,6 +282,9 @@ export const DEFAULT_CONFIG = {
     // ── 响应档位的作用范围 ──
     unifiedTier: true,          // true = 上方滑条对所有会话生效；false = 可按群单独设置
     groupSliderPos: {},         // { [群号]: 0~100 } 仅 unifiedTier=false 时生效；未设置的群/私聊跟随全局滑条
+    // 静默会话：只存档、只做确定性功能（链接转发、/dsh 命令），**永不调用模型**（0 token）。
+    // 写法 'group:123456' / 'private:123456'；裸数字按**群**算（这个开关主要给群用）。
+    silentChats: [],
     // 分群峰谷（2026-09-18 四象限改版）：unifiedTier=false 且 peakSchedule.enabled 时，
     // 每个群可以有自己的峰谷档位 { [群号]: { peak: 0~100, valley: 0~100 } }。
     // 时段（start/end）全局共享 —— 每群分开拖两个点的档位值即可。
@@ -743,6 +746,27 @@ export function personaForChat(chatKey) {
  * 峰谷切换：peakSchedule.enabled 时，先按当前时间判定落在高峰/低谷时段，
  * 用该时段的 sliderPos 换算出档位**覆盖**全局滑条（在 unifiedTier / 分群设置之前生效）。
  */
+/**
+ * 该会话是否"静默"：只存档、不调模型（0 token）。
+ * 确定性功能不受影响 —— 链接转发在 ingest 阶段就跑，/dsh 命令由桥认领，都不经过模型。
+ * 名单支持 `group:123` / `private:123`；裸数字按**群**算（这个开关主要给群用）。
+ * 第二个参数只为可测性存在：不传就读配置。
+ */
+export function isSilentChat(chatKey, list = null) {
+  const src = Array.isArray(list) ? list : getConfig().store?.silentChats;
+  if (!Array.isArray(src) || !src.length) return false;
+  const key = String(chatKey || '').trim();
+  if (!key) return false;
+  const wanted = new Set();
+  for (const raw of src) {
+    const item = String(raw ?? '').trim();
+    if (!item) continue;
+    wanted.add(item);
+    if (/^\d+$/.test(item)) wanted.add(`group:${item}`);
+  }
+  return wanted.has(key);
+}
+
 export function storeConfigForChat(chatKey) {
   const store = getConfig().store || {};
   // ── 指令禁言：该群被禁言且未到期 → 强制 1 档（仅艾特）──
