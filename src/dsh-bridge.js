@@ -283,7 +283,23 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
    * 常驻会话模式：把任务交给 DSH 侧的 dsh-qq 插件（它在同一个 agent 上追加一轮对话）。
    * 返回形状与 runOnce 对齐，后面的结果处理两模式共用。
    */
-  async function askPlugin(chatKey, task) {
+  /** 查插件侧这个会话的状态（轮次 / 空闲 / 轮换阈值）。失败返回 null —— 状态命令不该因此报错。 */
+  async function pluginChatInfo(chatKey) {
+    const c = readCfg();
+    const url = String(c.pluginUrl || '').trim() || 'http://127.0.0.1:19387/__dsh-qq/message';
+    const statusUrl = url.replace(/\/message\/?$/, '/status');
+    try {
+      const r = await fetch(statusUrl, {
+        headers: { ...(c.pluginToken ? { 'x-dsh-qq-token': String(c.pluginToken) } : {}) },
+        signal: AbortSignal.timeout(4000)
+      });
+      const body = await r.json().catch(() => ({}));
+      const hit = (body?.chats || []).find((x) => String(x?.chatKey) === String(chatKey));
+      return { chat: hit || null, rotation: body?.rotation || null };
+    } catch { return null; }
+  }
+
+  async function askPlugin(chatKey, task, options = {}) {
     const c = readCfg();
     const url = String(c.pluginUrl || '').trim() || 'http://127.0.0.1:19387/__dsh-qq/message';
     const timeoutMs = Math.max(10_000, Number(c.timeoutMs) || 900_000);
@@ -297,6 +313,8 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
         body: JSON.stringify({
           chatKey,
           text: task,
+          // 手动重置（QQ 侧 /dsh 新 …）：让插件丢掉常驻会话、开一条新的
+          ...(options.fresh ? { fresh: true } : {}),
           // 权限预设：把控制台里那个 permissionMode 一并交给 plugin 通道
           // （空 = 不动，用插件/部署的默认值）。老会话会在这一轮就地切换，不丢上下文。
           ...(String(c.permissionMode || '').trim() ? { permissionPreset: String(c.permissionMode).trim() } : {})
@@ -316,6 +334,8 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
       }
       return {
         answer: typeof body.reply === 'string' ? body.reply : '',
+        rotated: body?.rotated ?? null,
+        turns: body?.turns ?? null,
         sessionId: body?.sessionId ?? null,
         code: 0,
         stderr: '',
@@ -409,8 +429,16 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
 
         if (parsed.kind === 'status') {
           const busy = running.has(chatKey);
+          const usePluginNow = String(c.transport || 'headless') === 'plugin';
+          const info = usePluginNow ? await pluginChatInfo(chatKey) : null;
+          const rot = info?.rotation || {};
+          const rotLine = info?.chat
+            ? `轮次：第 ${info.chat.turns ?? 0} 轮（自动轮换：${rot.maxTurnsPerSession ? `满 ${rot.maxTurnsPerSession} 轮` : '关'}${rot.maxSessionIdleHours ? ` / 空闲 ${rot.maxSessionIdleHours} 小时` : ''}）`
+            : null;
           await reply(chatKey, [
             `DSH 桥：${busy ? '有任务在跑' : '空闲'}`,
+            ...(rotLine ? [rotLine] : []),
+            `重置：发「${String(c.prefix || DEFAULT_PREFIX)} 新 <任务>」开新会话`,
             `会话：${record.sessionId || '(还没建)'}`,
             `目录：${resolvePaths().cwd}`,
             `上次：${record.updatedAt ? new Date(record.updatedAt).toLocaleString() : '(无)'}`
@@ -456,7 +484,7 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
         let result;
         if (usePlugin) {
           // 常驻会话模式：交给 dsh-qq 插件（同一个 DSH 会话连续对话，不新起进程）
-          result = await askPlugin(chatKey, task);
+          result = await askPlugin(chatKey, task, { fresh: parsed.kind === 'new' });
         } else {
           result = await runOnce({ chatKey, task, sessionId, onProgress });
 
@@ -496,7 +524,8 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
           const text = max > 0 && result.answer.length > max
             ? `${result.answer.slice(0, max)}\n…（已截断，共 ${result.answer.length} 字）`
             : result.answer;
-          await reply(chatKey, `${String(c.replyPrefix || '')}${text}`, null, { digest: true });
+          const rotateNote = result.rotated?.text ? `\n\n（${result.rotated.text}）` : '';
+          await reply(chatKey, `${String(c.replyPrefix || '')}${text}${rotateNote}`, null, { digest: true });
           return;
         }
         const tail = result.stderr ? `\n${result.stderr.slice(-400)}` : '';
