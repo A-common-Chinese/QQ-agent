@@ -153,3 +153,37 @@ Start-Process "$env:LOCALAPPDATA\Programs\QQ Agent DSH\QQ Agent DSH.exe"
 > dsh-qq 插件 README 的「常驻会话的『工具面』与『权限』」一节 —— 两边缺一不可：
 > **协议上允许**（权限）与**手里有工具**（预设）是两件事。
 
+## DSH 结果只留摘要进提示词（2026-10-13 修的设计缺陷）
+
+**症状**：QQ 里发几次 `/dsh`，QQ Agent 的上下文很快被撑满、token 白烧。
+
+**成因**（不是 bug，是设计缺口）：`/dsh` 这条命令本身**不进大模型**（`app.js` 里桥认领后直接 return），
+但桥把结果回发时会经 `sender.sendTextBatch` → `store.appendSelf` **存成一条"我"的消息**；
+而提示词的历史窗口（`store.historyCount`，默认 80 条）会把 `self` 消息整段渲染成
+`[时间] 我：<全文>`（见 `prompt.js` 的 `formatEntry`）。于是一份几千字的长报告进了存档，
+之后**每一轮**都跟着进提示词 —— 反复计费。
+
+**修法（两层）**：
+
+| 层 | 做什么 | 位置 |
+|---|---|---|
+| 精确 | DSH 结果进提示词时**只留摘要**：QQ 里照发全文；存档里 `text` 存全文、`promptText` 存摘要，渲染时优先用 `promptText` | `dsh-bridge.js` 的 `promptDigest()` + `store.appendSelf(promptText)` + `prompt.js` |
+| 兜底 | 任何单条消息渲染进提示词时超过上限就截断并标注原字数（历史里已经存下的长报告靠这道） | `prompt.js` 的 `formatEntry()` |
+
+**两个开关**（`data/config.json`）：
+
+```jsonc
+{
+  "dsh":   { "resultPromptChars": 200 },   // DSH 结果进提示词的字数上限；0 = 完全不进上下文
+  "store": { "maxPromptChars": 2000 }      // 单条消息进提示词的上限（兜底）；0 = 不限制
+}
+```
+
+**实测（2026-10-13）**：
+
+- 单元级：同一份 2600 字报告，进提示词 **2600 → 237 字**（约 11 倍）；`resultPromptChars:0` 时只留一行「已直接发到本会话（N 字），未进上下文」。
+- 端到端（真实走 DSH 插件通道）：DSH 回答 592 字 → **QQ 收到全文 592 字，进提示词 234 字**。
+- 短消息、非 DSH 消息渲染完全不变。
+
+> 摘要长这样：`[DSH 执行结果已直接发到本会话（共 592 字，此处只是摘要）] 磁盘占用排查的常规顺序是：…`
+> —— 模型知道"有这么个结果、大致说了什么"，但不跟着读一遍；需要细节时它会去读存档或用工具查。

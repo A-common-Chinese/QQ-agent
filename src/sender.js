@@ -177,7 +177,8 @@ export class SendQueue {
         });
         this.#markSent(chatKey, text);   // 只有 OneBot 成功返回后才记入去重窗口
         const ts = Date.now();
-        this.store.appendSelf(chatKey, { text, ts, mid: data?.message_id ?? null });
+        // promptText：留档用全文，进提示词用这份（见 store.appendSelf / prompt.formatEntry）
+        this.store.appendSelf(chatKey, { text, ts, mid: data?.message_id ?? null, promptText: options.promptText ?? null });
         this.onSent?.({ chatKey, text, messageId: data?.message_id ?? null });
         return { text, messageId: data?.message_id ?? null, at: formatClockTime(ts) };
       }));

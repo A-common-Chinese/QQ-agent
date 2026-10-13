@@ -257,6 +257,9 @@ export const DEFAULT_CONFIG = {
     //   - store 的 #trim 在 maxPerChat<=0 时直接跳过
     // 注意：单群文件会随时间增长，磁盘占用请自行留意。
     maxMessagesPerChat: 0,
+    // 单条消息渲染进提示词的最大字数（超出截断并标注）。历史里可能已经躺着早期存下的
+    // 长报告，光靠新逻辑管不到它们，这道上限是兜底。0 = 不限制。
+    maxPromptChars: 2000,
     // ── 上下文读取档位（决定哪些消息会触发响应）──
     // 档位是"累积生效"的：选 4 档时 1/2/3 档也都生效，按 4→3→2→1 顺序检查，
     // 第一个命中的决定是否响应。
@@ -398,6 +401,9 @@ export const DEFAULT_CONFIG = {
     progressMinGapMs: 8000,    // 进度提示最小间隔
     maxProgress: 6,            // 单个任务最多发几条进度
     maxReplyChars: 0,          // 0 = 不额外截断（发送器仍按 send.hardSplitAt 分片）
+    // DSH 的结果**全文照发 QQ**，但进提示词只留这么多字 —— 否则它会被存档、
+    // 之后每一轮历史都带着整份长报告，token 白白烧掉。0 = 完全不进上下文。
+    resultPromptChars: 200,
     replyPrefix: '',           // 回发答案前面的固定前缀
     extraArgs: [],             // 追加给 dsh headless 的额外参数
     // ── 隐私过滤（实现见 src/privacy.js）────────────────────────────────

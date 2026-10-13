@@ -110,7 +110,7 @@ export class ChatStore {
   }
 
   /** 记录机器人自己发出的消息（已读）。 */
-  appendSelf(chatKey, { text, ts, mid = null }) {
+  appendSelf(chatKey, { text, ts, mid = null, promptText = null }) {
     const st = this.#state(chatKey);
     const entry = {
       id: st.nextLocalId++,
@@ -119,6 +119,8 @@ export class ChatStore {
       senderId: 'self',
       senderName: '我',
       text: String(text ?? ''),
+      // 进提示词时用这份替代 text（例如 DSH 桥：QQ 里发全文，模型只看到摘要）
+      ...(promptText ? { promptText: String(promptText) } : {}),
       self: true,
       read: true,
       reply: null,

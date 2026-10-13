@@ -310,7 +310,7 @@ function resolveCapabilityFn(name) {
   }
 }
 
-function formatEntry(m, { withId = true } = {}) {
+export function formatEntry(m, { withId = true } = {}) {
   const senderId = String(m.senderId || '');
   const replyPrefix = m.reply?.text || m.reply?.sender ? `[引用 ${[m.reply?.sender, m.reply?.text].filter(Boolean).join('：')}]` : '';
   const hasMid = m.mid !== null && m.mid !== undefined && String(m.mid) !== '';
@@ -330,7 +330,14 @@ function formatEntry(m, { withId = true } = {}) {
     const idSuffix = senderId && String(senderId) !== 'self' ? `(QQ:${senderId})` : '';
     who = m.self ? '我' : `${getConfig().memberNotes?.[senderId] || m.senderName || senderId || '未知'}${idSuffix}`;
   }
-  return `[${formatShortTime(m.ts)}] ${idPrefix}${who}：${replyPrefix}${m.text}`;
+  // 进提示词的文本：优先用 promptText（例如 DSH 桥的结果只留摘要，全文照发 QQ 不进上下文）；
+  // 再兜一道长度上限：历史里可能躺着早期存下来的长报告，不能每轮都整段喂进去。
+  const rawText = String(m.promptText ?? m.text ?? '');
+  const cap = Math.max(0, Number(getConfig().store?.maxPromptChars ?? 2000));
+  const shownText = cap > 0 && rawText.length > cap
+    ? `${rawText.slice(0, cap)}…[本条共 ${rawText.length} 字，已截断 ${rawText.length - cap} 字]`
+    : rawText;
+  return `[${formatShortTime(m.ts)}] ${idPrefix}${who}：${replyPrefix}${shownText}`;
 }
 
 /**

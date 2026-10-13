@@ -130,7 +130,7 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
     };
   }
 
-  async function reply(chatKey, text, replyToMessageId = null) {
+  async function reply(chatKey, text, replyToMessageId = null, extra = {}) {
     try {
       // 隐私闸门：DSH 的答案与提示在离开本机前统一过一遍。白名单会话原样放行；
       // 其他会话命中隐私规则就打码，命中密钥类直接换成提示语（fail-closed）。
@@ -143,7 +143,10 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
       }
       // skipDedupe：命令通道的两次任务完全可能给出同一句话（都回 "OK"），
       // 不能被"防模型复读"的 8 秒去重窗口吞掉 —— 那是静默丢消息。
-      await sender.sendTextBatch(chatKey, [String(out ?? '')], { replyToMessageId, skipDedupe: true });
+      // digest：结果类回发在 QQ 里发全文，但只把开头一小段留给提示词（见 promptDigest）。
+      const sent = String(out ?? '');
+      const promptText = extra.digest === true ? promptDigest(sent) : (extra.promptText ?? null);
+      await sender.sendTextBatch(chatKey, [sent], { replyToMessageId, skipDedupe: true, promptText });
       emit('chat-update', chatKey);
     } catch (error) {
       log(`[dsh] 回发失败：${error?.message ?? error}`);
@@ -352,6 +355,20 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
     void reply(chatKey, `… 正在执行：${toolName}`);
   }
 
+  /**
+   * DSH 结果进提示词时只留摘要。
+   * 为什么：桥的回发会被 store.appendSelf 存成"我"的消息，之后每一轮的历史窗口都会把它
+   * 整段渲染进提示词 —— 一份长报告就是几千 token，而且每轮反复出现。QQ 里仍然发全文，
+   * 这里只是让模型知道"有这么个结果、它大致说了什么"，不跟着读一遍。
+   */
+  function promptDigest(text) {
+    const c = readCfg();
+    const limit = Math.max(0, Number(c.resultPromptChars ?? 200));
+    const full = String(text ?? '');
+    if (limit === 0) return `[DSH 执行结果已直接发到本会话（${full.length} 字），未进上下文]`;
+    const head = full.slice(0, limit).replace(/\s+/g, ' ').trim();
+    return `[DSH 执行结果已直接发到本会话（共 ${full.length} 字，此处只是摘要）] ${head}${full.length > limit ? '…' : ''}`;
+  }
   function sessionKeyFor(chatKey) {
     const mode = String(readCfg().sessionMode || 'per-chat');
     if (mode === 'none') return null;
@@ -479,7 +496,7 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
           const text = max > 0 && result.answer.length > max
             ? `${result.answer.slice(0, max)}\n…（已截断，共 ${result.answer.length} 字）`
             : result.answer;
-          await reply(chatKey, `${String(c.replyPrefix || '')}${text}`);
+          await reply(chatKey, `${String(c.replyPrefix || '')}${text}`, null, { digest: true });
           return;
         }
         const tail = result.stderr ? `\n${result.stderr.slice(-400)}` : '';
@@ -502,5 +519,5 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
     running.clear();
   }
 
-  return { handle, abortAll, parseDshCommand };
+  return { handle, abortAll, parseDshCommand, promptDigest };
 }
