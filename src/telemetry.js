@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { DATA_DIR, ROOT } from './config.js';
+import { DATA_DIR, ROOT, getConfig } from './config.js';
 
 const REPORT_URL = 'https://kondius.cn/qq-agent/api/telemetry';
 const INTERVAL_MS = 6 * 3600 * 1000;   // 之后每 6 小时一次
@@ -106,6 +106,10 @@ export async function report(log) {
 }
 
 export function startTelemetryLoop(log = console.log) {
+  // 本 fork 默认关闭：不向原作者服务器上报任何统计（config.telemetry.enabled 可恢复）
+  let telemetryEnabled = false;
+  try { telemetryEnabled = getConfig()?.telemetry?.enabled === true; } catch { telemetryEnabled = false; }
+  if (!telemetryEnabled) { log('[telemetry] 已关闭：本 fork 默认不上报'); return; }
   const first = setTimeout(() => {
     report(log);
     const timer = setInterval(() => report(log), INTERVAL_MS);

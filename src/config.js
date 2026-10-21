@@ -36,6 +36,11 @@ export const DEFAULT_CONFIG = {
     intervalHours: 12,
     autoDownload: false,
   },
+  // ── 匿名遥测 ────────────────────────────────────────────────────
+  // 上游默认会把「匿名用量统计」上报到作者服务器；本 fork 默认关闭（见 README 隐私说明）。
+  telemetry: {
+    enabled: false,
+  },
   api: {
     // 出厂留空：这是作者本机的网关地址，对其他人毫无意义，
     // 留空能让「就绪度体检」正确提示"还没填 Base URL"。

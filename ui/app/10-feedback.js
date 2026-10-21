@@ -1,6 +1,9 @@
 // 〔屏蔽名单 / 意见收集 / 更新检查 / 金句上传〕——M9 拆分第 11 段
 'use strict';
 
+// 本 fork：暂不向原作者服务器上传「意见收集 / 金句」。改成 true 可恢复（改完刷新控制台）。
+const COMMUNITY_UPLOADS_ENABLED = false;
+
 // ── 阿里云验证码 2.0（意见收集 / 金句上传共用闸门）──
 // 服务端（receiver.py）对所有免登录写入端点强制验签：上传请求必须携带
 // 验证通过后拿到的 captchaVerifyParam（一次性，90 秒内送达服务端）。
@@ -482,6 +485,7 @@ function fbCompressImage(file) {
 }
 
 function openFeedbackModal() {
+  if (!COMMUNITY_UPLOADS_ENABLED) { showNoticeModal('已禁用', '本版本不向原作者服务器上传「意见收集」。'); return; }
   const draft = fbLoadDraft();
   const state2 = { images: draft.images.slice() };   // 弹窗内的图片列表（dataURL）
 
@@ -614,6 +618,7 @@ function openFeedbackModal() {
   });
 
   async function doUploadFeedback(captchaVerifyParam) {
+    if (!COMMUNITY_UPLOADS_ENABLED) return;
     const hint = $q('#fb-confirm-hint');
     hint.textContent = '上传中…';
     submitBtn.disabled = true;
@@ -729,6 +734,7 @@ function exitQuoteMode() {
 
 /** 勾选模式下的确认：二次确认框 + 昵称。 */
 function openQuoteConfirmModal() {
+  if (!COMMUNITY_UPLOADS_ENABLED) { showNoticeModal('已禁用', '本版本不向原作者服务器上传「金句上传」。'); return; }
   const all = state.chatMessages || [];
   const picked = all.filter((m) => state.quoteSelected.has(m.id))
     .sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));   // 按时间正序，读起来才是对话
@@ -776,6 +782,7 @@ function openQuoteConfirmModal() {
 }
 
 async function doUploadQuote(nickname, picked, captchaVerifyParam, overlay, hint) {
+    if (!COMMUNITY_UPLOADS_ENABLED) return;
   overlay.querySelector('#q-submit').disabled = true;
   try {
     // ── 先取图：QQ 图床 URL 会过期（老消息全网 400），
@@ -849,15 +856,18 @@ async function doUploadQuote(nickname, picked, captchaVerifyParam, overlay, hint
 }
 
 // 顶栏按钮绑定
-$('#feedback-btn')?.addEventListener('click', () => openFeedbackModal());
+if (COMMUNITY_UPLOADS_ENABLED) $('#feedback-btn')?.addEventListener('click', () => openFeedbackModal());
+else { const _b = $('#feedback-btn'); if (_b) _b.style.display = 'none'; }
 $('#open-site-btn')?.addEventListener('click', () => openSite());
 $('#skill-market-btn')?.addEventListener('click', () => window.open('https://www.kondius.cn/qq-agent/skill-market/', '_blank', 'noopener'));
 $('#plugin-market-btn')?.addEventListener('click', () => window.open('https://www.kondius.cn/qq-agent/plugin-market/', '_blank', 'noopener'));
 $('#persona-plaza-btn')?.addEventListener('click', () => window.open('https://www.kondius.cn/qq-agent/persona-plaza/', '_blank', 'noopener'));
-$('#quote-btn')?.addEventListener('click', () => {
+if (COMMUNITY_UPLOADS_ENABLED) $('#quote-btn')?.addEventListener('click', () => {
   if (state.quoteMode) exitQuoteMode(); else enterQuoteMode();
 });
-$('#quote-confirm-btn')?.addEventListener('click', () => openQuoteConfirmModal());
+else { const _q = $('#quote-btn'); if (_q) _q.style.display = 'none'; }
+if (COMMUNITY_UPLOADS_ENABLED) $('#quote-confirm-btn')?.addEventListener('click', () => openQuoteConfirmModal());
+else { const _qc = $('#quote-confirm-btn'); if (_qc) _qc.style.display = 'none'; }
 
 // 会话列表「清空」：清空全部已结束的会话记录（保留运行中/等待中的）
 $('#session-clear-btn')?.addEventListener('click', async () => {
