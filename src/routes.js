@@ -30,6 +30,7 @@ import { getPrivacyFilter } from './privacy.js';
 import { logger } from './logger.js';
 import { skillManager } from './skills/manager.js';
 import { parseLegacyCard } from './persona-import.js';
+import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats } from './memory-cards.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
 import { availabilityOf, listTools, CATEGORY_META } from './tool-registry.js';
 import { safeFetchBinary, browseLockState } from './safe-fetch.js';
@@ -1300,6 +1301,68 @@ export function createRoutes(deps) {
         updateConfig({ personas });
         emit('status', { configUpdated: true });
         return json(res, 200, { ok: true, created, total: personas.length, config: sanitizeConfig(getConfig()) });
+      }
+    },
+    // ── 记忆卡（群聊 / 个人 / 基本事实）────────────────────────────
+    {
+      method: 'GET', pattern: '/api/memory-cards',
+      handler: async ({ res, json }) => {
+        const d = listCards();
+        return json(res, 200, { ok: true, ...d, stats: memoryCardStats() });
+      }
+    },
+    {
+      method: 'GET', pattern: /^\/api\/memory-cards\/person\/(\d+)$/,
+      handler: async ({ res, json, match }) => {
+        const card = getPerson(match[1]);
+        if (!card) return json(res, 404, { ok: false, error: '没有这个人的卡' });
+        return json(res, 200, { ok: true, card });
+      }
+    },
+    {
+      method: 'GET', pattern: /^\/api\/memory-cards\/group\/(.+)$/,
+      handler: async ({ res, json, match }) => {
+        const chatKey = decodeURIComponent(match[1]);
+        const card = getGroup(chatKey);
+        if (!card) return json(res, 404, { ok: false, error: '没有这个群的卡' });
+        return json(res, 200, { ok: true, card });
+      }
+    },
+    {
+      method: 'GET', pattern: '/api/memory-cards/general',
+      handler: async ({ res, json }) => json(res, 200, { ok: true, card: getGeneral() })
+    },
+    {
+      method: 'PUT', pattern: /^\/api\/memory-cards\/person\/(\d+)$/,
+      handler: async ({ req, res, json, match }) => {
+        const body = await bodyOf(req);
+        const r = updatePerson(match[1], body || {});
+        if (!r.ok) return json(res, 404, { ok: false, error: '没有这个人的卡' });
+        return json(res, 200, r);
+      }
+    },
+    {
+      method: 'PUT', pattern: /^\/api\/memory-cards\/group\/(.+)$/,
+      handler: async ({ req, res, json, match }) => {
+        const body = await bodyOf(req);
+        const r = updateGroup(decodeURIComponent(match[1]), body || {});
+        if (!r.ok) return json(res, 404, { ok: false, error: '没有这个群的卡' });
+        return json(res, 200, r);
+      }
+    },
+    {
+      method: 'PUT', pattern: '/api/memory-cards/general',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        return json(res, 200, updateGeneral(body || {}));
+      }
+    },
+    {
+      method: 'DELETE', pattern: /^\/api\/memory-cards\/person\/(\d+)$/,
+      handler: async ({ res, json, match }) => {
+        const r = deletePerson(match[1]);
+        if (!r.ok) return json(res, 404, { ok: false, error: '没有这个人的卡' });
+        return json(res, 200, r);
       }
     },
     {

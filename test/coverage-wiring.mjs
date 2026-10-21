@@ -86,7 +86,7 @@ function wantedTypes(tag, type) {
 function wired(el) {
     // 人设页 V2：按钮带 data-pv2，统一由 document 上的一次性事件委托处理
     //（控制台 CSP 禁内联 onclick）。委托式接线在 listeners 表里查不到 —— 直接放行。
-    try { if (el.closest && el.closest('[data-pv2]')) return true; } catch { /* ignore */ }
+    try { if (el.closest && el.closest('[data-pv2], [data-mem]')) return true; } catch { /* ignore */ }
   const tag = el.tagName.toLowerCase();
   const type = (el.getAttribute('type') || '').toLowerCase();
   const want = wantedTypes(tag, type);

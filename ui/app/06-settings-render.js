@@ -228,7 +228,7 @@ function renderSettingsSection(c) {
   const sections = {
     api: () => renderApiSection(c),
     search: () => renderSearchSection(c),
-    memory: () => renderMemorySettingsSection(c),
+    memory: () => renderMemorySectionV2(c),
     persona: () => renderPersonaSectionV2(c),
     allow: () => renderAllowSection(c),
     chat: () => renderChatSection(c),
@@ -454,7 +454,10 @@ function renderSearchSection(c) {
   `;
 }
 
-function renderMemorySettingsSection(c) {
+  function renderMemorySettingsSection(c) {
+    return renderMemorySettingsSectionInner(c);
+  }
+  function renderMemorySettingsSectionInner(c) {
   const mem = c.memory || {};
   const providers = state.providers || [];
   const useChat = mem.useChatModel !== false;
@@ -479,6 +482,188 @@ function renderMemorySettingsSection(c) {
     <div class="field"><label>整理冷却时间（毫秒）</label><input type="number" id="cfg-mem-interval" min="1800000" step="600000" value="${esc(mem.consolidateMinIntervalMs ?? 21600000)}" /></div>
     <div class="hint">条数超过阈值且距上次整理超过该冷却时间后，才会在运行结束后后台整理。默认 6 小时（21600000 毫秒）。</div>`;
 }
+
+  // ═══ 记忆 V2：群聊 / 个人 / 基本事实 ═══
+  const MEM_TABS = [{ id: 'groups', label: '群聊' }, { id: 'persons', label: '个人' }, { id: 'general', label: '基本事实' }];
+  function memState() {
+    if (!state.memV2) state.memV2 = { tab: 'groups', list: null, sel: null, detail: null, q: '' };
+    return state.memV2;
+  }
+  function memLineList(title, arr, fmt, emptyText) {
+    const body = (arr || []).length ? arr.map(fmt).join('') : '<div class="muted" style="font-size:12px">' + (emptyText || '（空）') + '</div>';
+    return '<div class="field"><label>' + title + '</label><div class="muted" style="font-size:13px;line-height:1.7">' + body + '</div></div>';
+  }
+  function memDetailHtml() {
+    const st = memState();
+    const d = st.detail;
+    if (!d) return '<div class="muted" style="padding:20px">从左侧选一项</div>';
+    const key = st.tab === 'persons' ? 'person/' + d.qq : (st.tab === 'groups' ? 'group/' + encodeURIComponent(d.chatKey) : 'general');
+    const facts = (d.facts || []).map((f) => esc(f.key || '') + '=' + esc(f.value || '')).join('\n');
+    const notes = (d.notes || []).join('\n');
+    const prefs = (d.prefs || []).map((x) => esc(x.what || x.text || JSON.stringify(x))).join('\n');
+    const pending = (d.pending || []).map((x) => esc(x.text || JSON.stringify(x))).join('\n');
+    const members = (d.members || []).map((m) => esc(m.name || m.id) + ' · ' + (m.msgs || 0) + ' 条').join('、');
+    const groupsOf = (d.groups || []).map((g) => esc(g.chatKey) + ' · ' + (g.msgs || 0) + ' 条').join('\n');
+    return `
+      ${st.tab === 'persons' ? '<div class="hint">QQ：' + esc(d.qq || '') + '（主键，改昵称不影响）</div>' : ''}
+      <div class="field"><label>名称（昵称，可改）</label><input type="text" id="memv-name" value="${esc(d.name || '')}" /></div>
+      <div class="field"><label>一句话概览</label><input type="text" id="memv-summary" value="${esc(d.summary || '')}" /></div>
+      ${st.tab === 'persons' ? '<div class="field"><label>语气/关系（可选）</label><input type="text" id="memv-tone" value="' + esc(d.tone || '') + '" /></div>' : ''}
+      ${st.tab === 'persons' ? '<div class="field"><label>笔记（一行一条）</label><textarea id="memv-notes" class="persona-role-text" style="min-height:110px">' + notes + '</textarea></div>' : ''}
+      <div class="field"><label>事实（一行一条，key=value）</label><textarea id="memv-facts" class="persona-role-text" style="min-height:110px">${facts}</textarea></div>
+      ${st.tab === 'persons' ? '<div class="field"><label>偏好（一行一条）</label><textarea id="memv-prefs" class="persona-role-text" style="min-height:80px">' + prefs + '</textarea></div>' : ''}
+      ${st.tab === 'persons' ? '<div class="field"><label>待办/约定（一行一条）</label><textarea id="memv-pending" class="persona-role-text" style="min-height:70px">' + pending + '</textarea></div>' : ''}
+      ${st.tab === 'general' ? '' : (st.tab === 'groups' ? '<div class="field"><label>成员（只读）</label><div class="muted" style="font-size:13px">' + (members || '（空）') + '</div></div>' : '<div class="field"><label>所在群（只读）</label><div class="muted" style="font-size:13px;white-space:pre-line">' + (groupsOf || '（空）') + '</div></div>')}
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <button class="btn btn-small btn-primary" data-mem="save" data-key="${esc(key)}">保存</button>
+        ${st.tab === 'persons' ? '<button class="btn btn-small btn-danger" data-mem="del" data-qq="' + esc(d.qq) + '">删除这张卡</button>' : ''}
+        <span class="hint" id="memv-hint"></span>
+      </div>`;
+  }
+  function renderMemorySectionV2(c) {
+    const st = memState();
+    if (!st.list) {
+      // 首次进入：异步拉列表
+      setTimeout(async () => {
+        try {
+          const d = await api('/api/memory-cards');
+          st.list = d;
+          if (!st.sel) {
+            if (st.tab === 'groups' && (d.groups || [])[0]) st.sel = { tab: 'groups', chatKey: d.groups[0].chatKey, name: d.groups[0].name };
+            else if (st.tab === 'persons' && (d.persons || [])[0]) st.sel = { tab: 'persons', qq: d.persons[0].qq, name: d.persons[0].name };
+            else if (st.tab === 'general') st.sel = { tab: 'general' };
+          }
+          await memLoadDetail();
+          if (state.tab === 'memory') renderTab();
+        } catch (e) { /* 静默 */ }
+      }, 30);
+      return '<h3 id="settings-memory">记忆</h3><div class="hint">加载记忆卡…</div>';
+    }
+    const d = st.list;
+    const q = String(st.q || '').trim().toLowerCase();
+    let items = [];
+    if (st.tab === 'groups') items = (d.groups || []).map((g) => ({ key: 'g:' + g.chatKey, label: g.name || g.chatKey, sub: (g.summary || '') , sel: st.sel && st.sel.tab === 'groups' && st.sel.chatKey === g.chatKey, data: { tab: 'groups', chatKey: g.chatKey } }));
+    else if (st.tab === 'persons') items = (d.persons || []).map((p) => ({ key: 'p:' + p.qq, label: (p.name || '') + ' (' + p.qq + ')', sub: (p.summary || '') + ' · 群' + (p.groups || 0), sel: st.sel && st.sel.tab === 'persons' && st.sel.qq === p.qq, data: { tab: 'persons', qq: p.qq } }));
+    else items = [{ key: 'general', label: '通用卡', sub: d.general?.summary || '', sel: true, data: { tab: 'general' } }];
+    if (q) items = items.filter((x) => (x.label + ' ' + x.sub).toLowerCase().includes(q));
+    const listHtml = items.map((x) => `<div class="memv-item${x.sel ? ' memv-sel' : ''}" data-mem="sel" data-json='${esc(JSON.stringify(x.data))}'>
+        <div style="font-weight:600">${esc(x.label)}</div>
+        <div class="muted" style="font-size:12px">${esc(String(x.sub).slice(0, 60))}</div>
+      </div>`).join('') || '<div class="muted" style="padding:12px">（没有匹配项）</div>';
+    const stats = `群 ${(d.groups || []).length} · 个人 ${(d.persons || []).length}`;
+    return `
+      <h3 id="settings-memory">记忆</h3>
+      <div class="hint">记忆按<b>群聊 / 个人 / 基本事实</b>三类卡片管理；未分配的内容不会注入提示词。</div>
+      <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap;align-items:center">
+        ${MEM_TABS.map((t) => `<button class="btn btn-small ${st.tab === t.id ? 'btn-primary' : ''}" data-mem="tab" data-tab="${t.id}">${t.label}</button>`).join('')}
+        <input type="text" id="memv-q" placeholder="搜索名称/概览…" value="${esc(st.q || '')}" style="flex:1;min-width:160px" />
+        <span class="muted" style="font-size:12px">${stats}</span>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="width:230px;flex-shrink:0;max-height:480px;overflow:auto;border:1px solid var(--line);border-radius:6px" id="memv-list">${listHtml}</div>
+        <div style="flex:1;min-width:0" id="memv-detail">${memDetailHtml()}</div>
+      </div>
+      <details style="margin-top:16px"><summary class="muted" style="cursor:pointer">记忆整理设置（旧：按群整理印象）</summary>
+        <div style="padding-top:10px">${renderMemorySettingsSectionInner(c)}</div>
+      </details>`;
+  }
+  async function memLoadDetail() {
+    const st = memState();
+    try {
+      if (st.tab === 'persons' && st.sel?.qq) {
+        const r = await api('/api/memory-cards/person/' + encodeURIComponent(st.sel.qq));
+        st.detail = r.card;
+      } else if (st.tab === 'groups' && st.sel?.chatKey) {
+        const r = await api('/api/memory-cards/group/' + encodeURIComponent(st.sel.chatKey));
+        st.detail = r.card;
+      } else {
+        const r = await api('/api/memory-cards/general');
+        st.detail = r.card;
+      }
+    } catch (e) { st.detail = null; }
+  }
+  function memParseLines(text) {
+    return String(text || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  }
+  async function memSave(key, st) {
+    const g = (id) => document.getElementById(id);
+    const body = {};
+    if (g('memv-name')) body.name = g('memv-name').value;
+    if (g('memv-summary')) body.summary = g('memv-summary').value;
+    if (st.tab === 'persons') {
+      if (g('memv-tone')) body.tone = g('memv-tone').value;
+      if (g('memv-notes')) body.notes = memParseLines(g('memv-notes').value);
+      if (g('memv-prefs')) body.prefs = memParseLines(g('memv-prefs').value).map((x) => ({ what: x }));
+      if (g('memv-pending')) body.pending = memParseLines(g('memv-pending').value).map((x) => ({ text: x, status: 'open' }));
+    }
+    if (g('memv-facts')) {
+      body.facts = memParseLines(g('memv-facts').value).map((line) => {
+        const i = line.indexOf('=');
+        return i > 0 ? { key: line.slice(0, i).trim(), value: line.slice(i + 1).trim() } : { key: line, value: '' };
+      });
+    }
+    try {
+      await api('/api/memory-cards/' + key, { method: 'PUT', body: JSON.stringify(body) });
+      const hint = document.getElementById('memv-hint');
+      if (hint) { hint.textContent = '已保存 ✅'; hint.style.color = 'var(--green)'; }
+      const st2 = memState();
+      await memLoadDetail();
+      st2.list = null;   // 让列表下次重拉
+      setTimeout(() => { if (state.tab === 'memory') renderTab(); }, 300);
+    } catch (e) {
+      const hint = document.getElementById('memv-hint');
+      if (hint) { hint.textContent = '保存失败：' + (e?.message || e); hint.style.color = 'var(--red)'; }
+    }
+  }
+  // 事件委托（CSP 禁内联 onclick）
+  if (!window.__memvDelegated) {
+    window.__memvDelegated = true;
+    document.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-mem]');
+      if (!el) return;
+      const act = el.dataset.mem;
+      const st = memState();
+      if (act === 'tab') {
+        e.preventDefault();
+        st.tab = el.dataset.tab; st.sel = null; st.detail = null; st.q = '';
+        st.list = null;
+        renderTab();
+        return;
+      }
+      if (act === 'sel') {
+        e.preventDefault();
+        try { st.sel = JSON.parse(el.dataset.json); } catch { return; }
+        st.detail = null;
+        memLoadDetail().then(() => { if (state.tab === 'memory') renderTab(); });
+        return;
+      }
+      if (act === 'save') {
+        e.preventDefault();
+        memSave(el.dataset.key, st);
+        return;
+      }
+      if (act === 'del') {
+        e.preventDefault();
+        (async () => {
+          if (!(await uiConfirm('删除这个人（QQ ' + el.dataset.qq + '）的记忆卡？\n会移到同目录的 .deleted 备份。'))) return;
+          try {
+            await api('/api/memory-cards/person/' + encodeURIComponent(el.dataset.qq), { method: 'DELETE' });
+            st.sel = null; st.detail = null; st.list = null;
+            renderTab();
+          } catch (err) { alert('删除失败：' + (err?.message || err)); }
+        })();
+        return;
+      }
+    });
+    document.addEventListener('input', (e) => {
+      const el = e.target.closest('#memv-q');
+      if (!el) return;
+      const st = memState();
+      st.q = el.value;
+      clearTimeout(window.__memvQT);
+      window.__memvQT = setTimeout(() => { if (state.tab === 'memory') renderTab(); }, 200);
+    });
+  }
 
   // ═══ 人设 V2（人格卡）：选卡 + 批量 + 卡管理 + 共用段 + 黑名单 ═══
   function pv2Cards(c) { return Array.isArray(c.personas) ? c.personas : []; }
