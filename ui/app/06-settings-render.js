@@ -553,7 +553,8 @@ function renderMemorySettingsSection(c) {
     } catch (e) { pv2Hint('pv2-policy-hint', '失败：' + e.message, 'var(--red)'); }
   }
   // 卡片编辑器
-  function pv2OpenEditor(card, forceNew) {
+  // 旧版（JSON 编辑，已停用；保留便于回溯）
+  function pv2OpenEditorJSON(card, forceNew) {
     const isNew = !card || forceNew === true;
     const c0 = card || { name: '', variant: '', examples: [], scenarios: [] };
     const js = (v) => esc(JSON.stringify(v || [], null, 2));
@@ -624,6 +625,141 @@ function renderMemorySettingsSection(c) {
       }
     });
     q('pv2g-desc').focus();
+  }
+
+  // 触发器与"关键词"互转：让用户只打词，系统拼正则
+  function pv2TriggerToKeywords(trig) {
+    const t = String(trig || '').trim();
+    if (!t) return '';
+    const m = t.match(/^\(([^()\\|]+(?:\|[^()\\|]+)*)\)$/);
+    if (m) return m[1].split('|').map((x) => x.trim()).filter(Boolean).join('，');
+    return t;   // 复杂正则原样展示（高级用户可以自己写）
+  }
+  function pv2KeywordsToTrigger(kw) {
+    const t = String(kw || '').trim();
+    if (!t) return '';
+    // 看起来已经是正则 → 原样用
+    if (/[|()\\[\]{}*+?$^]/.test(t)) return t;
+    const parts = t.split(/[,，、/]+/).map((x) => x.trim()).filter(Boolean);
+    if (!parts.length) return '';
+    if (parts.length === 1) return parts[0];
+    return '(' + parts.join('|') + ')';
+  }
+
+  // ═══ 卡片编辑器（表单式：只打字，格式系统拼）═══
+  function pv2OpenEditor(card, forceNew) {
+    const isNew = !card || forceNew === true;
+    const c0 = card || {};
+    const ex = (Array.isArray(c0.examples) ? c0.examples : []).map((e) => ({
+      user: String(e?.user || ''), bad: String(e?.bad || ''), good: String(e?.good || '')
+    }));
+    const sc = (Array.isArray(c0.scenarios) ? c0.scenarios : []).map((x) => ({
+      id: String(x?.id || ''), kw: pv2TriggerToKeywords(x?.trigger || ''), text: String(x?.text || ''), title: String(x?._title || x?.title || '')
+    }));
+    if (!ex.length) ex.push({ user: '', bad: '', good: '' });
+
+    const overlay = modelModalShell({
+      head: isNew ? '新建人格卡' : '编辑人格卡：' + (c0.name || ''),
+      body: `<div class="field"><label>名称</label><input type="text" id="pv2e-name" value="${esc(c0.name || '')}" /></div>
+        <div class="field"><label>本卡特有（这个人格怎么说话、怎么反应）</label>
+          <textarea id="pv2e-variant" class="persona-role-text" style="min-height:170px">${esc(c0.variant || '')}</textarea>
+          <div class="hint">会拼在「共用部分(core+voice)」之后。内置卡/独立卡（不用共用部分）则只发这一段。</div></div>
+        <div class="field"><label>回复示例 <span class="muted" id="pv2e-ex-count"></span></label>
+          <div id="pv2e-ex-rows"></div>
+          <div style="margin-top:6px"><button class="btn btn-small" id="pv2e-ex-add">＋ 添加一组示例</button></div></div>
+        <div class="field"><label>按需场景（命中关键词才注入）</label>
+          <div id="pv2e-sc-rows"></div>
+          <div style="margin-top:6px"><button class="btn btn-small" id="pv2e-sc-add">＋ 添加场景</button>
+          <span class="hint" style="margin-left:8px">关键词用逗号分隔，系统自动拼成正则；留空 = 永不触发</span></div></div>
+        <div class="field checkbox-row"><input type="checkbox" id="pv2e-useshared" ${c0.useShared !== false ? 'checked' : ''} />
+          <label for="pv2e-useshared">使用共用部分（core + voice）</label></div>`,
+      foot: `<button class="btn" id="pv2e-cancel">取消</button><button class="btn btn-primary" id="pv2e-save">保存</button>`
+    });
+    const q = (id) => overlay.querySelector('#' + id);
+
+    // ── 行渲染 ──
+    const exRow = (e, i) => `<div class="pv2e-row" data-k="ex" data-i="${i}" style="display:flex;gap:6px;align-items:flex-start;margin-bottom:6px">
+      <div style="flex:1">
+        <input class="inp pv2e-ex-user" style="width:100%;margin-bottom:4px" placeholder="群友说…" value="${esc(e.user)}" />
+        <div style="display:flex;gap:6px">
+          <input class="inp pv2e-ex-bad" style="flex:1" placeholder="✗ 错误示范（AI 腔）" value="${esc(e.bad)}" />
+          <input class="inp pv2e-ex-good" style="flex:1" placeholder="✓ 正确示范（符合人格）" value="${esc(e.good)}" />
+        </div>
+      </div>
+      <button class="btn btn-small btn-danger pv2e-del" data-k="ex" data-i="${i}" title="删除这组">×</button>
+    </div>`;
+    const scRow = (x, i) => `<div class="pv2e-row" data-k="sc" data-i="${i}" style="display:flex;gap:6px;align-items:flex-start;margin-bottom:6px">
+      <div style="flex:1">
+        <input class="inp pv2e-sc-kw" style="width:100%;margin-bottom:4px" placeholder="关键词：好厉害，你真棒，谢谢你（逗号分隔）" value="${esc(x.kw)}" />
+        <textarea class="inp pv2e-sc-text" style="width:100%;min-height:70px" placeholder="命中这个关键词时，你要怎么反应">${esc(x.text)}</textarea>
+      </div>
+      <button class="btn btn-small btn-danger pv2e-del" data-k="sc" data-i="${i}" title="删除这段">×</button>
+    </div>`;
+
+    const readDom = () => {
+      // 把当前 DOM 的值读回数组（重渲染前必做，否则刚打的字会丢）
+      overlay.querySelectorAll('.pv2e-row').forEach((row) => {
+        const i = Number(row.dataset.i);
+        if (!Number.isFinite(i)) return;
+        if (row.dataset.k === 'ex' && ex[i]) {
+          ex[i].user = row.querySelector('.pv2e-ex-user').value;
+          ex[i].bad = row.querySelector('.pv2e-ex-bad').value;
+          ex[i].good = row.querySelector('.pv2e-ex-good').value;
+        } else if (row.dataset.k === 'sc' && sc[i]) {
+          sc[i].kw = row.querySelector('.pv2e-sc-kw').value;
+          sc[i].text = row.querySelector('.pv2e-sc-text').value;
+        }
+      });
+    };
+    const render = () => {
+      q('pv2e-ex-rows').innerHTML = ex.map(exRow).join('') || '<div class="muted">（还没有示例）</div>';
+      q('pv2e-sc-rows').innerHTML = sc.map(scRow).join('') || '<div class="muted">（还没有场景）</div>';
+      const cnt = q('pv2e-ex-count');
+      if (cnt) cnt.textContent = '（' + ex.length + ' 组）';
+      overlay.querySelectorAll('.pv2e-del').forEach((btn) => {
+        btn.onclick = () => {
+          readDom();
+          const k = btn.dataset.k;
+          const i = Number(btn.dataset.i);
+          if (k === 'ex') ex.splice(i, 1);
+          else sc.splice(i, 1);
+          if (!ex.length) ex.push({ user: '', bad: '', good: '' });
+          render();
+        };
+      });
+    };
+    q('pv2e-ex-add').onclick = () => { readDom(); ex.push({ user: '', bad: '', good: '' }); render(); };
+    q('pv2e-sc-add').onclick = () => { readDom(); sc.push({ id: '', kw: '', text: '', title: '' }); render(); };
+    q('pv2e-cancel').onclick = () => closeModelModal(overlay);
+
+    // ── 保存：DOM → 数组 → 接口 ──
+    q('pv2e-save').onclick = async () => {
+      readDom();
+      const name = q('pv2e-name').value.trim();
+      if (!name) { showNoticeModal('缺少名称', '给这张卡起个名字'); return; }
+      const examples = ex
+        .map((e) => ({ user: String(e.user || '').trim(), bad: String(e.bad || '').trim(), good: String(e.good || '').trim() }))
+        .filter((e) => e.user || e.good);
+      const scenarios = sc
+        .map((x, i) => ({ id: x.id || ('scn_' + (i + 1)), trigger: pv2KeywordsToTrigger(x.kw), text: String(x.text || '').trim(), ...(x.title ? { _title: x.title } : {}) }))
+        .filter((x) => x.text);
+      const payload = {
+        name,
+        variant: q('pv2e-variant').value,
+        examples,
+        scenarios,
+        useShared: q('pv2e-useshared').checked
+      };
+      try {
+        if (isNew) await pv2Api('POST', '/api/personas', payload);
+        else await pv2Api('PUT', '/api/personas/' + encodeURIComponent(card.id), payload);
+        closeModelModal(overlay);
+        pv2Reload();
+      } catch (e) { showNoticeModal('保存失败', String(e?.message || e)); }
+    };
+
+    render();
+    q('pv2e-name').focus();
   }
 
   async function pv2CopyCard(id) {
