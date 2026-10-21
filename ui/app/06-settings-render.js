@@ -559,7 +559,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
             else if (st.tab === 'general') st.sel = { tab: 'general' };
           }
           await memLoadDetail();
-          if (state.tab === 'memory') renderTab();
+          if (state.tab === 'memory') loadSettings();
         } catch (e) { /* 静默 */ }
       }, 30);
       return '<h3 id="settings-memory">记忆</h3><div class="hint">加载记忆卡…</div>';
@@ -647,7 +647,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       const st2 = memState();
       await memLoadDetail();
       st2.list = null;   // 让列表下次重拉
-      setTimeout(() => { if (state.tab === 'memory') renderTab(); }, 300);
+      setTimeout(() => { if (state.tab === 'memory') loadSettings(); }, 300);
     } catch (e) {
       const hint = document.getElementById('memv-hint');
       if (hint) { hint.textContent = '保存失败：' + (e?.message || e); hint.style.color = 'var(--red)'; }
@@ -665,7 +665,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
         e.preventDefault();
         st.tab = el.dataset.tab; st.sel = null; st.detail = null; st.q = '';
         st.list = null;
-        renderTab();
+        loadSettings();
         return;
       }
       if (act === 'sel') {
@@ -673,7 +673,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
         try { st.sel = JSON.parse(el.dataset.json); } catch { return; }
         if (st.sel && st.sel.tab) st.tab = st.sel.tab;
         st.detail = null;
-        memLoadDetail().then(() => { if (state.tab === 'memory') renderTab(); });
+        memLoadDetail().then(() => { if (state.tab === 'memory') loadSettings(); });
         return;
       }
       if (act === 'save') {
@@ -688,7 +688,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
           try {
             await api('/api/memory-cards/person/' + encodeURIComponent(el.dataset.qq), { method: 'DELETE' });
             st.sel = null; st.detail = null; st.list = null;
-            renderTab();
+            loadSettings();
           } catch (err) { alert('删除失败：' + (err?.message || err)); }
         })();
         return;
@@ -700,7 +700,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       const st = memState();
       st.q = el.value;
       clearTimeout(window.__memvQT);
-      window.__memvQT = setTimeout(() => { if (state.tab === 'memory') renderTab(); }, 200);
+      window.__memvQT = setTimeout(() => { if (state.tab === 'memory') loadSettings(); }, 200);
     });
   }
 

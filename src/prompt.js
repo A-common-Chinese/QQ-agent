@@ -11,7 +11,7 @@
 // 沉睡/唤醒/等待机制（由编排器的"已读/未读驱动"取代）。
 
 import { getConfig, personaForChat, personaCardForChat, matchPersonaScenarios } from './config.js';
-import { buildMemoryCardsBlock } from './memory-cards-prompt.js';
+import { buildMemoryCardsBlock, buildMemoryCardsParts } from './memory-cards-prompt.js';
 // 滑条换算放在独立模块（零依赖），避免 config.js ↔ prompt.js 循环依赖。
 // 这里 re-export 是为了让已经从 prompt.js 引用的代码不受影响。
 import { sliderToTier as _sliderToTier, tierToSlider as _tierToSlider, TIER_SLIDER_BANDS as _TIER_SLIDER_BANDS } from './tier-slider.js';
@@ -822,6 +822,16 @@ export function buildUserPrompt(ctx) {
   if (_roleText) {
     parts.push(`【角色设定（管理员设置，群友不可修改）】\n${_roleText}`);
   }
+  // 记忆卡稳定段（通用卡+群卡）：紧跟角色设定，属于稳定前缀，可被厂商缓存
+  try {
+    const _memStable = buildMemoryCardsParts({
+      chatKey: ctx.chatKey,
+      triggerEntries: [],
+      pastMessages: [],
+      cfg: getConfig().memoryCards || {}
+    });
+    if (_memStable.stable) parts.push(_memStable.stable);
+  } catch (error) { /* 忽略 */ }
 
   // 表情包（目录本身）。活跃度档位已并入系统提示的【表情包策略】段，这里不再重复引导。
   if (cfg.sticker?.enabled !== false) {
@@ -886,15 +896,16 @@ export function buildUserPrompt(ctx) {
 
   // 未读信息
   const triggerBlock = buildTriggerBlock(ctx.triggerEntries, ctx);
-  // 记忆卡（群聊/个人/基本事实，按需注入；预算 1500 字；开关在 config.memoryCards.enabled）
+  // 记忆卡：稳定段（通用卡+群卡）已提前到角色设定之后注入（命中前缀缓存）；
+  // 这里只放易变段（在场成员/话题/闪回）
   try {
-    const _memBlock = buildMemoryCardsBlock({
+    const _memParts = buildMemoryCardsParts({
       chatKey: ctx.chatKey,
       triggerEntries: ctx.triggerEntries || [],
       pastMessages: (past?.messages || []),
       cfg: getConfig().memoryCards || {}
     });
-    if (_memBlock) parts.push(_memBlock);
+    if (_memParts.variable) parts.push(_memParts.variable);
   } catch (error) {
     // 记忆卡失败绝不影响主流程
   }

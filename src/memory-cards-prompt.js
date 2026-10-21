@@ -142,3 +142,30 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
   if (!parts.length) return '';
   return '【记忆卡】\n' + parts.join('\n');
 }
+
+
+/**
+ * 拆成两段：
+ *   stable   = 通用卡 + 群卡（几乎不变 → 放在提示词靠前位置，可命中前缀缓存）
+ *   variable = 在场成员 + 话题 + 闪回（每轮变 → 放在易变区）
+ * 返回 { stable, variable, total }
+ */
+export function buildMemoryCardsParts(opts) {
+  const full = buildMemoryCardsBlock(opts);
+  if (!full) return { stable: '', variable: '', total: 0 };
+  const body = full.replace(/^【记忆卡】\n/, '');
+  // 按段头切分
+  const cutMarkers = ['【在场】', '【相关话题】', '【其它话题】', '【偶然想起】'];
+  let cutAt = body.length;
+  for (const m of cutMarkers) {
+    const idx = body.indexOf(m);
+    if (idx >= 0 && idx < cutAt) cutAt = idx;
+  }
+  const stable = body.slice(0, cutAt).trim();
+  const variable = body.slice(cutAt).trim();
+  return {
+    stable: stable ? '【记忆卡·全局】\n' + stable : '',
+    variable: variable ? '【记忆卡·本轮】\n' + variable : '',
+    total: full.length
+  };
+}
