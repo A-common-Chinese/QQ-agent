@@ -1103,6 +1103,179 @@ export function createRoutes(deps) {
       }
     },
 
+    // ── 人格卡（人设系统重构）────────────────────────────────────────
+    {
+      method: 'GET', pattern: '/api/personas',
+      handler: async ({ res, json }) => {
+        const cfg = getConfig();
+        return json(res, 200, {
+          personas: Array.isArray(cfg.personas) ? cfg.personas : [],
+          shared: cfg.personaShared || {},
+          policy: cfg.personaPolicy || {},
+          defaultPersonaId: cfg.personaDefault || ''
+        });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/personas',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const name = String(body.name || '').trim();
+        if (!name) return json(res, 400, { ok: false, error: '缺少 name' });
+        const cfg = getConfig();
+        const personas = Array.isArray(cfg.personas) ? cfg.personas.slice() : [];
+        const id = 'p_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+        const card = {
+          id, name, builtin: false,
+          variant: String(body.variant || ''),
+          examples: Array.isArray(body.examples) ? body.examples : [],
+          scenarios: Array.isArray(body.scenarios) ? body.scenarios : [],
+          useShared: body.useShared !== false,
+          meta: { source: 'manual', createdAt: Date.now() }
+        };
+        personas.push(card);
+        updateConfig({ personas });
+        return json(res, 200, { ok: true, persona: card });
+      }
+    },
+    {
+      method: 'PUT', pattern: /^\/api\/personas\/([\w-]+)$/,
+      handler: async ({ res, json, req, match }) => {
+        const id = match && match[1];
+        const body = await readBody(req).catch(() => ({}));
+        const cfg = getConfig();
+        const personas = Array.isArray(cfg.personas) ? cfg.personas.slice() : [];
+        const idx = personas.findIndex((p) => p && p.id === id);
+        if (idx < 0) return json(res, 404, { ok: false, error: '卡片不存在' });
+        if (personas[idx].builtin) return json(res, 403, { ok: false, error: '内置卡只读，不能编辑' });
+        personas[idx] = {
+          ...personas[idx],
+          ...(body.name ? { name: String(body.name) } : {}),
+          ...(typeof body.variant === 'string' ? { variant: body.variant } : {}),
+          ...(Array.isArray(body.examples) ? { examples: body.examples } : {}),
+          ...(Array.isArray(body.scenarios) ? { scenarios: body.scenarios } : {}),
+          updatedAt: Date.now()
+        };
+        updateConfig({ personas });
+        return json(res, 200, { ok: true, persona: personas[idx] });
+      }
+    },
+    {
+      method: 'DELETE', pattern: /^\/api\/personas\/([\w-]+)$/,
+      handler: async ({ res, json, match }) => {
+        const id = match && match[1];
+        const cfg = getConfig();
+        const personas = Array.isArray(cfg.personas) ? cfg.personas.slice() : [];
+        const idx = personas.findIndex((p) => p && p.id === id);
+        if (idx < 0) return json(res, 404, { ok: false, error: '卡片不存在' });
+        if (personas[idx].builtin) return json(res, 403, { ok: false, error: '内置卡只读，不能删除' });
+        // 决策 5：允许删除；引用它的会话回落到默认卡（默认卡若也是它或无默认 → 清空=静默）
+        const def = String(cfg.personaDefault || '').trim();
+        const fallback = def && def !== id ? def : '';
+        const byChat = { ...(cfg.personaByChat || {}) };
+        let affected = 0;
+        for (const k of Object.keys(byChat)) {
+          if (byChat[k] && byChat[k].personaId === id) {
+            byChat[k] = { ...byChat[k], personaId: fallback };
+            affected += 1;
+          }
+        }
+        personas.splice(idx, 1);
+        updateConfig({ personas, personaByChat: { __replace__: byChat }, ...(cfg.personaDefault === id ? { personaDefault: fallback } : {}) });
+        return json(res, 200, { ok: true, affected, fallback: fallback || '(未设置→这些会话将静默)' });
+      }
+    },
+    {
+      method: 'PUT', pattern: '/api/persona-shared',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const cur = getConfig().personaShared || {};
+        const next = {
+          ...cur,
+          ...(typeof body.core === 'string' ? { core: body.core } : {}),
+          ...(typeof body.voice === 'string' ? { voice: body.voice } : {})
+        };
+        updateConfig({ personaShared: next });
+        return json(res, 200, { ok: true, shared: next });
+      }
+    },
+    {
+      method: 'PUT', pattern: '/api/persona-policy',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const cur = getConfig().personaPolicy || {};
+        const next = {
+          ...cur,
+          ...(Array.isArray(body.bannedPhrases) ? { bannedPhrases: body.bannedPhrases } : {}),
+          ...(Array.isArray(body.promptOnlyPhrases) ? { promptOnlyPhrases: body.promptOnlyPhrases } : {}),
+          ...(typeof body.bannedPhraseMode === 'string' ? { bannedPhraseMode: body.bannedPhraseMode } : {}),
+          ...(body.outboundFilter && typeof body.outboundFilter === 'object' ? { outboundFilter: body.outboundFilter } : {})
+        };
+        updateConfig({ personaPolicy: next });
+        return json(res, 200, { ok: true, policy: next });
+      }
+    },
+    {
+      method: 'GET', pattern: '/api/persona-assignments',
+      handler: async ({ res, json }) => {
+        const cfg = getConfig();
+        const groups = cfg?.onebot?.allow?.groups || cfg?.allow?.groups || [];
+        const privates = cfg?.onebot?.allow?.private || cfg?.allow?.private || [];
+        return json(res, 200, {
+          assignments: cfg.personaByChat || {},
+          defaultPersonaId: cfg.personaDefault || '',
+          chats: [...groups.map((g) => 'group:' + g), ...privates.map((p) => 'private:' + p)]
+        });
+      }
+    },
+    {
+      method: 'PUT', pattern: '/api/persona-assignments',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const chatKey = String(body.chatKey || '').trim();
+        const personaId = String(body.personaId || '').trim();
+        if (!chatKey) return json(res, 400, { ok: false, error: '缺少 chatKey' });
+        const cfg = getConfig();
+        const byChat = { ...(cfg.personaByChat || {}) };
+        if (!personaId) {
+          delete byChat[chatKey];
+        } else {
+          if (!Array.isArray(cfg.personas) || !cfg.personas.some((p) => p && p.id === personaId)) return json(res, 400, { ok: false, error: '卡片不存在' });
+          byChat[chatKey] = { ...(byChat[chatKey] || {}), personaId };
+        }
+        updateConfig({ personaByChat: { __replace__: byChat } });
+        return json(res, 200, { ok: true, assignments: byChat });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/persona-assignments/batch',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const chatKeys = Array.isArray(body.chatKeys) ? body.chatKeys.map((x) => String(x).trim()).filter(Boolean) : [];
+        const personaId = String(body.personaId || '').trim();
+        const cfg = getConfig();
+        if (personaId && (!Array.isArray(cfg.personas) || !cfg.personas.some((p) => p && p.id === personaId))) return json(res, 400, { ok: false, error: '卡片不存在' });
+        const byChat = { ...(cfg.personaByChat || {}) };
+        for (const k of chatKeys) {
+          if (!personaId) delete byChat[k];
+          else byChat[k] = { ...(byChat[k] || {}), personaId };
+        }
+        updateConfig({ personaByChat: { __replace__: byChat } });
+        return json(res, 200, { ok: true, updated: chatKeys.length, assignments: byChat });
+      }
+    },
+    {
+      method: 'PUT', pattern: '/api/persona-default',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const personaId = String(body.personaId || '').trim();
+        const cfg = getConfig();
+        if (personaId && (!Array.isArray(cfg.personas) || !cfg.personas.some((p) => p && p.id === personaId))) return json(res, 400, { ok: false, error: '卡片不存在' });
+        updateConfig({ personaDefault: personaId });
+        return json(res, 200, { ok: true, defaultPersonaId: personaId });
+      }
+    },
+
     // ── 版本 / 更新 ──────────────────────────────────────────────────
     {
       method: 'GET', pattern: '/api/version',

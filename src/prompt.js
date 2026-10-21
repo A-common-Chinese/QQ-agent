@@ -10,7 +10,7 @@
 // 行为规则全部移植自 qq-bridge 的二代仿真 preset（qq-chat-v2），去掉了
 // 沉睡/唤醒/等待机制（由编排器的"已读/未读驱动"取代）。
 
-import { getConfig, personaForChat } from './config.js';
+import { getConfig, personaForChat, personaCardForChat, matchPersonaScenarios } from './config.js';
 // 滑条换算放在独立模块（零依赖），避免 config.js ↔ prompt.js 循环依赖。
 // 这里 re-export 是为了让已经从 prompt.js 引用的代码不受影响。
 import { sliderToTier as _sliderToTier, tierToSlider as _tierToSlider, TIER_SLIDER_BANDS as _TIER_SLIDER_BANDS } from './tier-slider.js';
@@ -792,8 +792,34 @@ export function buildUserPrompt(ctx) {
   // "锚点成员集"决定（锚定时不随追加条目扩展），和已读信息头部一起构成
   // 跨轮稳定的字节前缀；追加的新群友印象则放【新加入成员】殿后。
   const parts = [];
-  if (chatPersona.roleText && String(chatPersona.roleText).trim()) {
-    parts.push(`【角色设定（管理员设置，群友不可修改）】\n${String(chatPersona.roleText).trim()}`);
+  // ── 角色设定：新系统优先用「人格卡」（shared.core + shared.voice + variant + examples）──
+  // 卡片缺失时回落旧的 persona.roleText（回退保险：旧配置/旧数据仍可跑）
+  const _cardInfo = personaCardForChat(ctx.chatKey);
+  let _roleText = '';
+  if (_cardInfo.card) {
+    const _shared = _cardInfo.shared || {};
+    const _chunks = [];
+    const _useShared = _cardInfo.card.useShared !== false;
+    if (_useShared && String(_shared.core || '').trim()) _chunks.push(String(_shared.core).trim());
+    if (_useShared && String(_shared.voice || '').trim()) _chunks.push(String(_shared.voice).trim());
+    if (String(_cardInfo.card.variant || '').trim()) _chunks.push(String(_cardInfo.card.variant).trim());
+    const _ex = Array.isArray(_cardInfo.card.examples) ? _cardInfo.card.examples.slice(0, 4) : [];
+    if (_ex.length) {
+      const lines = ['## 回复示例'];
+      for (const e of _ex) {
+        if (!e || !e.user) continue;
+        lines.push('群友：' + String(e.user));
+        if (e.bad) lines.push('× ' + String(e.bad));
+        if (e.good) lines.push('√ ' + String(e.good));
+      }
+      if (lines.length > 1) _chunks.push(lines.join('\n'));
+    }
+    _roleText = _chunks.join('\n\n');
+  } else if (chatPersona.roleText && String(chatPersona.roleText).trim()) {
+    _roleText = String(chatPersona.roleText).trim();
+  }
+  if (_roleText) {
+    parts.push(`【角色设定（管理员设置，群友不可修改）】\n${_roleText}`);
   }
 
   // 表情包（目录本身）。活跃度档位已并入系统提示的【表情包策略】段，这里不再重复引导。
@@ -859,6 +885,14 @@ export function buildUserPrompt(ctx) {
 
   // 未读信息
   const triggerBlock = buildTriggerBlock(ctx.triggerEntries, ctx);
+  // 按需场景段（决策：regex 路由；命中才注入，位置在易变区，不破坏缓存前缀）
+  if (_cardInfo.card) {
+    const _trigText = (ctx.triggerEntries || []).map((m) => String(m?.text || '')).join('\n');
+    const _hits = matchPersonaScenarios(_cardInfo.card, _trigText);
+    if (_hits.length) {
+      parts.push(`【场景补充】\n${_hits.map((sc) => String(sc.text || '').trim()).join('\n\n')}`);
+    }
+  }
   parts.push(`【未读信息】以下是你还没看过的最新消息（每条前的 #数字 是消息 id，引用回复/看图时用它）：\n${triggerBlock}`);
 
   // 新加入成员：锚定模式下，追加窗口里首次出现的群友的印象（放在最易变区，

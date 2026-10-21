@@ -726,6 +726,37 @@ export function setRuntimeConfig(cfg) {
  *    且统一模式下 UI 隐藏了分会话编辑入口，用户无从发现也无处改）。
  *    开关关掉后条目恢复生效 —— 数据不删，只是不再参与合并。
  */
+/**
+ * 取某个会话的「人格卡」（新系统）。返回：
+ *   { assigned, cardId, card, shared }
+ * - assigned：该会话是否分配了卡（未分配 = 静默，见 isSilentChat）
+ * - card 为空时调用方应回落旧 persona.roleText（回退保险）
+ */
+export function personaCardForChat(chatKey) {
+  const cfg = getConfig();
+  const entry = cfg?.personaByChat?.[String(chatKey || '')] || null;
+  const cardId = String(entry?.personaId || '').trim();
+  const personas = Array.isArray(cfg?.personas) ? cfg.personas : [];
+  const card = cardId ? personas.find((p) => p && p.id === cardId) || null : null;
+  return { assigned: !!cardId, cardId, card, shared: cfg?.personaShared || {} };
+}
+
+/** 用当前消息文本匹配卡片的按需场景段（trigger 是正则/关键词，非法正则跳过）。 */
+export function matchPersonaScenarios(card, text) {
+  const list = Array.isArray(card?.scenarios) ? card.scenarios : [];
+  const s = String(text || '');
+  if (!s.trim() || !list.length) return [];
+  const out = [];
+  for (const sc of list) {
+    const trig = String(sc?.trigger || '').trim();
+    if (!trig) continue;
+    try {
+      if (new RegExp(trig, 'i').test(s)) out.push(sc);
+    } catch { /* 非法正则忽略，不影响其它段 */ }
+  }
+  return out;
+}
+
 export function personaForChat(chatKey) {
   const base = getConfig().persona || {};
   const [kind, id] = String(chatKey || '').split(':');
@@ -772,6 +803,12 @@ export function isSilentChat(chatKey, list = null) {
   if (!Array.isArray(src) || !src.length) return false;
   const key = String(chatKey || '').trim();
   if (!key) return false;
+  // ── 新规则（决策 2）：未分配人格的会话 = 静默（只存档/转发，不回复、不调模型）──
+  // 只在"新人格系统已落库"时生效；回退到旧配置（无 personas）时保持原行为，避免一 rollback 全哑。
+  if (!Array.isArray(list)) {
+    const _c = getConfig();
+    if (Array.isArray(_c.personas) && _c.personas.length && !_c.personaByChat?.[key]?.personaId) return true;
+  }
   const wanted = new Set();
   for (const raw of src) {
     const item = String(raw ?? '').trim();
