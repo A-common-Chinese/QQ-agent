@@ -23,7 +23,7 @@ function writeAtomic(file, data) {
 }
 
 export function listCards() {
-  const general = read(path.join(ROOT, 'general.json')) || { id: 'general', name: '通用卡', summary: '', facts: [] };
+  const general = getGeneral() || { id: 'general', name: '通用卡', summary: '', facts: [] };
   const groups = [];
   const persons = [];
   try {
@@ -49,7 +49,15 @@ export function listCards() {
 
 export function getPerson(qq) { return read(path.join(PERSONS, safeKey(qq) + '.json')); }
 export function getGroup(chatKey) { return read(path.join(dirOf(chatKey), 'group.json')); }
-export function getGeneral() { return read(path.join(ROOT, 'general.json')); }
+export function getGeneral() {
+  // 迁移后：优先取 generals/ 里的全局卡；没有再回退老的单文件
+  try {
+    const all = listGenerals();
+    const g = all.find((x) => x.scope === 'global') || all[0];
+    if (g) return g;
+  } catch { /* ignore */ }
+  return read(path.join(ROOT, 'general.json'));
+}
 
 export function updatePerson(qq, patch) {
   const cur = getPerson(qq);
@@ -97,4 +105,91 @@ export function stats() {
     persons: persons.length,
     root: ROOT
   };
+}
+
+// ── 多张通用卡 ────────────────────────────────────────────────
+const GENERALS = path.join(ROOT, 'generals');
+const safeGid = (id) => String(id || '').replace(/[^\w-]/g, '_');
+
+export function listGenerals() {
+  const out = [];
+  try {
+    for (const f of fs.readdirSync(GENERALS)) {
+      if (!f.endsWith('.json') || f.includes('.deleted')) continue;
+      const c = read(path.join(GENERALS, f));
+      if (c && c.id) out.push(c);
+    }
+  } catch { /* ignore */ }
+  // 全局默认排最前
+  out.sort((a, b) => (b.scope === 'global' ? 1 : 0) - (a.scope === 'global' ? 1 : 0));
+  return out;
+}
+
+export function getGeneralById(id) {
+  return read(path.join(GENERALS, safeGid(id) + '.json'));
+}
+
+export function createGeneral(patch = {}) {
+  const id = 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5);
+  const card = {
+    id,
+    name: String(patch.name || '新通用卡'),
+    scope: 'normal',
+    summary: String(patch.summary || ''),
+    facts: Array.isArray(patch.facts) ? patch.facts : [],
+    prefs: Array.isArray(patch.prefs) ? patch.prefs : [],
+    updatedAt: new Date().toISOString()
+  };
+  writeAtomic(path.join(GENERALS, id + '.json'), card);
+  return { ok: true, card };
+}
+
+export function updateGeneralById(id, patch = {}) {
+  const cur = getGeneralById(id);
+  if (!cur) return { ok: false, error: 'not_found' };
+  const allowed = ['name', 'summary', 'facts', 'prefs', 'scope'];
+  const next = { ...cur, updatedAt: new Date().toISOString() };
+  for (const k of allowed) if (patch[k] !== undefined) next[k] = patch[k];
+  // 设为全局时，其它卡自动降级
+  if (next.scope === 'global') {
+    for (const g of listGenerals()) {
+      if (g.id !== next.id && g.scope === 'global') {
+        const f2 = path.join(GENERALS, safeGid(g.id) + '.json');
+        writeAtomic(f2, { ...g, scope: 'normal', updatedAt: new Date().toISOString() });
+      }
+    }
+  }
+  writeAtomic(path.join(GENERALS, safeGid(id) + '.json'), next);
+  return { ok: true, card: next };
+}
+
+export function deleteGeneral(id) {
+  const cur = getGeneralById(id);
+  if (!cur) return { ok: false, error: 'not_found' };
+  if (cur.scope === 'global') return { ok: false, error: 'global_protected' };
+  const file = path.join(GENERALS, safeGid(id) + '.json');
+  fs.renameSync(file, file + '.deleted-' + Date.now());
+  return { ok: true };
+}
+
+/** 按会话解析该用哪张通用卡：persona.generalCardId → 全局默认 */
+export function resolveGeneralForChat(chatKey, cfg = null) {
+  const c = cfg || (() => { try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'config.json'), 'utf8')); } catch { return {}; } })();
+  const pid = String(c?.personaByChat?.[String(chatKey || '')]?.personaId || '');
+  let wanted = '';
+  if (pid) {
+    const persona = (Array.isArray(c?.personas) ? c.personas : []).find((p) => p && p.id === pid);
+    if (persona?.generalCardId) wanted = String(persona.generalCardId);
+  }
+  if (wanted) {
+    const hit = getGeneralById(wanted);
+    if (hit) return hit;
+  }
+  const all = listGenerals();
+  return all.find((g) => g.scope === 'global') || all[0] || null;
+}
+
+export function statsGenerals() {
+  const all = listGenerals();
+  return { count: all.length, globalId: (all.find((g) => g.scope === 'global') || {}).id || '' };
 }

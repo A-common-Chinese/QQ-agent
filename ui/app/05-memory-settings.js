@@ -799,6 +799,7 @@ function renderHealthCard() {
       itemsBox.innerHTML = '<div class="list-head muted">加载记忆卡…</div>';
       try {
         st.list = await api('/api/memory-cards');
+        try { st.generals = (await api('/api/memory-cards/generals')).generals || []; } catch (e) { st.generals = []; }
       } catch (e) {
         itemsBox.innerHTML = '<div class="list-head muted">加载失败：' + esc(String(e?.message || e)) + '</div>';
         return;
@@ -815,7 +816,11 @@ function renderHealthCard() {
     let items = [];
     if (st.tab === 'groups') items = (st.list.groups || []).map((g) => ({ key: 'g:' + g.chatKey, label: g.name || g.chatKey, sub: g.summary || '', sel: st.sel && st.sel.tab === 'groups' && st.sel.chatKey === g.chatKey, data: { tab: 'groups', chatKey: g.chatKey } }));
     else if (st.tab === 'persons') items = (st.list.persons || []).map((p) => ({ key: 'p:' + p.qq, label: (p.name || '') + ' (' + p.qq + ')', sub: (p.summary || '') + ' · 群' + (p.groups || 0), sel: st.sel && st.sel.tab === 'persons' && st.sel.qq === p.qq, data: { tab: 'persons', qq: p.qq } }));
-    else items = [{ key: 'general', label: '通用卡', sub: st.list.general?.summary || '', sel: true, data: { tab: 'general' } }];
+    else {
+      const gens = (st.generals && st.generals.length) ? st.generals : (st.list.general ? [st.list.general] : []);
+      if (!st.genId && gens[0]) st.genId = gens[0].id;
+      items = gens.map((g) => ({ key: 'gen:' + g.id, label: (g.scope === 'global' ? '★ ' : '') + (g.name || g.id), sub: g.summary || '', sel: st.genId === g.id, data: { tab: 'general', genId: g.id } }));
+    }
     if (q) items = items.filter((x) => (x.label + ' ' + x.sub).toLowerCase().includes(q));
     const listHtml = items.map((x) => `<div class="memv-item${x.sel ? ' memv-sel' : ''}" data-mem="sel" data-json='${esc(JSON.stringify(x.data))}'>
         <div style="font-weight:600">${esc(x.label)}</div>
@@ -831,7 +836,13 @@ function renderHealthCard() {
         <div>${listHtml}</div>
       </div>`;
     // 右栏：详情
-    detailBox.innerHTML = (typeof memDetailHtml === 'function') ? memDetailHtml() : '<div class="muted">（无详情）</div>';
+    if (st.tab === 'general' && typeof memGeneralDetailHtml === 'function') {
+      detailBox.innerHTML = memGeneralDetailHtml();
+    } else if (typeof memDetailHtml === 'function') {
+      detailBox.innerHTML = memDetailHtml();
+    } else {
+      detailBox.innerHTML = '<div class="muted">（无详情）</div>';
+    }
     // 记忆 tab 的点击/输入也要绑定（#memory-items 是动态生成的）
     if (typeof bindMemoryTabEvents === 'function') bindMemoryTabEvents();
   }
@@ -859,6 +870,69 @@ function renderHealthCard() {
         memLoadDetail().then(() => { if (state.tab === 'memory') loadMemoryView(); });
         return;
       }
+      if (act === 'gen-save') {
+        (async () => {
+          const gid = el.dataset.gid;
+          const name = document.getElementById('memg-name')?.value || '';
+          const summary = document.getElementById('memg-summary')?.value || '';
+          const facts = String(document.getElementById('memg-facts')?.value || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean).map((line) => {
+            const i = line.indexOf('=');
+            return i > 0 ? { key: line.slice(0, i).trim(), value: line.slice(i + 1).trim() } : { key: line, value: '' };
+          });
+          try {
+            await api('/api/memory-cards/generals/' + encodeURIComponent(gid), { method: 'PUT', body: JSON.stringify({ name, summary, facts }) });
+            // 挂靠：逐个改人设的 generalCardId
+            const hooks = [...document.querySelectorAll('.memg-hook')];
+            for (const cb of hooks) {
+              const pid = cb.dataset.pid;
+              await api('/api/personas/' + encodeURIComponent(pid), { method: 'PUT', body: JSON.stringify({ generalCardId: cb.checked ? gid : '' }) });
+            }
+            const hint = document.getElementById('memg-hint');
+            if (hint) { hint.textContent = '已保存 ✅'; hint.style.color = 'var(--green)'; }
+            st.generals = (await api('/api/memory-cards/generals')).generals || [];
+            st.list = null;
+            loadMemoryView();
+          } catch (e) {
+            const hint = document.getElementById('memg-hint');
+            if (hint) { hint.textContent = '保存失败：' + (e?.message || e); hint.style.color = 'var(--red)'; }
+          }
+        })();
+        return;
+      }
+      if (act === 'gen-new') {
+        (async () => {
+          try {
+            const r = await api('/api/memory-cards/generals', { method: 'POST', body: JSON.stringify({ name: '新通用卡', summary: '', facts: [] }) });
+            st.generals = (await api('/api/memory-cards/generals')).generals || [];
+            st.genId = r.card?.id || st.genId;
+            loadMemoryView();
+          } catch (e) { alert('新建失败：' + (e?.message || e)); }
+        })();
+        return;
+      }
+      if (act === 'gen-global') {
+        (async () => {
+          try {
+            await api('/api/memory-cards/generals/' + encodeURIComponent(el.dataset.gid), { method: 'PUT', body: JSON.stringify({ scope: 'global' }) });
+            st.generals = (await api('/api/memory-cards/generals')).generals || [];
+            st.list = null;
+            loadMemoryView();
+          } catch (e) { alert('设置失败：' + (e?.message || e)); }
+        })();
+        return;
+      }
+      if (act === 'gen-del') {
+        (async () => {
+          if (!(await uiConfirm('删除这张通用卡？挂靠它的人设会回到全局默认。'))) return;
+          try {
+            await api('/api/memory-cards/generals/' + encodeURIComponent(el.dataset.gid), { method: 'DELETE' });
+            st.generals = (await api('/api/memory-cards/generals')).generals || [];
+            st.genId = null;
+            loadMemoryView();
+          } catch (e) { alert('删除失败：' + (e?.message || e)); }
+        })();
+        return;
+      }
       if (act === 'save') { memSave(el.dataset.key, st); return; }
       if (act === 'del') {
         (async () => {
@@ -882,4 +956,34 @@ function renderHealthCard() {
       clearTimeout(window.__memTabQT);
       window.__memTabQT = setTimeout(() => { if (state.tab === 'memory') loadMemoryView(); }, 250);
     });
+  }
+
+
+  // 通用卡详情（多卡 + 挂靠人设）
+  function memGeneralDetailHtml() {
+    const st = (typeof memState === 'function') ? memState() : null;
+    if (!st) return '<div class="muted">（无）</div>';
+    const gens = (st.generals && st.generals.length) ? st.generals : [];
+    if (!gens.length) return '<div class="muted" style="padding:16px">还没有通用卡 <button class="btn btn-small" data-mem="gen-new">＋ 新建</button></div>';
+    const g = gens.find((x) => x.id === st.genId) || gens[0];
+    st.genId = g.id;
+    const facts = (g.facts || []).map((f) => esc(f.key || '') + '=' + esc(f.value || '')).join('\n');
+    // 挂靠：哪些人设卡用了这张通用卡
+    const personas = (st.list && st.list.personas) ? st.list.personas : [];
+    const allPersonas = (state.config && state.config.personas) ? state.config.personas : [];
+    const hooked = allPersonas.filter((p) => p.generalCardId === g.id);
+    const hookList = allPersonas.filter((p) => !p.builtin).map((p) => `<label style="display:block;font-size:13px"><input type="checkbox" class="memg-hook" data-pid="${esc(p.id)}" ${p.generalCardId === g.id ? 'checked' : ''}/> ${esc(p.name)}</label>`).join('') || '<div class="muted" style="font-size:12px">（没有人设卡）</div>';
+    return `
+      <div class="hint">${g.scope === 'global' ? '★ 这是<b>全局默认</b>：没挂靠的人设都用它' : '普通通用卡（把另一张设为全局可替换默认）'}</div>
+      <div class="field"><label>名称</label><input type="text" id="memg-name" value="${esc(g.name || '')}" /></div>
+      <div class="field"><label>一句话概览</label><input type="text" id="memg-summary" value="${esc(g.summary || '')}" /></div>
+      <div class="field"><label>事实（一行一条，key=value）</label><textarea id="memg-facts" style="min-height:100px">${facts}</textarea></div>
+      <div class="field"><label>挂靠的人设卡（勾选后该人设的会话就用这张通用卡）</label><div style="max-height:160px;overflow:auto">${hookList}</div></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+        <button class="btn btn-small btn-primary" data-mem="gen-save" data-gid="${esc(g.id)}">保存</button>
+        <button class="btn btn-small" data-mem="gen-global" data-gid="${esc(g.id)}">设为全局默认</button>
+        <button class="btn btn-small" data-mem="gen-new">＋ 新建通用卡</button>
+        ${g.scope === 'global' ? '' : '<button class="btn btn-small btn-danger" data-mem="gen-del" data-gid="' + esc(g.id) + '">删除</button>'}
+        <span class="hint" id="memg-hint"></span>
+      </div>`;
   }

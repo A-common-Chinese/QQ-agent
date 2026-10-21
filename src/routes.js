@@ -30,7 +30,7 @@ import { getPrivacyFilter } from './privacy.js';
 import { logger } from './logger.js';
 import { skillManager } from './skills/manager.js';
 import { parseLegacyCard } from './persona-import.js';
-import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats } from './memory-cards.js';
+import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral } from './memory-cards.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
 import { availabilityOf, listTools, CATEGORY_META } from './tool-registry.js';
 import { safeFetchBinary, browseLockState } from './safe-fetch.js';
@@ -1303,6 +1303,43 @@ export function createRoutes(deps) {
         return json(res, 200, { ok: true, created, total: personas.length, config: sanitizeConfig(getConfig()) });
       }
     },
+    // ── 通用卡（多张 + 人设卡挂靠）────────────────────────────────
+    {
+      method: 'GET', pattern: '/api/memory-cards/generals',
+      handler: async ({ res, json }) => json(res, 200, { ok: true, generals: listGenerals() })
+    },
+    {
+      method: 'POST', pattern: '/api/memory-cards/generals',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        return json(res, 200, createGeneral(body || {}));
+      }
+    },
+    {
+      method: 'GET', pattern: /^\/api\/memory-cards\/generals\/([\w-]+)$/,
+      handler: async ({ res, json, match }) => {
+        const card = getGeneralById(match[1]);
+        if (!card) return json(res, 404, { ok: false, error: '没有这张通用卡' });
+        return json(res, 200, { ok: true, card });
+      }
+    },
+    {
+      method: 'PUT', pattern: /^\/api\/memory-cards\/generals\/([\w-]+)$/,
+      handler: async ({ req, res, json, match }) => {
+        const body = await bodyOf(req);
+        const r = updateGeneralById(match[1], body || {});
+        if (!r.ok) return json(res, 404, { ok: false, error: '没有这张通用卡' });
+        return json(res, 200, r);
+      }
+    },
+    {
+      method: 'DELETE', pattern: /^\/api\/memory-cards\/generals\/([\w-]+)$/,
+      handler: async ({ res, json, match }) => {
+        const r = deleteGeneral(match[1]);
+        if (!r.ok) return json(res, 400, { ok: false, error: r.error === 'global_protected' ? '全局默认卡不能删（先把另一张设为全局）' : '没有这张通用卡' });
+        return json(res, 200, r);
+      }
+    },
     // ── 记忆卡（群聊 / 个人 / 基本事实）────────────────────────────
     {
       method: 'GET', pattern: '/api/memory-cards',
@@ -1413,6 +1450,7 @@ export function createRoutes(deps) {
           ...personas[idx],
           ...(body.name ? { name: String(body.name) } : {}),
           ...(typeof body.variant === 'string' ? { variant: body.variant } : {}),
+          ...(typeof body.generalCardId === 'string' ? { generalCardId: body.generalCardId } : {}),
           ...(Array.isArray(body.examples) ? { examples: body.examples } : {}),
           ...(Array.isArray(body.scenarios) ? { scenarios: body.scenarios } : {}),
           updatedAt: Date.now()

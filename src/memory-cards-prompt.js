@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
+import { resolveGeneralForChat } from './memory-cards.js';
 
 const ROOT = path.join(DATA_DIR, 'memory-cards');
 const PERSONS = path.join(ROOT, 'persons');
@@ -57,8 +58,10 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
     return true;
   };
 
-  // ① 通用卡（永远第一优先）
-  const general = read(path.join(ROOT, 'general.json'));
+  // ① 通用卡（按人设挂靠解析；没挂靠 → 全局默认）
+  let general = null;
+  try { general = resolveGeneralForChat(chatKey); } catch (error) { general = null; }
+  if (!general) general = read(path.join(ROOT, 'general.json'));   // 兼容旧单文件
   if (general) {
     const facts = (general.facts || []).slice(0, 6).map((f) => f.key + '：' + f.value).join('；');
     tryPush('【通用】' + clip(general.summary || '', 80) + (facts ? '\n' + facts : ''), 0);
