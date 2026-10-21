@@ -54,7 +54,7 @@ export function getGeneral() { return read(path.join(ROOT, 'general.json')); }
 export function updatePerson(qq, patch) {
   const cur = getPerson(qq);
   if (!cur) return { ok: false, error: 'not_found' };
-  const allowed = ['name', 'summary', 'tone', 'facts', 'prefs', 'events', 'pending', 'notes'];
+  const allowed = ['name', 'summary', 'tone', 'facts', 'prefs', 'events', 'pending', 'notes', 'impressions', 'aliases'];
   const next = { ...cur, updatedAt: new Date().toISOString() };
   for (const k of allowed) if (patch && patch[k] !== undefined) next[k] = patch[k];
   writeAtomic(path.join(PERSONS, safeKey(qq) + '.json'), next);
