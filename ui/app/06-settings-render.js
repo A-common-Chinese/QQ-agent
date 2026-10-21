@@ -673,7 +673,7 @@ function renderMemorySettingsSection(c) {
       return `<tr>
         <td><input type="checkbox" class="pv2-pick" data-chat="${esc(k)}" /></td>
         <td>${esc(title)}</td>
-        <td><select class="pv2-assign" data-chat="${esc(k)}" onchange="pv2Assign(this)">
+        <td><select class="pv2-assign" data-chat="${esc(k)}" >
           <option value=""${cur ? '' : ' selected'}>未选择 → 静默</option>${pv2Opts(c, cur)}</select></td>
       </tr>`;
     }).join('');
@@ -685,9 +685,9 @@ function renderMemorySettingsSection(c) {
         <b style="min-width:160px">${esc(x.name)}${x.builtin ? '（只读）' : ''}</b>
         <span class="muted" style="font-size:12px">常驻 ${len} 字${refs ? ' · 被 ' + refs + ' 个会话使用' : ''}</span>
         <span style="flex:1"></span>
-        ${x.builtin ? '' : `<button class="btn btn-small" onclick="pv2OpenEditor(state.config.personas.find(p=>p.id==='${esc(x.id)}'))">编辑</button>
-        <button class="btn btn-small btn-danger" onclick="pv2DelCard('${esc(x.id)}')">删除</button>`}
-        <button class="btn btn-small" onclick="pv2CopyCard('${esc(x.id)}')">复制</button>
+        ${x.builtin ? '' : `<button class="btn btn-small" data-pv2="edit" data-id="${esc(x.id)}">编辑</button>
+        <button class="btn btn-small btn-danger" data-pv2="del" data-id="${esc(x.id)}">删除</button>`}
+        <button class="btn btn-small" data-pv2="copy" data-id="${esc(x.id)}">复制</button>
       </div>`;
     }).join('');
     const policy = c.personaPolicy || {};
@@ -706,12 +706,12 @@ function renderMemorySettingsSection(c) {
       </div>
       <h3>① 会话分配</h3>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-        <button class="btn btn-small" onclick="pv2PickAll(true)">全选</button>
-        <button class="btn btn-small" onclick="pv2PickAll(false)">全不选</button>
+        <button class="btn btn-small" data-pv2="pick-all" data-on="1">全选</button>
+        <button class="btn btn-small" data-pv2="pick-all" data-on="0">全不选</button>
         <span class="muted">批量设为</span>
         <select id="pv2-batch-card"><option value="">（选择卡片）</option>${pv2Opts(c, '')}</select>
-        <button class="btn btn-small btn-primary" onclick="pv2Batch(false)">应用</button>
-        <button class="btn btn-small" onclick="pv2Batch(true)">清除选择（静默）</button>
+        <button class="btn btn-small btn-primary" data-pv2="batch">应用</button>
+        <button class="btn btn-small" data-pv2="batch" data-clear="1">清除选择（静默）</button>
         <span class="hint" id="pv2-batch-hint"></span>
       </div>
       <table class="table"><thead><tr><th style="width:36px"></th><th>会话</th><th>人格卡</th></tr></thead><tbody>${rows}</tbody></table>
@@ -720,12 +720,12 @@ function renderMemorySettingsSection(c) {
       <div class="field"><label>新建分配时预选 / 删除卡后的回落目标</label>
         <div style="display:flex;gap:8px">
           <select id="pv2-default" style="flex:1"><option value="">（不设置）</option>${pv2Opts(c, c.personaDefault || '')}</select>
-          <button class="btn btn-small" onclick="pv2SaveDefault()">保存</button>
+          <button class="btn btn-small" data-pv2="save-default">保存</button>
         </div></div>
       <h3>③ 人格卡管理</h3>
       <div style="display:flex;gap:8px;margin-bottom:6px">
-        <button class="btn btn-small btn-primary" onclick="pv2OpenEditor(null)">＋ 新建人格卡</button>
-        <button class="btn btn-small" onclick="pv2AiGenerate()">✨ 用 AI 生成</button>
+        <button class="btn btn-small btn-primary" data-pv2="new">＋ 新建人格卡</button>
+        <button class="btn btn-small" data-pv2="ai-gen">✨ 用 AI 生成</button>
       </div>
       ${cardRows || '<div class="muted">（还没有卡片）</div>'}
       <h3>④ 共用部分（useShared 的卡共享）</h3>
@@ -733,7 +733,7 @@ function renderMemorySettingsSection(c) {
         <textarea id="pv2-shared-core" class="persona-role-text" style="min-height:150px">${esc(c.personaShared?.core || '')}</textarea></div>
       <div class="field"><label>voice（说话铁律/方式/节奏/工具）· ${String(c.personaShared?.voice || '').length} 字</label>
         <textarea id="pv2-shared-voice" class="persona-role-text" style="min-height:220px">${esc(c.personaShared?.voice || '')}</textarea></div>
-      <button class="btn btn-small btn-primary" onclick="pv2SaveShared()">保存共用部分</button>
+      <button class="btn btn-small btn-primary" data-pv2="save-shared">保存共用部分</button>
       <span class="hint" id="pv2-shared-hint"></span>
       <h3>⑤ AI 味黑名单</h3>
       <div class="hint">模式：<b>写进提示词</b>=模型自觉避免（自然，可能漏）；<b>出站过滤器</b>=生成后自动删（确定，可能句子变短）。</div>
@@ -744,13 +744,45 @@ function renderMemorySettingsSection(c) {
       </div>
       <div class="field"><label>短语（一行一条，${(policy.bannedPhrases || []).length} 条）</label>
         <textarea id="pv2-banned" style="min-height:140px">${esc((policy.bannedPhrases || []).join('\n'))}</textarea></div>
-      <button class="btn btn-small btn-primary" onclick="pv2SavePolicy()">保存黑名单</button>
+      <button class="btn btn-small btn-primary" data-pv2="save-policy">保存黑名单</button>
       <span class="hint" id="pv2-policy-hint"></span>
       <details style="margin-top:14px"><summary class="muted" style="cursor:pointer">高级：附加规则 / 系统提示词覆盖</summary>
         <div class="field"><label>管理员附加规则（追加到系统提示）</label><textarea id="cfg-customrules" class="persona-role-text" style="min-height:80px">${esc(c.persona?.customRules || '')}</textarea></div>
         <div class="field"><label>系统提示词覆盖（整体替换默认准则，谨慎）</label><textarea id="cfg-sysprompt" class="persona-role-text" style="min-height:100px">${esc(c.persona?.systemPromptOverride || '')}</textarea></div>
       </details>`;
   }
+
+// ⚠️ CSP 的 script-src 不含 'unsafe-inline' → 内联 onclick 会被浏览器丢弃。
+// 人设页所有按钮改成 data-pv2 + 这里一次性事件委托（重渲染也不会失联）。
+if (!window.__pv2Delegated) {
+  window.__pv2Delegated = true;
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-pv2]');
+    if (!el) return;
+    const act = el.dataset.pv2;
+    e.preventDefault();
+    if (act === 'pick-all') return pv2PickAll(el.dataset.on === '1');
+    if (act === 'batch') return pv2Batch(el.dataset.clear === '1');
+    if (act === 'save-default') return pv2SaveDefault();
+    if (act === 'save-shared') return pv2SaveShared();
+    if (act === 'save-policy') return pv2SavePolicy();
+    if (act === 'new') return pv2OpenEditor(null);
+    if (act === 'ai-gen') return pv2AiGenerate();
+    if (act === 'edit') {
+      const c = state.config || {};
+      const card = (c.personas || []).find((p) => p && p.id === el.dataset.id);
+      if (card) pv2OpenEditor(card);
+      return undefined;
+    }
+    if (act === 'del') return pv2DelCard(el.dataset.id);
+    if (act === 'copy') return pv2CopyCard(el.dataset.id);
+    return undefined;
+  });
+  document.addEventListener('change', (e) => {
+    const el = e.target.closest('.pv2-assign');
+    if (el) pv2Assign(el);
+  });
+}
 
 function renderPersonaSection(c) {
   // 统一人设开关：开启（默认）= 所有用同一套全局人设（下方完整编辑器）；
