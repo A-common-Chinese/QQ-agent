@@ -18,6 +18,11 @@ import { DATA_DIR, getConfig, ROOT } from './config.js';
 
 const STATE_FILE = path.join(DATA_DIR, 'update-check.json');
 const DOWNLOAD_DIR = path.join(DATA_DIR, 'updates');
+
+// 下载镜像：实测直连 GitHub 约 25 KB/s（78 MB 要 50 分钟），
+// gh-proxy.com / ghfast.top 约 160~200 KB/s（7~8 分钟）。
+// 顺序即优先级；可在 config.update.mirrors 覆盖。
+const DEFAULT_MIRRORS = ['https://gh-proxy.com', 'https://ghfast.top'];
 const DEFAULT_REPO = 'A-common-Chinese/QQ-agent';
 const FALLBACK_INFO_URL = 'https://kondius.cn/qq-agent/version.json';
 
@@ -193,13 +198,14 @@ function digestOf(text) {
 export async function downloadUpdate(assetInfo, version) {
   if (download.active) return { ok: false, error: '已有下载在进行', state: getDownloadState() };
   const asset = assetInfo || {};
-  const url = String(asset.url || '').trim();
+  const rawUrl = String(asset.url || '').trim();
   const name = String(asset.name || 'QQ-Agent-DSH-Setup.exe').replace(/[\\/:*?"<>|]/g, '_');
-  if (!url) return { ok: false, error: '没有可下载的资产' };
+  if (!rawUrl) return { ok: false, error: '没有可下载的资产' };
 
   const dir = path.join(DOWNLOAD_DIR, String(version || 'latest').replace(/[\\/:*?"<>|]/g, '_'));
   fs.mkdirSync(dir, { recursive: true });
   const outPath = path.join(dir, name);
+  const partPath = outPath + '.part';
 
   Object.assign(download, {
     active: true, version: String(version || ''), name, received: 0, total: Number(asset.size) || 0,
@@ -209,28 +215,67 @@ export async function downloadUpdate(assetInfo, version) {
   // 后台跑，接口立刻返回，前端轮询 /api/update/status
   (async () => {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(30 * 60 * 1000), headers: { 'user-agent': 'qq-agent-updater' } });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const len = Number(r.headers.get('content-length')) || download.total;
-      download.total = len;
-      const hash = crypto.createHash('sha256');
-      const tmp = `${outPath}.part`;
-      const fh = await fs.promises.open(tmp, 'w');
+      // 候选地址：直连 → 各镜像（镜像就是把原始 URL 拼在前面）
+      let mirrors = DEFAULT_MIRRORS;
       try {
-        const reader = r.body.getReader();
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (!value) continue;
-          await fh.write(Buffer.from(value));
-          hash.update(Buffer.from(value));
-          download.received += value.length;
-          download.percent = download.total ? Math.min(100, Math.round((download.received / download.total) * 100)) : 0;
-        }
-      } finally {
-        await fh.close();
+        const cfgMirrors = getConfig()?.update?.mirrors;
+        if (Array.isArray(cfgMirrors) && cfgMirrors.length) mirrors = cfgMirrors.map(String);
+      } catch { /* ignore */ }
+      // 镜像优先（实测 160~200 KB/s），直连兜底（实测 25 KB/s，全程 50 分钟）
+      const candidates = [];
+      for (const m of mirrors) {
+        const base = String(m || '').trim().replace(/\/+$/, '');
+        if (base) candidates.push(base + '/' + rawUrl);
       }
-      fs.renameSync(tmp, outPath);
+      candidates.push(rawUrl);
+
+      let lastError = null;
+      for (const url of candidates) {
+        if (!download.active) break;
+        try {
+          // 断点续传：已有 .part 就带 Range 从末尾接着下
+          let existing = 0;
+          try { existing = fs.statSync(partPath).size; } catch { existing = 0; }
+          const headers = { 'user-agent': 'qq-agent-updater' };
+          if (existing > 0) headers.range = 'bytes=' + existing + '-';
+          const r = await fetch(url, { signal: AbortSignal.timeout(30 * 60 * 1000), headers });
+          if (!r.ok && r.status !== 206) throw new Error(`HTTP ${r.status}`);
+          const isResume = r.status === 206 && existing > 0;
+          const len = Number(r.headers.get('content-length')) || 0;
+          download.total = isResume ? existing + len : (len || download.total);
+          download.received = isResume ? existing : 0;
+          const fh = await fs.promises.open(partPath, isResume ? 'a' : 'w');
+          try {
+            const reader = r.body.getReader();
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (!value) continue;
+              await fh.write(Buffer.from(value));
+              download.received += value.length;
+              download.percent = download.total ? Math.min(100, Math.round((download.received / download.total) * 100)) : 0;
+            }
+          } finally {
+            await fh.close();
+          }
+          lastError = null;
+          break;   // 这一路成功
+        } catch (error) {
+          lastError = error;
+          // 换下一个镜像（.part 保留，下一路继续续传）
+        }
+      }
+      if (lastError) throw lastError;
+
+      // 全部下完：重读文件算 sha256（续传时无法边下边算）
+      const hash = crypto.createHash('sha256');
+      await new Promise((resolve, reject) => {
+        const st = fs.createReadStream(partPath);
+        st.on('data', (chunk) => hash.update(chunk));
+        st.on('error', reject);
+        st.on('end', resolve);
+      });
+      fs.renameSync(partPath, outPath);
       download.sha256 = hash.digest('hex');
       const expect = digestOf(asset.digest);
       if (expect && expect !== download.sha256) {
@@ -243,13 +288,13 @@ export async function downloadUpdate(assetInfo, version) {
       download.state = 'error';
       download.error = String(error?.message ?? error);
       download.finishedAt = Date.now();
-      try { fs.rmSync(`${outPath}.part`, { force: true }); } catch { /* ignore */ }
+      // 失败时保留 .part，下次可续传；不再无条件删除
     } finally {
       download.active = false;
     }
   })();
 
-  return { ok: true, state: getDownloadState(), path: outPath };
+  return { ok: true, state: getDownloadState() };
 }
 
 // ── 启动后检查（供 app.js 调用）────────────────────────────────────
