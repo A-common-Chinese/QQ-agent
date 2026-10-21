@@ -596,6 +596,63 @@ function renderMemorySettingsSection(c) {
     });
     overlay.querySelector('#pv2e-name').focus();
   }
+  // 📥 导入原版人格卡（人格市场下载的 customPersonas / 旧 roleText）
+  async function pv2Import() {
+    let data = { items: [] };
+    try { data = await pv2Api('GET', '/api/personas/legacy'); } catch (e) { showNoticeModal('读取失败', String(e?.message || e)); return; }
+    const items = data.items || [];
+    const rows = items.length
+      ? items.map((it, i) => `<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--line);cursor:pointer">
+          <input type="checkbox" class="pv2i-pick" data-i="${i}" style="margin-top:4px" />
+          <span style="flex:1">
+            <b>${esc(it.name)}</b> <span class="muted" style="font-size:12px">· ${it.source} · 原文 ${it.chars} 字</span>
+            <div class="muted" style="font-size:12px">→ 正文 ${it.preview.variantChars} 字 · 示例 ${it.preview.examples} 组 · 小节 ${(it.preview.sections || []).length} 个</div>
+          </span>
+        </label>`).join('')
+      : '<div class="muted">没有找到可导入的原版人格卡</div>';
+    const overlay = modelModalShell({
+      head: '📥 导入人格卡',
+      body: `<div class="hint">来源：人格市场下载的自定义人格（customPersonas）+ 旧的全局/会话级 roleText。
+        导入会按小节拆成「正文 + 示例」，AI 味黑名单并入全局策略；正文以「保真」为优先，导入后可在编辑器里再精简。</div>
+        <div class="field"><label>① 检测到 ${items.length} 张</label>
+          <div style="max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:4px 8px">${rows}</div>
+          <div style="margin-top:6px"><button class="btn btn-small" id="pv2i-all">全选</button>
+          <button class="btn btn-small btn-primary" id="pv2i-run">导入选中</button>
+          <span class="hint" id="pv2i-hint"></span></div></div>
+        <div class="field"><label>② 或粘贴一张卡的文本（人格市场里复制的内容）</label>
+          <input type="text" id="pv2i-name" placeholder="卡片名字（可选）" style="margin-bottom:6px" />
+          <textarea id="pv2i-text" class="persona-role-text" style="min-height:110px" placeholder="把人格卡文本粘进来，系统自动拆小节/示例"></textarea>
+          <div style="margin-top:6px"><button class="btn btn-small" id="pv2i-paste">解析这张</button>
+          <span class="hint" id="pv2i-phint"></span></div></div>`,
+      foot: '<button class="btn" id="pv2i-close">关闭</button>'
+    });
+    const q = (id) => overlay.querySelector('#' + id);
+    q('pv2i-close').onclick = () => closeModelModal(overlay);
+    q('pv2i-all').onclick = () => overlay.querySelectorAll('.pv2i-pick').forEach((x) => { x.checked = true; });
+    q('pv2i-run').onclick = async () => {
+      const picked = [...overlay.querySelectorAll('.pv2i-pick')].filter((x) => x.checked).map((x) => items[Number(x.dataset.i)]);
+      if (!picked.length) { q('pv2i-hint').textContent = '先勾选要导入的卡'; return; }
+      const btn = q('pv2i-run');
+      btn.disabled = true;
+      q('pv2i-hint').textContent = '导入中…';
+      try {
+        const r = await pv2Api('POST', '/api/personas/import', { items: picked.map((x) => ({ name: x.name, text: x.text })) });
+        closeModelModal(overlay);
+        showNoticeModal('导入完成', '新建了 ' + (r.created || []).length + ' 张卡：\n' + (r.created || []).map((c) => c.name).join('、'));
+        pv2Reload();
+      } catch (e) { q('pv2i-hint').textContent = '失败：' + (e?.message || e); btn.disabled = false; }
+    };
+    q('pv2i-paste').onclick = async () => {
+      const text = q('pv2i-text').value.trim();
+      if (!text) { q('pv2i-phint').textContent = '先粘贴内容'; return; }
+      try {
+        const r = await pv2Api('POST', '/api/personas/parse', { name: q('pv2i-name').value.trim(), text });
+        closeModelModal(overlay);
+        pv2OpenEditor({ ...r.card, id: '' }, true);   // 进编辑器预览，点保存才落盘
+      } catch (e) { q('pv2i-phint').textContent = '解析失败：' + (e?.message || e); }
+    };
+  }
+
   // ✨ 用 AI 生成人格卡（阶段 4）
   function pv2AiGenerate() {
     const overlay = modelModalShell({
@@ -862,6 +919,7 @@ function renderMemorySettingsSection(c) {
       <div style="display:flex;gap:8px;margin-bottom:6px">
         <button class="btn btn-small btn-primary" data-pv2="new">＋ 新建人格卡</button>
         <button class="btn btn-small" data-pv2="ai-gen">✨ 用 AI 生成</button>
+        <button class="btn btn-small" data-pv2="import">📥 导入原版人格卡</button>
       </div>
       ${cardRows || '<div class="muted">（还没有卡片）</div>'}
       <h3>④ 共用部分（useShared 的卡共享）</h3>
@@ -904,6 +962,7 @@ if (!window.__pv2Delegated) {
     if (act === 'save-policy') return pv2SavePolicy();
     if (act === 'new') return pv2OpenEditor(null);
     if (act === 'ai-gen') return pv2AiGenerate();
+    if (act === 'import') return pv2Import();
     if (act === 'edit') {
       const c = state.config || {};
       const card = (c.personas || []).find((p) => p && p.id === el.dataset.id);

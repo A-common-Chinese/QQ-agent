@@ -29,6 +29,7 @@ import { setPresence, presenceSummary, restoreIfDnd } from './presence.js';
 import { getPrivacyFilter } from './privacy.js';
 import { logger } from './logger.js';
 import { skillManager } from './skills/manager.js';
+import { parseLegacyCard } from './persona-import.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
 import { availabilityOf, listTools, CATEGORY_META } from './tool-registry.js';
 import { safeFetchBinary, browseLockState } from './safe-fetch.js';
@@ -1214,6 +1215,91 @@ export function createRoutes(deps) {
         };
         if (!out.variant) return json(res, 502, { ok: false, error: '生成结果缺少 variant', raw: content.slice(0, 500) });
         return json(res, 200, { ok: true, model: genModel || '(主模型)', card: out });
+      }
+    },
+    {
+      // 列出可导入的「原版人格卡」：人格市场下载的 customPersonas + 旧的全局/会话级 roleText
+      method: 'GET', pattern: '/api/personas/legacy',
+      handler: async ({ res, json }) => {
+        const cfg = getConfig();
+        const items = [];
+        const seen = new Set();
+        const push = (name, text, source) => {
+          const body = String(text || '').trim();
+          if (!body || body.length < 40) return;
+          const key = name + '|' + body.slice(0, 80);
+          if (seen.has(key)) return;
+          seen.add(key);
+          const parsed = parseLegacyCard(name, body);
+          items.push({
+            name,
+            source,
+            chars: body.length,
+            preview: {
+              variantChars: parsed.variant.length,
+              examples: parsed.examples.length,
+              scenarios: parsed.scenarios.length,
+              sections: parsed.sections
+            },
+            text: body
+          });
+        };
+        // ① 人格市场下载的自定义人格（customPersonas）
+        const customs = Array.isArray(cfg.customPersonas) ? cfg.customPersonas : [];
+        customs.forEach((c, i) => push(String(c?.name || ('自定义人格 ' + (i + 1))), c?.text, 'market/customPersonas'));
+        // ② 旧的全局 roleText
+        if (cfg?.persona?.roleText) push('全局人设（旧）', cfg.persona.roleText, 'legacy/persona.roleText');
+        // ③ 旧的会话级 roleText
+        const byChat = cfg.personaByChat || {};
+        for (const [k, v] of Object.entries(byChat)) {
+          if (v && typeof v === 'object' && v.roleText) push('会话定制 ' + k, v.roleText, 'legacy/personaByChat');
+        }
+        return json(res, 200, { ok: true, items, count: items.length });
+      }
+    },
+    {
+      // 解析一段人格卡文本 → 新结构（不落盘，前端预览用）
+      method: 'POST', pattern: '/api/personas/parse',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        const name = String(body?.name || '').trim();
+        const text = String(body?.text || '');
+        if (!text.trim()) return json(res, 400, { ok: false, error: '缺少 text' });
+        const parsed = parseLegacyCard(name, text);
+        return json(res, 200, { ok: true, card: parsed });
+      }
+    },
+    {
+      // 批量导入：items[{name,text}] → 解析 + 创建
+      method: 'POST', pattern: '/api/personas/import',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        const items = Array.isArray(body?.items) ? body.items : [];
+        if (!items.length) return json(res, 400, { ok: false, error: '缺少 items' });
+        const cfg = getConfig();
+        const personas = Array.isArray(cfg.personas) ? cfg.personas.slice() : [];
+        const created = [];
+        for (const it of items) {
+          const text = String(it?.text || '');
+          if (!text.trim()) continue;
+          const parsed = parseLegacyCard(String(it?.name || ''), text);
+          const id = 'p_imp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5);
+          const card = {
+            id,
+            name: parsed.name,
+            builtin: false,
+            variant: parsed.variant,
+            examples: parsed.examples,
+            scenarios: parsed.scenarios,
+            useShared: false,          // 原版卡是完整卡（自带全部内容），不拼共用段
+            meta: { source: 'imported', importedAt: Date.now(), chars: text.length }
+          };
+          personas.push(card);
+          created.push({ id: card.id, name: card.name, variantChars: card.variant.length, examples: card.examples.length, scenarios: card.scenarios.length });
+        }
+        updateConfig({ personas });
+        emit('status', { configUpdated: true });
+        return json(res, 200, { ok: true, created, total: personas.length, config: sanitizeConfig(getConfig()) });
       }
     },
     {
