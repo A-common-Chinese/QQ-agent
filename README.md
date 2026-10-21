@@ -1,295 +1,245 @@
 # QQ Agent（桌面端）
+
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Electron-lightgrey)
-![技术栈](https://img.shields.io/badge/stack-Node.js%20%7C%20原生前端-orange)
-![测试](https://img.shields.io/badge/tests-24%20suites%20%E2%80%89620%2B%20assertions-brightgreen)
-一个跑在你自己电脑上的 QQ 群聊机器人：装完双击启动，扫码登录，填个模型 Key 就能用。
-事件驱动 + 无状态会话架构，每次处理的 token 成本恒定可控；所有操作都在图形控制台里完成，不用碰命令行。
-从 [Derpyu520/qq-bridge](https://github.com/Derpyu520/qq-bridge) 彻底改造而来的独立 QQ agent 应用。
-> ### 🔧 这是改造版（fork）：在 QQ Agent 上加了「DeepSeek Harness 桥」
->
-> **📦 下载安装包**：**[最新 Release](https://github.com/A-common-Chinese/QQ-agent/releases/latest)** ——
-> `QQ-Agent-DSH-Setup.exe`（Windows，装完即用；与官方版**并行安装、互不影响**）
->
-> 上游是 [Kondius](https://github.com/K0nd1us/QQ-agent) 的 QQ Agent。本仓库
-> （**[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**）在它之上加了一组
-> "把机器人接进本机 DSH（DeepSeek Harness）"的能力，并自带一套**与官方版并行安装、互不影响**的打包流程
-> （产物：`QQ Agent DSH`）。**上游功能一个没删** —— 下面这一节是全部改动，其余文档内容对改造版同样适用。
->
-> 当前版本：`v0.4.0`　·　构建配方见 **[BUILD-DSH.md](BUILD-DSH.md)**
+![版本](https://img.shields.io/badge/version-v0.5.0-blue)
+![测试](https://img.shields.io/badge/tests-26%20suites%20(npm%20test)-brightgreen)
+![许可](https://img.shields.io/badge/license-MIT-green)
 
-## 本 fork 改了什么
+一个跑在你自己电脑上的 QQ 群聊机器人：装完双击启动，扫码登录，填个模型 Key 就能用。事件驱动 + 无状态会话架构，每次处理的 token 成本恒定可控；所有操作都在图形控制台里完成，不用碰命令行。
 
-| 改动 | 位置 | 一句话说明 |
-|---|---|---|
-| **DSH 桥** | `src/dsh-bridge.js`、`src/routes.js`、控制台「设置 → 聊天设置 → DSH 桥」 | 在 QQ 里发 `/dsh <指令>`，指令交给本机 DeepSeek Harness 的**常驻会话**执行；回复与文件自动回到 QQ。每轮请求带上 agent 预设与权限预设，并附一段桥注入提示 |
-| **出站隐私过滤** | `src/privacy.js` | DSH 的内容送往**非白名单会话**时按规则处理：邮箱 / 手机号 / 身份证 / 银行卡 / 用户目录路径 / 内网 IP / 本机用户名与主机名 **就地打码**；私钥块、`sk-…` `ghp_…` `AKIA…`、JWT、口令赋值、带凭据的连接串**整条拒发**。白名单会话（默认 `private:85946573`）一个字不动。支持自定义规则、文件内容扫描（文本类扩展名且 ≤ 2MB）、命中留痕（只记规则名与次数） |
-| **按会话的权限档位** | 控制台「DSH 桥 → DSH 任务的权限」 | 默认 / `danger-full-access`（完全放开）/ `workspace-write` / `read-only`，两种通道（headless 的 `DSH_PERMISSION_MODE` 与插件请求参数）同时生效 |
-| **在线状态守卫** | `plugins/qq-presence/`、`src/presence.js` | 被计划任务或策略关掉之前，把 QQ 状态设成「**请勿打扰**」；下次上线时若本地记账显示是我们设的 DND，就自动改回「**在线**」。附带审计文件 `data/presence.log`，可事后追溯 |
-| **定时开关与关机联动** | [`scripts/qq-agent-scheduler/`](scripts/qq-agent-scheduler/)（部署到 `C:\ProgramData\qq-agent-scheduler`） | 开机后**确认真的能上网**再启动（校验连通性探针的返回内容，专治校园网门户认证）、每晚定时关闭、手动关机/注销前先收尾。全部**无窗口**运行（`wscript` + `run-hidden.vbs`，任务也标了 Hidden） |
-| **并行安装的打包流程** | `electron-builder-dsh.yml` | 独立 `appId` / `productName`（`QQ Agent DSH`），与官方版互不覆盖；`asar: false`，装完就是可读可改的源码；`doc/` 随包发布（控制台那个"让 AI 写插件"的提示词要读它） |
-| **DSH 侧插件（独立仓库）** | [A-common-Chinese/dsh-qq](https://github.com/A-common-Chinese/dsh-qq) | 桥的本体：路由 `/__dsh-qq/message`、工具 `qq_send` / `qq_send_file`、隐私过滤、按会话的权限白名单、agent 预设挂载（含老会话 `mount` 恢复）、桥注入提示 |
+> **这是一个 fork。** 上游是 [K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)，本仓库是 **[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**，当前版本 `v0.5.0`。
+> 上游功能一个没删。[这个 fork 改了什么](#这个-fork-改了什么) 一节是全部改动的清单，其余章节对上游和本 fork 同样适用。
 
-### 一句澄清：这不是"又把 QQ Agent 塞回 DSH 里"
+## 这是什么
 
-上游作者做的一件重要的事，是**把一个原本跑在 DSH 里的 QQ 机器人解耦出来**，让它作为独立应用运行 ——
-不开 DSH 也能用。本 fork **没有推翻这一点**：
+| 能力 | 说明 |
+|---|---|
+| 像真人一样混群 | 被 @ 或被叫到时回话，平时看心情插嘴；会发文字、表情包、戳一戳，会引用、会 @ 人，也知道什么时候该闭嘴 |
+| 记住每个群友 | 长期记忆 + 记忆卡，按 QQ 号记人、按群记事，下次聊天自然带上；控制台里随时可看、可改 |
+| 说得像谁由你定 | 人格卡系统：每个会话独立选卡，共用段 + 本卡特有段 + 回复示例 + 按需场景 |
+| 看得懂图、上得了网 | 视觉模型直接看消息里的图片；内置 6 家搜索服务（含免 Key 的 Bing 网页解析），还能自己加兼容服务 |
+| 花多少看多少 | 每次调用的 token 与成本精确记录，按天 / 按会话 / 按模型统计，缓存命中率、峰谷分时、图片计费口径都标出来 |
+| 零编程门槛 | 配置全在控制台点选：白名单从 QQ 里直接勾群，模型从目录里点选，不用查群号、不用写配置文件 |
+| 能指挥本机 DSH | QQ 里发 `/dsh <指令>`，交给本机 DeepSeek Harness 执行并回传结果（本 fork 加的第一件事） |
 
-| | 上游项目 | 本 fork |
-|---|---|---|
-| QQ Agent 本体 | 独立运行，不依赖 DSH | **完全一样**：独立运行；不装 DSH 也照常工作，行为与上游一致 |
-| DSH 的角色 | — | **只是一个可选的外部能力**：有人发 `/dsh <指令>` 时，把**这一条指令**交给本机 DSH 执行，再把结果送回 QQ |
+**技术架构**（沿用上游，本 fork 未改动主干）
 
-所以关系是「**独立应用 + 一个调用 DSH 的入口**」，不是「机器人又跑回 DSH 里」。
-解耦带来的好处全部保留：**不填 DSH 配置时桥完全不生效**，上游的任何功能都不受影响 ——
-换句话说，这里的 DSH 通道只是给这个独立应用多加了一个"能指挥本机 DSH"的技能而已。
-### 想在 QQ 里指挥本机 DSH？
+1. 群聊消息持续写入本地 JSON 存档，每条带时间与已读状态；
+2. 有新消息时新开一个独立会话，提示词 = 静态系统提示（人设 / 规则 / 策略）+ 存档摘要 + 本次新消息；
+3. 会话结束即弃置，LLM 层面零历史，单次成本不随聊天量膨胀；
+4. 处理期间新来的消息只写存档，本轮结束后发现未读就自动再开一轮，直到清空；
+5. 长期信息走记忆工具持久化，跨运行生效。
 
-1. DSH 侧装插件 **[dsh-qq](https://github.com/A-common-Chinese/dsh-qq)**（`plugin-manager` 或 GUI 插件页装本目录即可，改 `index.js` 后需重启 DSH）；
-2. QQ 侧控制台「设置 → 聊天设置 → DSH 桥」填 DSH 的监听地址与令牌；
-3. 在 QQ 里发 `/dsh 帮我看看磁盘占用` —— 指令进入本机 DSH 常驻会话，结果回到 QQ；
-   需要额外发文件就用 `/dsh …` 让它调 `qq_send_file`。
+整体组成：协议端走 OneBot v11 正向 WebSocket（默认配 SnowLuma，任何兼容实现可换）；大脑是任意 OpenAI 兼容 API；桌面壳是 Electron（托盘常驻、开机自启、关窗不退出、端口占用自动让位）；控制台是零框架原生 HTML/CSS/JS，明暗双主题。安全边界上，工具天然绑定会话（模型无法把消息发到别的群）、发送有白名单与限频、联网抓取带 SSRF 防护（DNS 校验 / IP 固定 / 手动跟重定向）。
 
-### 构建 `QQ Agent DSH` 安装包
+## 下载安装
 
-```powershell
-# 完整配方（含本机踩过的坑：pnpm 垫片、electron 镜像、NSIS/winCodeSign 缓存预置）见 BUILD-DSH.md
-<DSH 自带 node> <DSH 自带 pnpm.mjs> exec electron-builder --config electron-builder-dsh.yml --win nsis --publish never
-# 产物：dist/QQ-Agent-DSH-Setup.exe
-```
+| 方式 | 怎么做 |
+|---|---|
+| **安装包（推荐，只想用）** | 去 **[最新 Release](https://github.com/A-common-Chinese/QQ-agent/releases/latest)** 下载 `QQ-Agent-DSH-Setup-0.5.0.exe`（Windows x64，约 79 MB），双击安装后从桌面/开始菜单快捷方式启动 |
+| **源码（要改代码或跑测试）** | 见下面[快速开始](#快速开始) |
+| **更新** | 启动 8 秒后自动检查一次本仓库的 GitHub Releases，发现新版本时在控制台提示并可下载安装包（12 小时结果缓存、下载后按资产 `sha256` 校验）。**不会自动安装**，安装包要自己跑一遍。不想要就在设置里关掉（`update.enabled` / `update.checkOnStartup`） |
 
-> ⚠️ 重装前备份 `resources\app\plugins\`：社区插件是你后来在控制台装的，不在本仓库里。
+首次启动后，控制台的体检卡会告诉你还缺什么：填模型接口地址与 Key → 选模型 → 勾白名单 → 补齐协议端（SnowLuma）与 QQ 运行环境。
 
-### 本 fork 的实测记录
+## 这个 fork 改了什么
 
-`BUILD-DSH.md` 里写了这些改动**为什么这么做**，以及踩过的坑，例如：
-
-- 常驻会话是程序化创建的 → `agentPreset` 为空时**没有** `pwsh`/`fs` 工具；恢复老会话必须 `agentPresets.mount()`（`select()` 对已存在的 agent 无效）；
-- 权限被播种成 `workspace-write + approval=ask`，而无人值守会话里**没人应答审批 = 自动拒绝**（"没有权限"的真因）；
-- 宿主**不落盘插件的 `console.log`**，所以诊断信息与审计都搬到了 HTTP 接口 / 文件里；
-- `-WindowStyle Hidden` 仍会闪控制台窗口 → 计划任务改用 `wscript` + VBS 启动；
-- 无 BOM 的 `.ps1` 会被 PowerShell 5.1 按 ANSI 解析，中文注释可能吞掉代码行 → 所有调度脚本保持纯 ASCII。
-
-## 能实现什么
-- **像真人一样混群**：被 @ 或被叫到时回话，平时看心情插嘴；会发文字、表情包、戳一戳，会引用、会 @ 人，知道什么时候该闭嘴
-- **记住每个群友**：双向长期记忆——它记得谁是什么风格、爱什么梗、雷点是什么，下次聊天自然带上；记忆页随时可查看、手动编辑
-- **看得懂图、上得了网**：视觉模型直接看消息里的图片；内置 6 家搜索服务（含免 Key 的 Bing 网页解析），还能自己加任意兼容搜索服务
-- **花多少看多少**：每次调用的 token 和成本精确记录，按天 / 按会话 / 按模型三个维度统计，缓存命中率、峰谷分时计价、图片计费口径全标清楚
-- **零编程门槛**：所有配置都在控制台点选——白名单从 QQ 里直接勾选群，模型从模型目录里点选切换，不用查群号、不用写配置
-## 技术架构
-**事件驱动 + 无状态会话（成本控制的核心）**
-1. 群聊消息持续写入本地 JSON 存档（每条带时间与已读状态）
-2. 每次有新消息（或主动机会），**新开一个独立会话**：提示词 = 静态系统提示（人设/规则/策略）+ 存档摘要 + 本次新消息
-3. 会话结束即弃置，LLM 层面零历史——一次处理的成本是恒定小份，不随聊天量膨胀
-4. 处理期间新来的消息只写存档；本次结束后发现未读 → 自动再开新会话，直到清空
-5. 长期信息走记忆工具持久化，跨运行生效
-**整体组成**
-- **协议端**：通过 OneBot v11 正向 WebSocket 接 QQ（默认配 SnowLuma，任何兼容协议端均可换）
-- **大脑**：任意 OpenAI 兼容 API——官方 / 中转站 / 本地网关均可，模型在设置里自选
-- **桌面壳**：Electron，托盘常驻、开机自启、关窗不退出、端口被占自动让位
-- **控制台**：零框架原生 HTML/CSS/JS，明暗双主题 + 跟随系统，带完整设计 token 体系
-- **安全边界**：工具天然绑定会话（模型无法把消息发到别的群）、发送白名单 + 限频、联网抓取带完整 SSRF 防护（DNS 校验 / IP 固定 / 手动跟重定向）、图片地址禁内网
-## 设置项都能做什么
-**模型 API**
-- 多提供商模型目录：填 Base URL + Key，点「获取列表」自动拉模型，选中即切换；中转站返回几百个模型时内置搜索 + 厂商/模型双栏
-- 一键测试：发个 ping 立刻验证地址/Key/模型通不通，显示延迟
-- 成本核算：内置 140 个模型的官方价格表自动匹配；走中转站可关掉官方价自填单价，支持「渠道：模型」两级定价、峰谷分时、图片计费规则提示
-- 视觉开关：模型不支持图片时关掉，看图工具自动从提示词移除
-**聊天设置**
-- **响应档位滑条**（省 token 核心）：0~100 无级调节——1 档仅 @ 响应、2 档 +关键词、3 档按概率随机响应（滑条位置线性决定概率）、4 档全响应；没命中的消息直接标已读，零 token 消耗。触发原因决定上下文条数：被 @ 时永远带最多上下文
-- **表情包积极程度** 0~3 档：不鼓励 / 偶尔 / 较积极 / 表情包爱好者（提示词层面引导，不强制）
-- 人设系统：内置「小鲸鱼」角色卡开箱即用，多套模板一键填充可改；参与度风格（安静/普通/活跃）可调
-- 关键词、每群独立开关、私聊开关、屏蔽名单（被屏蔽者不存档、不触发、不进提示词）
-**记忆**
-- 自动记录对群友的长期印象；可手动触发整理（合并重复、删过时），或对单个群友「更新记忆」
-**搜索服务**
-- 6 家内置（Bing 免 Key / DeepSeek / 智谱 / 博查 / 百度千帆 / 秘塔）+ 自定义添加任意兼容服务，可加多个
-**白名单**
-- 从 QQ 账号拉群列表/好友列表直接勾选；机器人只对名单内的会话工作
-**桌面端**
-- 托盘常驻 / 开机自启 / 关窗不退出；明暗主题；版本更新检查（发现新版本时直接提示）
-**OneBot**
-- 协议端地址可改，适配任何 OneBot v11 实现
-## 界面一览
-- **会话**：每次处理一个会话卡片，完整留档——提示词、思考、工具调用与结果、实际发出的每条消息、用量；运行中实时刷新
-- **存档**：每个群/好友的消息库，未读标记一目了然；可手动唤醒一次处理或全部标已读
-- **记忆**：每个群友一份档案，可编辑、删除、单独更新
-- **用量**：三维度统计 + 下钻明细 + 调用次数明细（内置 28 种工具按类别分组的趣味统计，启用 Skill 后还会更多）
-- **设置**：以上所有
-## 扩展（两型：插件 / Skill）
-
-扩展分**两型**，按"什么时候该运行"来选，放进对应目录即生效：
-
-| 类型 | 放哪 | 靠什么生效 | 谁决定何时执行 |
+| # | 改动 | 位置 | 状态 |
 |---|---|---|---|
-| **确定性型（插件）** | `plugins/<id>/` | 能力 `providers` / 钩子 `hooks` | **核心代码**：满足条件必然执行，不经过 LLM |
-| **LLM 型（Skill）** | `skills/<id>/` | 工具 `registerTool` + 提示词片段 | **模型**：看工具说明自己判断 |
+| 1 | **DSH 桥**：QQ 里发 `/dsh <指令>`，交给本机 DeepSeek Harness 执行并把结果回传 QQ | `src/dsh-bridge.js`、`src/routes.js`、控制台「设置 → 聊天设置 → DSH 桥」 | v0.4.0 起 |
+| 2 | **出站隐私过滤**：DSH 内容送往非白名单会话时按规则打码 / 整条拒发 | `src/privacy.js`（与 DSH 插件侧同源同规则，两层互兜） | v0.4.0 起 |
+| 3 | **在线状态守卫**：被关掉前把 QQ 设为「请勿打扰」，下次上线自动改回「在线」 | `plugins/qq-presence/`、`src/presence.js`，审计在 `data/presence.log` | v0.4.0 起 |
+| 4 | **按会话的权限档位**：默认 / `read-only` / `workspace-write` / `danger-full-access` | 控制台「DSH 桥 → DSH 任务的权限」，`dsh.permissionMode` | v0.4.0 起 |
+| 5 | **定时开关与关机联动**：确认能上网再启动、每晚定时关闭、关机注销前先收尾，全程无窗口 | [`scripts/qq-agent-scheduler/`](scripts/qq-agent-scheduler/)（部署到 `C:\ProgramData\qq-agent-scheduler`） | v0.4.0 起 |
+| 6 | **自动更新（阶段 1）**：读本 fork 的 Releases 检查 + 下载安装包，不自动安装 | `src/updater.js`、`data/update-check.json` | v0.5.0 |
+| 7 | **隐私默认关闭**：禁用「意见收集」「金句上传」入口，匿名遥测默认关；技能/插件市场保持可用 | `ui/app/10-feedback.js`（`COMMUNITY_UPLOADS_ENABLED = false`）、`src/config.js`（`telemetry.enabled: false`） | v0.5.0 |
+| 8 | **人设系统重构**：人格卡 + 控制台人设页 + AI 生成卡 + 原版卡导入；未分配人格的会话直接静默 | `src/personas.js`、`src/persona-import.js`、`src/persona-filter.js`、`src/config.js`、`src/prompt.js`、控制台「人设」 | v0.5.0（本次重点） |
+| 9 | **记忆卡系统**：通用卡 / 群聊卡 / 个人卡 / 话题卡，按需注入、每轮字数预算 | `src/memory-cards.js`、`src/memory-cards-prompt.js`、控制台「记忆」 | v0.5.0 |
+| 10 | **插件 / 技能可删除**：移入回收站目录，可恢复 | `src/routes.js` → `data/trash/extensions/<id>-<时间戳>` | v0.5.0 |
+| 11 | **人格切换感知插件** `persona-switch-notice`：模型能意识到自己刚被换了人格 | `plugins/persona-switch-notice/`，**默认关闭**，反应文本可留空 | v0.5.0 |
+| 12 | **DSH 侧插件（独立仓库）**：桥的本体，路由 `/__dsh-qq/message`、工具 `qq_send` / `qq_send_file`、隐私过滤、按会话权限白名单、agent 预设挂载 | [A-common-Chinese/dsh-qq](https://github.com/A-common-Chinese/dsh-qq) | v0.4.0 起 |
+| 13 | **合入上游** | 已并入上游 `11577ba..fdfd325` 的改动 | v0.5.0 |
 
-```
-plugins/my-plugin/            skills/my-skill/
-  plugin.json  清单              skill.json   清单
-  index.js     providers/hooks   index.js     registerTool
-```
+### 人设系统（v0.5.0 重点）
 
-判据一句话：**规则能写死 → 插件（`plugins/`）；要理解人话 → 技能（`skills/`）**。
-（完整的定义与三问判断法见两份开发文档的 §0。）
-选错类型的后果是**功能静默失效**（不报错、不崩、就是没反应），所以两份开发文档请先读：
+一张人格卡由四部分组成，注入时按 `共用段 → 本卡特有段 → 回复示例 → 命中的场景` 拼装：
 
-- **确定性型** → [doc/extend_development/plugin-development.md](doc/extend_development/plugin-development.md)
-- **LLM 型** → [doc/extend_development/skill-development.md](doc/extend_development/skill-development.md)
-- 共同机制完整参考 → [doc/extend_development/skill-reference.md](doc/extend_development/skill-reference.md)
+| 组成 | 内容 | 复用范围 |
+|---|---|---|
+| 共用段 `personaShared` | `core`（你是谁）+ `voice`（说话方式），一处改全库生效 | 所有勾选了「用共用段」的卡 |
+| 本卡特有 `variant` | 这张卡独有的性格、边界、称呼习惯 | 单卡 |
+| 回复示例 `examples` | 每组三格：群友说 / ✗ 错误示范 / ✓ 正确示范，最多取 4 组注入 | 单卡 |
+| 按需场景 `scenarios` | 触发词（编辑器把逗号分隔的词自动转正则）+ 该场景下的反应，命中才注入 | 单卡 |
 
-其它约定：
+| 控制台「人设」页 | 能做什么 |
+|---|---|
+| 会话分配 | 每个白名单会话单独选卡，支持批量分配、支持设为默认卡 |
+| 卡管理 | 新建 / 复制 / 编辑 / 删除；内置「小鲸鱼」卡只读 |
+| 卡片编辑器 | 表单式，只打字，格式由系统拼 |
+| AI 生成人格卡 | 写一句描述 → 模型返回结构化卡片 → 预填进编辑器 → 点保存才落盘；可用 `personaPolicy.genModel` 单独指定模型 |
+| 导入原版卡 | 检测人格市场下载的卡与旧的 `roleText`，一键拆成新结构（示例自动识别「你不要 / 你可以」式写法，AI 味黑名单段剥给全局策略） |
+| AI 味黑名单 | `personaPolicy.bannedPhrases`：默认只作提示词约束（`prompt`），可切 `filter` / `both` 在出站时把命中的短语直接删掉（`src/persona-filter.js`），命中留痕在 `data/banned-phrase-hits.log` |
 
-- **开关只有一处**：`config.skills[id].enabled`。关掉一个扩展，它注册的工具、
-  提供的能力、提示词片段、请求改写会**同时**失效 —— 不会出现"界面关了但还在偷偷工作"。
-- **按能力依赖，不按名字**：核心模块问"谁提供 `llm.request-params`"，
-  不 import 具体扩展，所以换实现不用改核心代码。
-- **不可能覆盖安全规则**：扩展的提示词片段优先级被强制压在核心规则之下。
-- **状态可解释**：控制台的「技能」与「插件」两个页签各自直接告诉你为什么某项没生效
-  （未启用 / 依赖缺失 / 加载失败 / 模型不支持），不是笼统的"工具关闭"。
-- **两种清单文件功能等价**：`plugin.json` 与 `skill.json` 走同一条规范化流程，
-  目录只决定语义分类，不限制能用哪些特性。
-- 目录出厂为空：`skills/` 与 `plugins/` 是用户后装扩展的落点，插上就能用、删掉就消失；
-  思考模式等核心能力已内置进 `src/`，不依赖任何扩展。
-- **热重载默认开启**：目录放进去就生效，无需重启（`config.extensions.hotReload` 可关；
-  等价于"任意落地的 JS 会被执行"，共享机器建议关掉）。
-- 架构总览见 [doc/extend_development/skill-system.md](doc/extend_development/skill-system.md)。
-## 安装与使用
-**三步搞定**（推荐）：
+未分配人格卡的会话 = **静默**：消息照常存档、链接照常转发、`/dsh` 照常响应，但不调模型、0 token。旧的按会话静默名单（`store.silentChats`）仍然可用。
+
+本机实测：人设注入从 7414 字降到 3015 字（**-59%**），整轮提示词约 **-21%**。
+
+### 记忆卡系统
+
+| 卡类型 | 存哪 | 什么时候注入 |
+|---|---|---|
+| 通用卡 | `data/memory-cards/generals/<id>.json` | 每轮都带（多张卡，标 ★ 的那张是全局默认；人设卡可挂靠指定通用卡） |
+| 群聊 / 私聊卡 | `data/memory-cards/<会话>/group.json` | 只在该会话带 |
+| 个人卡 | `data/memory-cards/persons/<QQ号>.json` | 该人「在场」时带，只带摘要 + 对应会话的印象。「在场」= 最近 20 条消息里出现过，或本轮被点名 |
+| 话题卡 | `data/memory-cards/<会话>/topic_*.json` | 关键词命中 → 拉全文（最多 2 条）；未命中 → 只给标题索引；再随机闪回 2~3 张的摘要 |
+
+预算与开关都在配置的 `memoryCards` 段：每轮总预算默认 **1500 字**，超出按优先级截断；最多带 6 个在场成员；「最近 N 条」「被点名」两个在场判定可分别关；闪回张数可设 0。个人卡按 QQ 号为主键，记着他在各个群用的昵称和别名，印象分三层——通用 / 群聊 / 私聊；控制台「记忆」栏目是通用（基本事实）/ 群聊 / 个人三个分区，群 ↔ 人可互相跳转。话题卡的注入路径已实现，控制台目前只有通用 / 群聊 / 个人三类卡的界面，话题卡按上面的文件布局放进来即生效。
+
+### 在 QQ 里指挥本机 DSH
+
+前置：DSH 侧装 [dsh-qq](https://github.com/A-common-Chinese/dsh-qq) 插件，QQ 侧在「设置 → 聊天设置 → DSH 桥」填 DSH 的监听地址与令牌（不填则桥完全不生效，行为与上游一致）。
+
+| 命令 | 作用 |
+|---|---|
+| `/dsh <任务>` | 在当前会话里执行，会记住上下文，可连续追问 |
+| `/dsh 新会话 <任务>` | 丢掉上下文，开一条新会话 |
+| `/dsh 状态` | 看当前会话 id、是否在跑、轮次与自动轮换阈值 |
+| `/dsh 停` | 终止正在跑的任务 |
+| `/dsh 帮助` | 上面的说明 |
+
+几个刻意的取舍：命中前缀的消息不进触发判定，所以不花机器人的模型额度、也不受响应档位影响；结果默认只有摘要（`dsh.resultPromptChars`，出厂 200 字）进提示词，长报告不会把上下文撑满；需要额外发文件就让 DSH 那边调 `qq_send_file`。
+
+### 这不是「又把 QQ Agent 塞回 DSH」
+
+| | 上游 | 本 fork |
+|---|---|---|
+| QQ Agent 本体 | 独立运行，不依赖 DSH | 完全一样，不装 DSH 也照常工作 |
+| DSH 的角色 | — | 只是一个可选的外部能力：有人发 `/dsh <指令>` 时，把这一条指令交给本机 DSH 执行，再把结果送回 QQ |
+
+## 隐私说明
+
+| 会离开本机的请求 | 默认 | 说明 |
+|---|---|---|
+| 模型 API 调用 | 必需 | 只发往你自己填的 Base URL |
+| 联网搜索 | 开 | 默认用 Bing 网页解析（免 Key）；换成别的服务时请求发到对应厂商；设置里可整体关掉 |
+| 匿名遥测 | **关** | 上游默认会把匿名用量上报到作者服务器，本 fork 出厂即关（`telemetry.enabled`）。关掉后不发任何统计 |
+| 意见收集 / 金句上传 | **禁用** | 入口在本 fork 里直接关掉，点了只会提示「本版本不向原作者服务器上传」；市场功能（技能 / 插件）保持可用 |
+| 云端全局屏蔽名单 | 拉取 | 每 5 分钟从 `www.kondius.cn` 拉一次名单；首次时若云端为空而本机已有名单，会把本机名单上传一次用于初始化。不想让 QQ 号出现在公共名单里就别用这个功能 |
+| 版本检查 | 开 | 只读 `api.github.com` 的 `releases/latest`，默认 12 小时一次；下载安装包走 GitHub Release 资产 |
+| 消息存档 / 记忆 / 人设 | 本地 | 全部在 `data/` 下，不上传 |
+
+DSH 内容送往 QQ 时的出站过滤（`src/privacy.js`）：
+
+| 级别 | 命中内容 | 处理 |
+|---|---|---|
+| block | 私钥块、`sk-…` / `sk-ant-…` / `ghp_…` / `AIza…` / `AKIA…` / `xox…`、JWT、口令与密钥赋值、带凭据的数据库连接串 | **整条拒发**（fail-closed，不给「改一改再发」的余地） |
+| redact | 邮箱、手机号、身份证、银行卡号、`C:\Users\…` 这类用户目录路径、UNC 主机、IPv4、本机用户名与主机名 | 就地打码为 `[已隐去:…]` |
+
+白名单会话（默认 `private:85946573`，改成你自己的 QQ 号）一个字不动；其它会话全过。支持自定义规则、文本类文件内容扫描（限文本扩展名且 ≤ 2 MB），命中只记规则名与次数的留痕。打码后什么都不剩，等同于拒发。
+
+> ⚠️ 通用风险：本项目通过非官方方式接入 QQ 协议，账号存在被风控 / 封禁的风险，建议用小号。SnowLuma 是独立第三方项目，受其自身 EULA 约束，本仓库不分发其代码；QQ 是腾讯专有软件，本仓库同样不分发 QQ 本体。使用者自行承担全部风险。
+
+## 快速开始
+
+三步（推荐）：
+
 ```bash
 git clone https://github.com/A-common-Chinese/QQ-agent.git
 cd qq-agent
 npm install
 npm run setup    # 自动下载 SnowLuma + 固定版本便携 QQ
 ```
-然后双击 `启动QQ机器人.bat`（或 `npm start`），在 SnowLuma 页签点「启动 QQ」，扫码登录即可。
-**手动安装**（如果 `npm run setup` 下载失败）：
-1. **装协议端**：SnowLuma 是独立第三方项目（自带 EULA，不随本仓库分发），从其官方渠道获取后解压到项目根目录，目录名保持 `snowluma`
-2. **装便携 QQ**（可选）：
-   - **最省事**：机器上已经装过 QQ 的话，**先完全退出 QQ**，直接跑 `npm run setup` ——
-     脚本会从注册表找到已装的 QQ 并复制一份到 `runtime/qq-portable/`（约 1.6 GB，会自动跳过聊天记录）
-   - 否则：下载 <https://www.kondius.cn/netdisk/api/download/QQ_9.9.33_260813_x64_01.exe>
-     （约 300 MB），**正常双击安装一遍**，然后退出 QQ、重跑 `npm run setup`
-   - 为什么不能自动静默安装：QQ 9.9.x 用的是腾讯自研的 **HummerSetup** 安装器，
-     不接受 NSIS/Inno 的静默开关（脚本会识别出来并说明，而不是盲试到超时）
-3. **启动**：双击 `启动QQ机器人.bat`（或 `npm start`），扫码登录 QQ
-4. **配置**：设置页顶部体检卡会告诉你缺什么——填接口地址和 Key → 选模型 → 勾白名单
-```bash
-npm install          # 装依赖
-npm run setup        # 一键下载 SnowLuma + 便携 QQ（幂等，可重复执行）
-npm run setup:check  # 只检查是否已就绪
-npm start            # 桌面端启动
-npm run server       # headless 模式：浏览器打开 http://127.0.0.1:3210
-npm test              # 全量测试：自测 + Skill 架构 + 工具/Skill 审查 + 链接媒体转发 + 回复抢救 + 技能设置 + 表情上下文 + 技能弹窗 + 渲染 + 滚动 + 用量端到端 + 提示词
-npm run test:coverage # 覆盖测试（模块层 + 全部 HTTP 接口 + 端到端链路 + 静态界面层 + 界面接线）
-npm run test:all      # 两套一起跑
-npm run test:wiring   # 只跑「界面接线」检查（需要可选依赖，见下）
-```
-### 界面接线检查（可选依赖）
-`test/coverage-wiring.mjs` 用 jsdom 加载真实的 `ui/index.html` 并执行 `ui/app.js`，
-然后按用户的真实操作路径（点页签 / 点设置分区 / 打开各弹窗）遍历，断言
-**每一个交互元素（按钮、输入框、下拉框…）都有代码在管**，并回归验证
-「展开全部/收起」这类折叠按钮真的能开合。
-它依赖 jsdom，但 jsdom 不是本项目的依赖 —— 未安装时该测试会打印提示并**自动跳过**，
-不影响其它套件。想启用：
-```bash
-npm i -D jsdom      # 装完再跑 npm run test:wiring 即可
-```
-### QQ 怎么来的？（免安装包，推荐）
-QQ 9.9.x 用的是腾讯自研的 **HummerSetup** 安装器，**不支持静默安装**（会弹 GUI）。
-更麻烦的是：**机器上已有更新版本时，根本装不回指定版本**（会拒绝或直接升级掉），
-而且为了做个便携版去覆盖用户日常用的 QQ，代价也不对。
-所以 **QQ 以「免安装包」形式分发**：下载解压即用，**完全不需要安装 QQ**，
-也不触碰系统里已装的任何东西。
-```bash
-npm run setup          # 自动下载免安装包 → 校验 SHA256 → 解压 → 完成
-```
-免安装包的特点：
-- **不需要装 QQ**，解压约 1.5 GB，不写注册表、不装服务
-- **不与系统里已装的 QQ 冲突**（启动时带 `--user-data-dir`，数据完全隔离）
-- **不含任何用户数据**（聊天记录、登录态、账号 —— 一个字节都没有）
-- 剥离了运行日志与卸载器（卸载器指向原安装路径，带过去会误导）
-- 保留全部许可文件（`QQLicense.rtf` / `LICENSE.electron.txt` 等）
-#### 自己打包一份
-如果分发地址不可用，或你想用自己机器上的 QQ 版本：
-```bash
-npm run pack:qq                    # 打包 runtime/qq-portable → dist/QQ_portable.tar.zst
-npm run pack:qq -- --from D:\QQ    # 或从别处打包
-npm run pack:qq -- --keep-updates  # 保留待安装的更新包（默认剥离）
-```
-打包脚本会打印出归档的 SHA256 和两行可直接粘贴的配置（`QQ_PORTABLE_URL` / `QQ_PORTABLE_SHA256`）。
-把归档上传到任意可直链下载的地方即可。实测：**1.5 GB → 653 MB（42%），打包 24 秒**。
-> ⚠️ QQ 是腾讯公司的专有软件，版权与许可归腾讯所有。
-> 免安装包只是为了让「免安装」成为可能而做的**复制**，不含任何修改；
-> **再分发前请自行确认符合腾讯的许可条款**。本仓库不随代码分发 QQ 本体。
-#### 目标版本 vs 兜底安装包（两个不同的产物）
-| | 是什么 | 版本 |
-|---|---|---|
-| **目标版本** `QQ_VERSION` | 我们要求协议栈打交道的客户端版本；`EXPECTED_CLIENT_BUILD` 由它推导 | `9.9.33.51802` |
-| **免安装包** | 分发的主体，解压即用 | 里面就是 `9.9.33-51802` |
-| **兜底安装包** `QQ_9.9.33_260813_x64_01.exe` | 只在"免安装包拿不到 + 机器上也没装 QQ"时用（且必须手动双击装） | `260813` |
-兜底安装包的**文件名是写死的，不再由版本号拼接** —— 分发站上现存的就是 260813 那个包。
-用版本号拼的话一旦拼错，兜底下载会 404，而报错只会说"下载失败"，很难联想到是文件名不存在。
-#### 兜底：从机器上已装的 QQ 复制
-免安装包下载失败（比如没网、地址失效）时，会自动退回这条路：
-```bash
-# 完全退出 QQ（含托盘）后：
-npm run setup
-# 装在自定义路径时指定：
-npm run setup -- --from "D:\你装到哪"
-# 强制不用免安装包，就走复制：
-npm run setup -- --no-portable
-```
-脚本按「`--from` 指定 → 注册表/常见路径里**版本匹配**的那份 → 读不到版本的 → 版本不符的（会警告）」
-的顺序选来源，**不会随手拿第一个** —— 机器上同时有 QQ 9.7 和 9.9 时，拿错版本会表现为登录失败，
-排查方向会完全跑偏。
-### 为什么内置固定版 QQ？
-- **版本锁定与对齐**：SnowLuma 协议栈里写死了两处"我是谁"的声明
-  （`CLIENT_BUILD`、`BUILD_VERSION_SHORT`），用来在握手时自称客户端版本。
-  `npm run setup` 会把它们**对齐到你实际运行的 QQ 版本**（当前 `9.9.33-51802`），
-  这样声明与实际一致，也不会再报版本不匹配。
-  - 只是握手自报家门的字段，**不参与任何协议分支选择**（全文只有 2 处引用，都在自定义表情服务里）
-  - 改之前备份成 `snowluma/index.mjs.orig`；需要还原就把它盖回去
-  - 关掉对齐：`set QQ_ALIGN_CLIENT_BUILD=0 && npm run setup`
-  - 之所以做在 setup 里而不是手改：`snowluma/` 是下载来的，重新 setup 会覆盖掉手改的改动
-- **下载源**：从 <https://www.kondius.cn/netdisk/api/download/> 取安装包
-  （不依赖腾讯 CDN 的文件名规则，也不会因 CDN 清档而 404）。
-  目标版本 `9.9.33.51802`（免安装包里的就是这一版）。
-- **完整性校验**：安装包的 SHA256 已固定（`B25C0D3C…EC492`，2026-09-13 实测下载并校验）。
-  换版本/换源时要**同步改掉它**，否则每次 setup 都会以"校验失败"告终；
-  也可以设空 `QQ_X64_SHA256` 临时跳过（跳过后会打印实际哈希，方便重新固定）。
-- **安装器类型**：QQ 9.9.x 用的是腾讯自研 **HummerSetup**（不是 NSIS/Inno），
-  `/s /D=` 这类开关无效。脚本会识别类型，对这类安装器**不去盲试**，
-  而是改用"复制机器上已装的 QQ"这条路（做便携运行靠的是 `--user-data-dir`，不需要干净副本）。
-- **完全隔离**：便携 QQ 使用独立 `--user-data-dir`，与用户日常 QQ 互不干扰
-- **精准控制**：关闭时只杀路径匹配 `runtime/qq-portable` 的进程，绝不碰用户已登录的 QQ
-> ⚠️ **换 QQ 版本前先看这里**：如果登录被拒或接口行为异常，优先怀疑版本不匹配，
-> 而不是网络或账号。setup 的提示里会给出两个方向 ——
-> 换回与协议栈匹配的 QQ 版本，或换一个与当前 QQ 版本匹配的 SnowLuma。
-### 风险与免责声明
-- 本项目通过非官方方式接入 QQ 协议，**账号存在被风控/封禁的风险**，建议使用小号
-- SnowLuma 是独立第三方项目，受其自身 EULA 约束，本项目不分发其代码
-- 用户自行承担使用本项目的所有风险
-### 分发前脱敏
-分享自己的部署副本前执行：
-```bash
-node scripts/sanitize-release.mjs --dry-run   # 先看会清理什么
-node scripts/sanitize-release.mjs             # 清空 Key / 白名单 / 存档 / 登录态
-```
-我这个 fork 的动机很朴素：我自己平时就在用 DSH，每天在 QQ 和终端之间来回切很烦 ——
-能不能直接把指令丢进 QQ，让它在本机的 DSH 上跑？于是有了这条桥。
-顺手把几件一直想做的小事一起做了：出站内容里的隐私过滤、权限按会话收口、
-机器人被关掉时 QQ 挂"请勿打扰"。
 
-以后大概也只会在我自己用得上的地方继续加东西，顺手就发出来。
+然后双击 `启动QQ机器人.bat`（或 `npm start`），在 SnowLuma 页签点「启动 QQ」，扫码登录即可。想只开控制台看数据，用 `启动控制台.bat` 或 `npm run server`（浏览器打开 http://127.0.0.1:3210）。
+
+装完之后：设置页顶部体检卡会指出还缺什么 → 填接口地址和 Key → 选模型 → 勾白名单 → 去「人设」页给每个会话分配一张人格卡（没分配的会话只存档不回复）。
+
+手动安装（`npm run setup` 下载失败时）：
+
+1. **协议端**：SnowLuma 是独立第三方项目，从其官方渠道获取后解压到项目根目录，目录名保持 `snowluma`；
+2. **便携 QQ**：机器上已装过 QQ 的话，先完全退出 QQ（含托盘），直接跑 `npm run setup`，脚本会从注册表找到已装的 QQ 并复制一份到 `runtime/qq-portable/`（约 1.6 GB，自动跳过聊天记录）；也可以下载 <https://www.kondius.cn/netdisk/api/download/QQ_9.9.33_260813_x64_01.exe> 正常安装一遍，退出后重跑 `npm run setup`。QQ 9.9.x 用的是腾讯自研 HummerSetup 安装器，不接受 NSIS/Inno 的静默开关，所以这一步没法自动完成。
+3. 便携 QQ 用独立 `--user-data-dir`，与日常使用的 QQ 数据完全隔离；关闭时只杀路径匹配 `runtime/qq-portable` 的进程。
+4. 换 QQ 版本前注意：`npm run setup` 会把协议栈里写死的两处客户端版本声明（`CLIENT_BUILD`、`BUILD_VERSION_SHORT`）对齐到实际运行的版本（当前 `9.9.33-51802`），改前会备份成 `snowluma/index.mjs.orig`；登录被拒时优先怀疑版本不匹配，而不是网络或账号。
+
+常用命令：
+
+| 命令 | 作用 |
+|---|---|
+| `npm install` | 装依赖 |
+| `npm run setup` / `setup:check` | 一键下载 SnowLuma + 便携 QQ（幂等）/ 只检查是否就绪 |
+| `npm start` | 桌面端启动 |
+| `npm run server` | headless 模式，浏览器开 http://127.0.0.1:3210 |
+| `npm test` | 全量测试（26 个套件） |
+| `npm run test:coverage` | 覆盖测试（模块层 + 全部 HTTP 接口 + 端到端 + 静态界面层 + 界面接线） |
+| `npm run test:all` | 两套一起跑 |
+| `npm run pack:qq` | 把自己机器上的 QQ 打包成免安装包，输出 SHA256 和可粘贴的配置 |
+| `node scripts/sanitize-release.mjs` | 分享部署副本前清空 Key / 白名单 / 存档 / 登录态（先加 `--dry-run` 看会清什么） |
+
+### 扩展（插件 / Skill，沿用上游机制）
+
+| 类型 | 放哪 | 靠什么生效 | 谁决定何时执行 |
+|---|---|---|---|
+| 确定性型（插件） | `plugins/<id>/` | 能力 `providers` / 钩子 `hooks` | 核心代码：满足条件必然执行，不经过 LLM |
+| LLM 型（Skill） | `skills/<id>/` | 工具 `registerTool` + 提示词片段 | 模型：看工具说明自己判断 |
+
+规则能写死就写插件，要理解人话就写技能。选错类型的后果是功能静默失效（不报错、不崩、就是没反应），动笔前先读 [doc/extend_development/plugin-development.md](doc/extend_development/plugin-development.md) 与 [skill-development.md](doc/extend_development/skill-development.md)，共同机制见 [skill-reference.md](doc/extend_development/skill-reference.md)。
+
+开关只有 `config.skills[id].enabled` 一处；扩展的提示词片段优先级被强制压在核心安全规则之下；控制台「技能」「插件」两个页签会直接告诉你某项为什么没生效（未启用 / 依赖缺失 / 加载失败 / 模型不支持）。本 fork 新增：**删除**插件或技能不会真的删文件，而是移到 `data/trash/extensions/<id>-<时间戳>`，需要就手动挪回原目录恢复。热重载默认开启，共享机器建议在 `config.extensions.hotReload` 里关掉。
+
+## 版本记录
+
+| 版本 | 时间 | 内容 |
+|---|---|---|
+| **v0.5.0** | 2026-10-21 | 人设系统重构（人格卡 / 控制台人设页 V2 / 表单式编辑器 / AI 生成卡 / 原版卡导入 / AI 味黑名单 / 未分配即静默）；记忆卡系统（通用 / 群聊 / 个人 / 话题，按需注入 + 1500 字预算 + 三层印象 + 关系网跳转，多张通用卡 + 人设挂靠）；自动更新阶段 1（读本 fork Releases + 下载安装包，12 小时缓存、sha256 校验，不自动安装）；隐私默认关闭（意见收集 / 金句上传入口禁用、匿名遥测出厂即关）；插件与技能支持删除进回收站；新插件 `persona-switch-notice`；合入上游 `11577ba..fdfd325`；安装包名规范为 `QQ-Agent-DSH-Setup-${version}.exe` |
+| v0.4.4 | 2026-10-13 | `/dsh 新会话` 重置 + 状态显示轮次与自动轮换阈值 + 轮换提示；DSH 结果只留摘要进提示词（修上下文被长报告撑满）；控制台加「结果进入提示词的字数上限」开关；按会话静默（只存档 / 只转发，0 token）；状态守卫审计日志去重；长自聊天消息回溯清理脚本 |
+| v0.4.0 | 2026-10-11 | fork 的第一批改动成形：DSH 桥、出站隐私过滤、在线状态守卫 `qq-presence`、按会话权限档位、定时开关与关机联动脚本、独立打包配方 |
+| v0.3.x | 2026-09 | 跟随上游版本线，fork 尚未引入自有功能 |
+
+完整提交记录见 `git log`；改动背后的原因与踩过的坑写在 [BUILD-DSH.md](BUILD-DSH.md) 里，例如：headless 会话续接失败要能自动清记录重试、`Stop-Process -Force` 不会执行任何 JS 所以「关闭前设 DND」必须有脚本这条兜底路径、SnowLuma 没有 `get_online_status` 所以状态只能自己记账、宿主不落盘插件的 `console.log` 所以诊断信息搬进了 HTTP 接口与文件、计划任务用 `-WindowStyle Hidden` 仍会闪窗所以改用 `wscript` + VBS、无 BOM 的 `.ps1` 会被 PowerShell 5.1 按 ANSI 解析所以调度脚本全保持纯 ASCII。
+
+## 目录结构
+
+| 路径 | 内容 |
+|---|---|
+| `src/` | 核心逻辑（约 58 个模块）。关键文件：`app.js` 主循环与 ingest、`orchestrator.js` 会话编排、`prompt.js` 提示词组装、`personas.js` / `persona-import.js` / `persona-filter.js` 人设系统、`memory.js` / `memory-cards.js` / `memory-cards-prompt.js` 记忆与记忆卡、`dsh-bridge.js` DSH 桥、`privacy.js` 出站过滤、`presence.js` 状态守卫、`updater.js` 自动更新、`tools.js` 工具集、`routes.js` HTTP 接口、`config.js` 默认值与会话级解析 |
+| `ui/` | 控制台前端（零框架原生 JS，`ui/app/*.js` 分片加载）+ `ui/persona-plaza/`、`ui/plugin-market/`、`ui/skill-market/` |
+| `plugins/` | 随包发布的两个插件：`qq-presence`、`persona-switch-notice`；用户后装的插件也放这里 |
+| `skills/` | 不随仓库分发，是用户后装技能的落点（首次安装扩展时自动出现） |
+| `electron/` | 桌面壳：`main.js`、`preload.cjs` |
+| `doc/extend_development/` | 扩展开发与提示词管线文档，随安装包发布（控制台「让 AI 写插件」的提示词要读它） |
+| `scripts/` | 工具脚本：`setup.mjs`、`pack-qq-portable.mjs`、`sanitize-release.mjs`、`new-skill.mjs`、校验类脚本，以及 `qq-agent-scheduler/`（定时开关与关机联动的 PowerShell/VBS） |
+| `test/` | 26 个自测套件 + 覆盖测试入口，另含隐私规则专项 `privacy.test.mjs` / `privacy-patterns.test.mjs` |
+| `data/` | 运行数据，整体不进版本库：`config.json`、`memory/`、`memory-cards/`、`messages/`、`sessions/`、`logs/`、`presence.json` / `presence.log`、`dsh-sessions.json`、`update-check.json`、`updates/`、`trash/extensions/` |
+| `build/` `assets/` | NSIS 自定义安装脚本 `installer.nsh`、图标 |
+| `dev-tools/` | 假 OneBot 端到端调试器 |
+| `server/` | 社区 API（作者侧部署用，打包时被排除） |
+| `.github/workflows/` | 便携 QQ 包的上传中转 workflow |
+
+## 构建
+
+```bash
+npm install
+npx electron-builder --win nsis
+# 产物：dist/QQ-Agent-DSH-Setup-<version>.exe
+# 另附 electron-builder 生成的 latest.yml / blockmap；本 fork 的更新器走 GitHub Releases API，不依赖它们
+```
+
+版本号与打包参数在 `package.json` 的 `build` 段（`artifactName: QQ-Agent-DSH-Setup-${version}.exe`，`asar: false`，装完就是可读可改的源码）。`electron-builder-dsh.yml` 是另一份配方，用独立 `appId` / `productName` 打出一个与上游正式版**并行安装、互不覆盖**的 `QQ-Agent-DSH-Setup.exe`；v0.5.0 的 Release 产物走的是上面 `package.json` 的配置，要用并行安装那份得自己指定 `--config electron-builder-dsh.yml`。
+
+本机的完整打包配方（pnpm 垫片、Electron 与 nsis/winCodeSign 走 npmmirror 预置缓存、装完之后的迁移顺序）写在 **[BUILD-DSH.md](BUILD-DSH.md)**，先读它再动手。
+
+重装前记得备份 `resources\app\plugins\`：后来在控制台装的社区插件不在本仓库里。
+
+测试：`npm test` 跑 26 个套件。其中 `test/setup-qq-version.mjs` 会去检测本机安装的 QQ，在没装 QQ 也没跑过 `npm run setup` 的机器上那 1 项会红，属环境缺失不是代码问题。`npm run test:wiring`（含在 `test:coverage` 里）需要额外装 jsdom：`npm i -D jsdom`，没装时该套件打印提示并自动跳过。
+
+## 许可
+
+本项目以 MIT 许可发布（见 [LICENSE](LICENSE)）。上游由 **Kondius** 开发与维护，本 fork 由 [A-common-Chinese](https://github.com/A-common-Chinese) 维护。前置依赖 SnowLuma 是独立项目，受其自身许可约束，不受本项目许可覆盖；QQ 客户端版权归腾讯所有，本仓库不随代码分发 QQ 本体。
 
 ## 致谢
 
-- **[K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)** —— 本 fork 的上游：机器人本体、控制台、记忆与提示词体系都是他做的，这个 fork 只是在它上面加了 DSH 通道等改动
-- **[Derpyu520/qq-bridge](https://github.com/Derpyu520/qq-bridge)** —— 上游的起点，"仿真群友"的思路来源
-- **SnowLuma** —— QQ 协议端（OneBot v11）提供者，独立第三方项目，受其自身 EULA 约束
+- **[K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)** —— 本 fork 的上游：机器人本体、控制台、记忆与提示词体系都是他做的
+- **[Derpyu520/qq-bridge](https://github.com/Derpyu520/qq-bridge)** —— 上游的起点，「仿真群友」的思路来源
+- **SnowLuma** —— QQ 协议端（OneBot v11）提供者
 
-上游由 **Kondius** 开发与维护；**本 fork 由 [A-common-Chinese](https://github.com/A-common-Chinese) 维护**。
-
-## 许可
-本项目以 MIT 许可发布（见 [LICENSE](LICENSE)）。前置依赖 SnowLuma 是独立项目，受其自身许可约束，不受本项目许可覆盖。
+做这个 fork 的动机很朴素：平时就用 DSH，每天在 QQ 和终端之间来回切很烦，那就把指令直接丢进 QQ，让本机的 DSH 去跑。顺手做了几件一直想做的小事——出站隐私过滤、权限按会话收口、机器人被关掉时挂个「请勿打扰」。v0.5.0 这次动的是自己每天看的东西：人设和记忆。以后大概也只会在我自己用得上的地方继续加东西。
