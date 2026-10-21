@@ -867,7 +867,7 @@ function renderHealthCard() {
         try { st.sel = JSON.parse(el.dataset.json); } catch { return; }
         if (st.sel && st.sel.tab) st.tab = st.sel.tab;
         st.detail = null;
-        memLoadDetail().then(() => { if (state.tab === 'memory') loadMemoryView(); });
+        memLoadDetail().then(async () => { if (state.tab === 'memory') await loadMemoryView(); });
         return;
       }
       if (act === 'gen-save') {

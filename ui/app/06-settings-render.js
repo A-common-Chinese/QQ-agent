@@ -486,10 +486,10 @@ function renderSearchSection(c) {
   // ═══ 记忆 V2：群聊 / 个人 / 基本事实 ═══
   const MEM_TABS = [{ id: 'groups', label: '群聊/私聊' }, { id: 'persons', label: '个人' }, { id: 'general', label: '基本事实' }];
   // 记忆相关操作后的重渲染：记忆 tab 走 loadMemoryView，设置页走 loadSettings
-  function memRerender() {
+  async function memRerender() {
     try {
-      if (state.tab === 'memory' && typeof loadMemoryView === 'function') { loadMemoryView(); return; }
-      if (typeof loadSettings === 'function') memRerender();
+      if (state.tab === 'memory' && typeof loadMemoryView === 'function') { await loadMemoryView(); return; }
+      if (typeof loadSettings === 'function') await loadSettings();
     } catch (e) { /* 静默 */ }
   }
   function memState() {
@@ -717,7 +717,10 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     return pv2Cards(c).map((x) => `<option value="${esc(x.id)}"${x.id === sel ? ' selected' : ''}>${esc(x.name)}${x.builtin ? '（只读）' : ''}</option>`).join('');
   }
   function pv2CardName(c, id) { const x = pv2Cards(c).find((k) => k && k.id === id); return x ? x.name : ''; }
-  function pv2Reload() { try { if (typeof loadSettings === 'function') memRerender(); else location.reload(); } catch { location.reload(); } }
+  async function pv2Reload() {
+    try { if (typeof memRerender === 'function') await memRerender(); else if (typeof loadSettings === 'function') await loadSettings(); else location.reload(); }
+    catch (e) { try { location.reload(); } catch { /* ignore */ } }
+  }
   function pv2Hint(id, text, color) { const e = document.getElementById(id); if (e) { e.textContent = text || ''; e.style.color = color || ''; } }
   function pv2Picked() {
     return [...document.querySelectorAll('.pv2-pick')].filter((x) => x.checked).map((x) => x.dataset.chat);
@@ -806,6 +809,8 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     const q = (id) => overlay.querySelector('#' + id);
     q('pv2e-cancel').addEventListener('click', () => closeModelModal(overlay));
     q('pv2e-save').addEventListener('click', async () => {
+      if (q('pv2e-save').disabled) return;
+      q('pv2e-save').disabled = true;
       let examples = [];
       let scenarios = [];
       try { examples = JSON.parse(q('pv2e-examples').value || '[]'); } catch { showNoticeModal('JSON 错误', '回复示例不是合法 JSON'); return; }
@@ -861,6 +866,8 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     q('pv2i-close').onclick = () => closeModelModal(overlay);
     q('pv2i-all').onclick = () => overlay.querySelectorAll('.pv2i-pick').forEach((x) => { x.checked = true; });
     q('pv2i-run').onclick = async () => {
+      if (q('pv2i-run').disabled) return;
+      q('pv2i-run').disabled = true;
       const picked = [...overlay.querySelectorAll('.pv2i-pick')].filter((x) => x.checked).map((x) => items[Number(x.dataset.i)]);
       if (!picked.length) { q('pv2i-hint').textContent = '先勾选要导入的卡'; return; }
       const btn = q('pv2i-run');
@@ -874,6 +881,8 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       } catch (e) { q('pv2i-hint').textContent = '失败：' + (e?.message || e); btn.disabled = false; }
     };
     q('pv2i-paste').onclick = async () => {
+      if (q('pv2i-paste').disabled) return;
+      q('pv2i-paste').disabled = true;
       const text = q('pv2i-text').value.trim();
       if (!text) { q('pv2i-phint').textContent = '先粘贴内容'; return; }
       try {
