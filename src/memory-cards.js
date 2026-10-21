@@ -75,7 +75,7 @@ export function updateGroup(chatKey, patch) {
 export function updateGeneral(patch) {
   const file = path.join(ROOT, 'general.json');
   const cur = read(file) || { id: 'general', name: '通用卡' };
-  const allowed = ['name', 'summary', 'facts', 'prefs'];
+  const allowed = ['name', 'summary', 'facts', 'prefs', 'impressionScope'];
   const next = { ...cur, updatedAt: new Date().toISOString() };
   for (const k of allowed) if (patch && patch[k] !== undefined) next[k] = patch[k];
   writeAtomic(file, next);

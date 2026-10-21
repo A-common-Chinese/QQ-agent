@@ -484,7 +484,7 @@ function renderSearchSection(c) {
 }
 
   // ═══ 记忆 V2：群聊 / 个人 / 基本事实 ═══
-  const MEM_TABS = [{ id: 'groups', label: '群聊' }, { id: 'persons', label: '个人' }, { id: 'general', label: '基本事实' }];
+  const MEM_TABS = [{ id: 'groups', label: '群聊/私聊' }, { id: 'persons', label: '个人' }, { id: 'general', label: '基本事实' }];
   function memState() {
     if (!state.memV2) state.memV2 = { tab: 'groups', list: null, sel: null, detail: null, q: '' };
     return state.memV2;
@@ -513,7 +513,7 @@ function renderSearchSection(c) {
       <div class="field"><label>事实（一行一条，key=value）</label><textarea id="memv-facts" class="persona-role-text" style="min-height:110px">${facts}</textarea></div>
       ${st.tab === 'persons' ? '<div class="field"><label>偏好（一行一条）</label><textarea id="memv-prefs" class="persona-role-text" style="min-height:80px">' + prefs + '</textarea></div>' : ''}
       ${st.tab === 'persons' ? '<div class="field"><label>待办/约定（一行一条）</label><textarea id="memv-pending" class="persona-role-text" style="min-height:70px">' + pending + '</textarea></div>' : ''}
-      ${st.tab === 'general' ? '' : (st.tab === 'groups' ? '<div class="field"><label>成员（只读）</label><div class="muted" style="font-size:13px">' + (members || '（空）') + '</div></div>' : '<div class="field"><label>所在群（只读）</label><div class="muted" style="font-size:13px;white-space:pre-line">' + (groupsOf || '（空）') + '</div></div>')}
+      ${st.tab === 'general' ? '' : (st.tab === 'groups' ? '<div class="field"><label>成员（点名字跳到个人卡）</label><div style="font-size:13px;line-height:1.9">' + ((d.members || []).map((m) => '<a href="#" data-mem="sel" data-json=\'' + esc(JSON.stringify({ tab: 'persons', qq: m.id })) + '\'>' + esc(m.name || m.id) + '</a> · ' + (m.msgs || 0) + ' 条').join('　') || '<span class="muted">（空）</span>') + '</div></div>' : '<div class="field"><label>所在群聊/私聊（点名字跳到会话卡）</label><div style="font-size:13px;line-height:1.9">' + ((d.groups || []).map((g) => '<a href="#" data-mem="sel" data-json=\'' + esc(JSON.stringify({ tab: 'groups', chatKey: g.chatKey })) + '\'>' + esc((g.kind === 'private' ? '私聊 ' : '群 ') + (g.name || g.chatKey)) + '</a> · ' + (g.msgs || 0) + ' 条').join('　') || '<span class="muted">（空）</span>') + '</div></div>')}
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
         <button class="btn btn-small btn-primary" data-mem="save" data-key="${esc(key)}">保存</button>
         ${st.tab === 'persons' ? '<button class="btn btn-small btn-danger" data-mem="del" data-qq="' + esc(d.qq) + '">删除这张卡</button>' : ''}
@@ -596,6 +596,19 @@ function renderSearchSection(c) {
       if (g('memv-prefs')) body.prefs = memParseLines(g('memv-prefs').value).map((x) => ({ what: x }));
       if (g('memv-pending')) body.pending = memParseLines(g('memv-pending').value).map((x) => ({ text: x, status: 'open' }));
     }
+    if (st.tab === 'persons') {
+      const generalEl = document.getElementById('memv-imp-general');
+      const byChat = {};
+      document.querySelectorAll('.memv-imp').forEach((el) => {
+        const list = String(el.value || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+        if (list.length) byChat[el.dataset.chat] = list;
+      });
+      if (generalEl) body.impressions = { general: generalEl.value, byChat };
+    }
+    if (st.tab === 'general') {
+      const sc = document.getElementById('memv-scope');
+      if (sc) body.impressionScope = sc.value;
+    }
     if (g('memv-facts')) {
       body.facts = memParseLines(g('memv-facts').value).map((line) => {
         const i = line.indexOf('=');
@@ -633,6 +646,7 @@ function renderSearchSection(c) {
       if (act === 'sel') {
         e.preventDefault();
         try { st.sel = JSON.parse(el.dataset.json); } catch { return; }
+        if (st.sel && st.sel.tab) st.tab = st.sel.tab;
         st.detail = null;
         memLoadDetail().then(() => { if (state.tab === 'memory') renderTab(); });
         return;
