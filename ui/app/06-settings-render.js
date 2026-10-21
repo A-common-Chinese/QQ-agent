@@ -553,8 +553,8 @@ function renderMemorySettingsSection(c) {
     } catch (e) { pv2Hint('pv2-policy-hint', '失败：' + e.message, 'var(--red)'); }
   }
   // 卡片编辑器
-  function pv2OpenEditor(card) {
-    const isNew = !card;
+  function pv2OpenEditor(card, forceNew) {
+    const isNew = !card || forceNew === true;
     const c0 = card || { name: '', variant: '', examples: [], scenarios: [] };
     const js = (v) => esc(JSON.stringify(v || [], null, 2));
     const overlay = modelModalShell({
@@ -595,6 +595,37 @@ function renderMemorySettingsSection(c) {
     });
     overlay.querySelector('#pv2e-name').focus();
   }
+  // ✨ 用 AI 生成人格卡（阶段 4）
+  function pv2AiGenerate() {
+    const overlay = modelModalShell({
+      head: '✨ 用 AI 生成人格卡',
+      body: `<div class="field"><label>描述你想要的角色</label>
+          <textarea id="pv2g-desc" class="persona-role-text" style="min-height:150px" placeholder="例：这个群的人设偏害羞、怕被冷落，但被人怼时会小声反驳，说话很短，喜欢潜水；被叫大肥鱼会炸毛。"></textarea>
+          <div class="hint">会调用你在「设置 → 模型」里配置的 API（可在 personaPolicy.genModel 指定单独模型）。生成后先预览，点保存才落盘。</div></div>
+        <div class="hint" id="pv2g-hint"></div>`,
+      foot: `<button class="btn" id="pv2g-cancel">取消</button><button class="btn btn-primary" id="pv2g-run">生成</button>`
+    });
+    const q = (id) => overlay.querySelector('#' + id);
+    const hint = (t, c) => { const e = q('pv2g-hint'); if (e) { e.textContent = t; e.style.color = c || ''; } };
+    q('pv2g-cancel').addEventListener('click', () => closeModelModal(overlay));
+    q('pv2g-run').addEventListener('click', async () => {
+      const desc = q('pv2g-desc').value.trim();
+      if (!desc) { hint('先写一句角色描述', 'var(--orange)'); return; }
+      const btn = q('pv2g-run');
+      btn.disabled = true;
+      hint('生成中（大约 10~30 秒）…');
+      try {
+        const r = await pv2Api('POST', '/api/personas/generate', { description: desc });
+        closeModelModal(overlay);
+        pv2OpenEditor({ ...r.card, id: '' }, true);
+      } catch (e) {
+        hint('生成失败：' + (e?.message || e), 'var(--red)');
+        btn.disabled = false;
+      }
+    });
+    q('pv2g-desc').focus();
+  }
+
   async function pv2CopyCard(id) {
     const c = state.config || {};
     const card = pv2Cards(c).find((x) => x && x.id === id);
@@ -694,6 +725,7 @@ function renderMemorySettingsSection(c) {
       <h3>③ 人格卡管理</h3>
       <div style="display:flex;gap:8px;margin-bottom:6px">
         <button class="btn btn-small btn-primary" onclick="pv2OpenEditor(null)">＋ 新建人格卡</button>
+        <button class="btn btn-small" onclick="pv2AiGenerate()">✨ 用 AI 生成</button>
       </div>
       ${cardRows || '<div class="muted">（还没有卡片）</div>'}
       <h3>④ 共用部分（useShared 的卡共享）</h3>

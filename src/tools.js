@@ -7,6 +7,7 @@
 // 重构说明：所有工具通过 registerTool() 注册到 tool-registry.js，
 // 支持在设置页按卡片勾选启用/禁用。
 import { getConfig } from './config.js';
+import { applyBannedFilter } from './persona-filter.js';
 import { normalizeMessageList, unquoteJsonString } from './util.js';
 import { formatStickerList } from './stickers.js';
 import { skillManager } from './skills/manager.js';
@@ -175,7 +176,10 @@ function registerAllTools() {
       try {
         const messages = normalizeMessageList(args.messages);
         if (!messages.length) return err('消息内容为空');
-        const result = await ctx.sender.sendTextBatch(ctx.chatKey, messages, {
+        // 人设黑名单出站过滤（mode=filter/both 时生效；只删短语）
+        const filtered = messages.map((m) => applyBannedFilter(m)).filter((m) => String(m || '').trim());
+        if (!filtered.length) return ok({ sent: 0, note: '内容命中了黑名单并被过滤器清空，本次没有发送。可以换个说法再说。' });
+        const result = await ctx.sender.sendTextBatch(ctx.chatKey, filtered, {
           replyToMessageId: args.replyToMessageId ?? null,
           atUserId: args.atUserId ?? null
         });
@@ -241,7 +245,9 @@ function registerAllTools() {
         }
         const messages = normalizeMessageList(args.messages);
         if (!messages.length) return err('消息内容为空');
-        const result = await ctx.sender.sendTextBatch(wantTarget, messages, {});
+        const filteredTo = messages.map((m) => applyBannedFilter(m)).filter((m) => String(m || '').trim());
+        if (!filteredTo.length) return ok({ sent: 0, note: '内容命中了黑名单并被过滤器清空，本次没有发送。' });
+        const result = await ctx.sender.sendTextBatch(wantTarget, filteredTo, {});
         ctx.session.sent.push(...result.sent.map((s) => ({ type: 'text', text: s.text, to: wantTarget })));
         ctx.emit('session-update', ctx.session.id);
         const note = [`已发送到 ${wantTarget}。不要输出汇报。`];

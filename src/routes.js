@@ -1154,6 +1154,69 @@ export function createRoutes(deps) {
 
     // ── 人格卡（人设系统重构）────────────────────────────────────────
     {
+      // 用模型生成人格卡（阶段 4）：返回结构化卡片，不落盘 —— 前端预览编辑后再 POST /api/personas
+      method: 'POST', pattern: '/api/personas/generate',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        const desc = String(body?.description || '').trim();
+        if (!desc) return json(res, 400, { ok: false, error: '缺少 description（你想要的角色描述）' });
+        const cfg = getConfig();
+        const genModel = String(cfg?.personaPolicy?.genModel || '').trim();
+        const sys = [
+          '你是「QQ 群聊机器人人格卡」作者。只输出一个 JSON 对象，不要任何解释、不要 Markdown 代码块。',
+          'JSON 结构：',
+          '{"name":"卡片名","variant":"本卡特有描述(依赖型/害羞型/傲娇型等人格变体，纯文本，200~800字)","examples":[{"user":"群友说的话","bad":"错误的AI式回复","good":"符合人格的正确回复"}],"scenarios":[{"id":"英文字母短id","trigger":"正则或关键词","text":"这个场景下的行为说明"}]}',
+          '要求：',
+          '1. variant 写"这个人格怎么说话、怎么反应"，不要写通用客服话术；400~800 字；',
+          '2. examples 给 3~4 组，覆盖"被问是不是AI""被夸""被怼""冷场"之类；',
+          '3. scenarios 给 2~4 段，每段 trigger 必须是一个合法正则（如 "(被夸|好厉害|你真棒)"），text 100~200 字；',
+          '4. 全部用简体中文；不要出现"作为一个AI""我无法"这类话；',
+          '5. 不要输出 JSON 以外的任何字符。'
+        ].join('\n');
+        let content = '';
+        try {
+          const r = await chatCompletion({
+            messages: [
+              { role: 'system', content: sys },
+              { role: 'user', content: '角色描述：' + desc }
+            ],
+            temperature: 0.85,
+            maxTokens: 2200,
+            ...(genModel ? { overrides: { ...(cfg.api || {}), model: genModel } } : {})
+          });
+          content = String(r?.message?.content ?? r?.content ?? r?.choices?.[0]?.message?.content ?? r?.text ?? '');
+        } catch (error) {
+          return json(res, 500, { ok: false, error: '模型调用失败：' + (error?.message || error) });
+        }
+        // 解析 JSON（容忍 markdown 代码块包裹 / 前后废话）
+        let card = null;
+        const tryParse = (t) => { try { return JSON.parse(t); } catch { return null; } };
+        card = tryParse(content.trim());
+        if (!card) {
+          const m = content.match(/\{[\s\S]*\}/);
+          if (m) card = tryParse(m[0]);
+        }
+        if (!card || typeof card !== 'object') return json(res, 502, { ok: false, error: '模型没有返回合法 JSON', raw: content.slice(0, 500) });
+        // 规范化 + 校验
+        const clip = (v, n) => String(v || '').slice(0, n);
+        const out = {
+          name: clip(card.name, 40) || 'AI 生成卡',
+          variant: clip(card.variant, 2000),
+          examples: (Array.isArray(card.examples) ? card.examples : []).slice(0, 6).map((e) => ({
+            user: clip(e?.user, 80), bad: clip(e?.bad, 200), good: clip(e?.good, 200)
+          })).filter((e) => e.user && e.good),
+          scenarios: (Array.isArray(card.scenarios) ? card.scenarios : []).slice(0, 6).map((sc, i) => {
+            let trig = clip(sc?.trigger, 200);
+              try { if (trig) new RegExp(trig); } catch { trig = ''; }  // 非法正则直接丢弃该触发词
+            return { id: clip(sc?.id, 40) || ('scn_' + (i + 1)), trigger: trig, text: clip(sc?.text, 400) };
+          }).filter((x) => x.text),
+          useShared: true
+        };
+        if (!out.variant) return json(res, 502, { ok: false, error: '生成结果缺少 variant', raw: content.slice(0, 500) });
+        return json(res, 200, { ok: true, model: genModel || '(主模型)', card: out });
+      }
+    },
+    {
       method: 'GET', pattern: '/api/personas',
       handler: async ({ res, json }) => {
         const cfg = getConfig();
