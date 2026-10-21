@@ -509,8 +509,9 @@ function renderSearchSection(c) {
       <div class="field"><label>名称（昵称，可改）</label><input type="text" id="memv-name" value="${esc(d.name || '')}" /></div>
       <div class="field"><label>一句话概览</label><input type="text" id="memv-summary" value="${esc(d.summary || '')}" /></div>
       ${st.tab === 'persons' ? '<div class="field"><label>语气/关系（可选）</label><input type="text" id="memv-tone" value="' + esc(d.tone || '') + '" /></div>' : ''}
-      ${st.tab === 'persons' ? '<div class="field"><label>笔记（一行一条）</label><textarea id="memv-notes" class="persona-role-text" style="min-height:110px">' + notes + '</textarea></div>' : ''}
+${st.tab === 'persons' ? memImpressionsHtml(d) : ''}
       <div class="field"><label>事实（一行一条，key=value）</label><textarea id="memv-facts" class="persona-role-text" style="min-height:110px">${facts}</textarea></div>
+${st.tab === 'general' ? memScopeHtml(d) : ''}
       ${st.tab === 'persons' ? '<div class="field"><label>偏好（一行一条）</label><textarea id="memv-prefs" class="persona-role-text" style="min-height:80px">' + prefs + '</textarea></div>' : ''}
       ${st.tab === 'persons' ? '<div class="field"><label>待办/约定（一行一条）</label><textarea id="memv-pending" class="persona-role-text" style="min-height:70px">' + pending + '</textarea></div>' : ''}
       ${st.tab === 'general' ? '' : (st.tab === 'groups' ? '<div class="field"><label>成员（点名字跳到个人卡）</label><div style="font-size:13px;line-height:1.9">' + ((d.members || []).map((m) => '<a href="#" data-mem="sel" data-json=\'' + esc(JSON.stringify({ tab: 'persons', qq: m.id })) + '\'>' + esc(m.name || m.id) + '</a> · ' + (m.msgs || 0) + ' 条').join('　') || '<span class="muted">（空）</span>') + '</div></div>' : '<div class="field"><label>所在群聊/私聊（点名字跳到会话卡）</label><div style="font-size:13px;line-height:1.9">' + ((d.groups || []).map((g) => '<a href="#" data-mem="sel" data-json=\'' + esc(JSON.stringify({ tab: 'groups', chatKey: g.chatKey })) + '\'>' + esc((g.kind === 'private' ? '私聊 ' : '群 ') + (g.name || g.chatKey)) + '</a> · ' + (g.msgs || 0) + ' 条').join('　') || '<span class="muted">（空）</span>') + '</div></div>')}
@@ -520,6 +521,30 @@ function renderSearchSection(c) {
         <span class="hint" id="memv-hint"></span>
       </div>`;
   }
+  // 个人卡三层印象（通用 / 群聊 / 私聊）
+  function memImpressionsHtml(d) {
+    const imp = d.impressions || {};
+    const byChat = imp.byChat || {};
+    const block = (entries, kind) => entries.map(([k, list]) =>
+      '<div class="field" style="margin-top:6px"><label style="font-size:12px">' + (kind === 'group' ? '群聊：' : '私聊：') + esc(k) + '</label>' +
+      '<textarea class="memv-imp" data-chat="' + esc(k) + '" style="min-height:64px">' + esc((list || []).join(String.fromCharCode(10))) + '</textarea></div>'
+    ).join('') || '<div class="muted" style="font-size:12px">（无）</div>';
+    const gs = Object.entries(byChat).filter(([k]) => String(k).startsWith('group:'));
+    const ps = Object.entries(byChat).filter(([k]) => String(k).startsWith('private:'));
+    return '<div class="field"><label>通用印象（跨群）</label><textarea id="memv-imp-general" style="min-height:64px">' + esc(imp.general || '') + '</textarea></div>' +
+      '<div class="field"><label>群聊印象</label>' + block(gs, 'group') + '</div>' +
+      '<div class="field"><label>私聊印象</label>' + block(ps, 'private') + '</div>';
+  }
+  // 印象调用方式选择（基本事实 tab）
+  function memScopeHtml(d) {
+    const cur = d.impressionScope || 'auto';
+    return '<div class="field"><label>个人印象的调用方式</label><select id="memv-scope">' +
+      '<option value="auto"' + (cur === 'auto' ? ' selected' : '') + '>自动（通用印象 + 当前会话的印象）</option>' +
+      '<option value="all"' + (cur === 'all' ? ' selected' : '') + '>全部（通用 + 所有群聊/私聊印象）</option>' +
+      '<option value="model"' + (cur === 'model' ? ' selected' : '') + '>由模型自己调（需要时用工具查）</option>' +
+      '</select><div class="hint">只影响注入提示词时带多少印象；不影响界面里看到的全部内容。</div></div>';
+  }
+
   function renderMemorySectionV2(c) {
     const st = memState();
     if (!st.list) {
@@ -592,7 +617,7 @@ function renderSearchSection(c) {
     if (g('memv-summary')) body.summary = g('memv-summary').value;
     if (st.tab === 'persons') {
       if (g('memv-tone')) body.tone = g('memv-tone').value;
-      if (g('memv-notes')) body.notes = memParseLines(g('memv-notes').value);
+    // 笔记已拆进 impressions.byChat，不再单独保存 body.notes
       if (g('memv-prefs')) body.prefs = memParseLines(g('memv-prefs').value).map((x) => ({ what: x }));
       if (g('memv-pending')) body.pending = memParseLines(g('memv-pending').value).map((x) => ({ text: x, status: 'open' }));
     }
