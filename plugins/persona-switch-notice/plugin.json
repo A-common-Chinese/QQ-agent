@@ -1,0 +1,60 @@
+{
+  "id": "persona-switch-notice",
+  "name": "人格切换感知",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "category": "utility",
+  "description": "当某个会话的人格卡被切换时，给模型一条提示，让它意识到「自己刚被换了人格」。提示内容由你填：留空 = 完全不注入（交给模型现有提示词自行判断）。纯本地：零模型调用，只读取 config.json 并把切换记录写进 data/persona-switch-log.json。",
+  "enabledByDefault": false,
+  "capabilities": [],
+  "permissions": [],
+  "requires": [],
+  "settings": {
+    "enabled": true,
+    "noticeText": "",
+    "applyTo": "all",
+    "oneShot": true,
+    "persistMinutes": 0,
+    "showSourceName": true,
+    "triggerOnFirstAssign": false
+  },
+  "configSchema": {
+    "enabled": {
+      "type": "boolean",
+      "label": "启用人格切换感知",
+      "description": "检测到会话人格卡变化时，按下面填写的提示内容注入一段说明。"
+    },
+    "noticeText": {
+      "type": "string",
+      "multiline": true,
+      "label": "切换时要告诉模型的反应（留空 = 不注入）",
+      "description": "例如：「你察觉到不太一样，会小声问一句『……我是不是变了』」。留空则完全不插入任何提示，让模型按现有提示词自行判断。"
+    },
+    "applyTo": {
+      "type": "enum",
+      "values": ["all", "groups", "private"],
+      "label": "生效范围",
+      "description": "all = 群聊和私聊都生效；groups = 只群聊；private = 只私聊。"
+    },
+    "oneShot": {
+      "type": "boolean",
+      "label": "只提示一次",
+      "description": "开启（默认）：切换后的下一轮提示一次，之后不再提；关闭：persistMinutes 内每轮都提醒。"
+    },
+    "persistMinutes": {
+      "type": "number",
+      "label": "持续提醒分钟数（0 = 只一次）",
+      "description": "oneShot 关闭时有效：在这么多分钟内每轮都带上提示。"
+    },
+    "showSourceName": {
+      "type": "boolean",
+      "label": "提示里带卡片名",
+      "description": "开启：'从「依赖版」切换到「害羞版」'；关闭：只说'你的人设刚被切换'。"
+    },
+    "triggerOnFirstAssign": {
+      "type": "boolean",
+      "label": "首次分配也提示",
+      "description": "默认关闭：给会话第一次选卡不算'切换'；开启后首次分配也算。"
+    }
+  }
+}
