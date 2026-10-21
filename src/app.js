@@ -23,6 +23,7 @@ import { cacheHitRate } from './llm.js';
 import { isPeakHour, priceAt, resolveModelPrice, modelLabel, splitModelLabel, UNKNOWN_VENDOR } from './model-prices.js';
 import { initPriceFeed } from './price-feed.js';
 import { startTelemetryLoop } from './telemetry.js';
+import { startAutoBackup } from './backup.js';
 import { loadPlugins, watchPlugins } from './plugin-loader.js';
 import { setPresenceClient } from './presence.js';
 import { skillManager } from './skills/manager.js';
@@ -1513,6 +1514,7 @@ export function createApp({ log = console.log } = {}) {
 
     // 匿名用量遥测：启动 90 秒后发第一次，之后每 6 小时一次；失败静默不影响使用
     startTelemetryLoop(log);
+try { startAutoBackup(log); } catch (error) { log('[backup] 启动失败：' + (error?.message ?? error)); }
 
     // 会话索引后台对账：启动读的是毫秒级缓存，这里异步补扫磁盘修正差异
     // （缓存缺失的新文件/外部删除的文件）。不 await —— 不挡任何启动步骤。

@@ -30,6 +30,7 @@ import { getPrivacyFilter } from './privacy.js';
 import { logger } from './logger.js';
 import { skillManager } from './skills/manager.js';
 import { parseLegacyCard } from './persona-import.js';
+import { runBackup, listBackups } from './backup.js';
 import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral } from './memory-cards.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
 import { availabilityOf, listTools, CATEGORY_META } from './tool-registry.js';
@@ -1154,6 +1155,22 @@ export function createRoutes(deps) {
       }
     },
 
+    // ── 自动备份 ────────────────────────────────────────────────
+    {
+      method: 'POST', pattern: '/api/backup/run',
+      handler: async ({ res, json }) => {
+        const r = runBackup({ reason: 'manual', log: () => {} });
+        if (!r.ok) return json(res, 400, { ok: false, error: r.error || '备份失败' });
+        return json(res, 200, r);
+      }
+    },
+    {
+      method: 'GET', pattern: '/api/backup/list',
+      handler: async ({ res, json }) => {
+        const list = listBackups();
+        return json(res, 200, { ok: true, count: list.length, backups: list });
+      }
+    },
     // ── 人格卡（人设系统重构）────────────────────────────────────────
     {
       // 用模型生成人格卡（阶段 4）：返回结构化卡片，不落盘 —— 前端预览编辑后再 POST /api/personas

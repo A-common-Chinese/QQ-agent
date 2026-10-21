@@ -42,6 +42,15 @@ export const DEFAULT_CONFIG = {
     enabled: false,
   },
 
+  // ── 自动备份 ────────────────────────────────────────────────────
+  backup: {
+    enabled: true,
+    dir: 'D:/QQ-Agent-Backups/auto',
+    everyHours: 12,          // 每隔多少小时备一次
+    keep: 7,                 // 保留最近几份
+    includeMessages: true,   // 是否包含 messages/ 与 sessions/
+    includeResources: true   // 是否包含 resources/app 下的 plugins、skills
+  },
   // ── 记忆卡（群聊 / 个人 / 基本事实 按需注入）─────────────────────
   memoryCards: {
     enabled: true,          // 总开关：关掉则完全不注入【记忆卡】段
