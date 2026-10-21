@@ -988,7 +988,8 @@ function bindSettingsEvents(c) {
     } else if (!data.ok) {
       if (hint) hint.textContent = '检查失败：' + (data.error || '未知错误');
     } else if (data.hasUpdate) {
-      showUpdateDetail(data);
+      state.updateInfo = data;
+  showUpdateDetail(data);
     } else if (hint) hint.textContent = '已是最新（v' + data.current + '）';
     checkUpdateBtn.disabled = false;
   });
@@ -1007,7 +1008,7 @@ function bindSettingsEvents(c) {
   });
   // 打开设置页时若有已知新版本，直接把详情填好（走缓存，不额外打网络）
   if (typeof updateAvailable !== 'undefined' && updateAvailable) {
-    api('/api/update-check').then((d) => { if (d?.ok && d.hasUpdate) showUpdateDetail(d); }).catch(() => {});
+    api('/api/update-check').then((d) => { if (d?.ok) { state.updateInfo = d; } if (d?.ok && d.hasUpdate) showUpdateDetail(d); }).catch(() => {});
   }
 
   // ── OneBot 区块事件 ──

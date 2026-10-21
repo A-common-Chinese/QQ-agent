@@ -128,7 +128,16 @@ function connectSSE() {
     refreshStatus();
     if (state.tab === 'snowluma') scheduleSnowlumaReload();
   });
-  es.addEventListener('status', () => refreshStatus());
+  es.addEventListener('status', (ev) => {
+  refreshStatus();
+  // 后端改了配置（人设/记忆卡/通用卡/插件开关等）→ 设置页自动重载，不用手动刷新
+  try {
+    const d = JSON.parse(ev?.data || '{}');
+    if (d && d.configUpdated && state.tab === 'settings' && typeof loadSettings === 'function') {
+      loadSettings();
+    }
+  } catch (e) { /* ignore */ }
+});
   es.addEventListener('snowluma-status', () => { refreshStatus(); if (state.tab === 'snowluma') scheduleSnowlumaReload(); });
   es.addEventListener('qq-portable-status', () => { refreshStatus(); if (state.tab === 'snowluma') scheduleSnowlumaReload(); });
   // 日志事件只刷日志文本，不整页重建（曾经每条日志都 innerHTML 重绘整页）

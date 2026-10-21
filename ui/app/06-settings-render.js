@@ -221,6 +221,21 @@ function renderSettings() {
       if ((d.chats || []).length && state.tab === 'settings') renderSettings();
     }).catch(() => {}).finally(() => { renderSettings.__chatsFetch = false; });
   }
+  // 设置页渲染完自动回填「有新版本」详情（启动时的检查早于页面渲染，DOM 当时还不存在）
+  try {
+    if (typeof showUpdateDetail === 'function' && state.webUpdateInfo !== false) {
+      const info = state.updateInfo;
+      if (info && info.hasUpdate) {
+        setTimeout(() => {
+          if (state.tab === 'settings') {
+            const box = document.getElementById('update-detail');
+            if (box && box.style.display === 'none') showUpdateDetail(info);
+          }
+        }, 60);
+      }
+    }
+  } catch (e) { /* ignore */ }
+
 }
 
 function renderSettingsSection(c) {
