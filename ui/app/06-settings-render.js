@@ -229,7 +229,7 @@ function renderSettingsSection(c) {
     api: () => renderApiSection(c),
     search: () => renderSearchSection(c),
     memory: () => renderMemorySettingsSection(c),
-    persona: () => renderPersonaSection(c),
+    persona: () => renderPersonaSectionV2(c),
     allow: () => renderAllowSection(c),
     chat: () => renderChatSection(c),
     desktop: () => renderDesktopSection(c),
@@ -479,6 +479,246 @@ function renderMemorySettingsSection(c) {
     <div class="field"><label>整理冷却时间（毫秒）</label><input type="number" id="cfg-mem-interval" min="1800000" step="600000" value="${esc(mem.consolidateMinIntervalMs ?? 21600000)}" /></div>
     <div class="hint">条数超过阈值且距上次整理超过该冷却时间后，才会在运行结束后后台整理。默认 6 小时（21600000 毫秒）。</div>`;
 }
+
+  // ═══ 人设 V2（人格卡）：选卡 + 批量 + 卡管理 + 共用段 + 黑名单 ═══
+  function pv2Cards(c) { return Array.isArray(c.personas) ? c.personas : []; }
+  function pv2Opts(c, sel) {
+    return pv2Cards(c).map((x) => `<option value="${esc(x.id)}"${x.id === sel ? ' selected' : ''}>${esc(x.name)}${x.builtin ? '（只读）' : ''}</option>`).join('');
+  }
+  function pv2CardName(c, id) { const x = pv2Cards(c).find((k) => k && k.id === id); return x ? x.name : ''; }
+  function pv2Reload() { try { if (typeof loadSettings === 'function') loadSettings(); else location.reload(); } catch { location.reload(); } }
+  function pv2Hint(id, text, color) { const e = document.getElementById(id); if (e) { e.textContent = text || ''; e.style.color = color || ''; } }
+  function pv2Picked() {
+    return [...document.querySelectorAll('.pv2-pick')].filter((x) => x.checked).map((x) => x.dataset.chat);
+  }
+  async function pv2Api(method, path2, body) {
+    const opt = { method, headers: { 'content-type': 'application/json' } };
+    if (body !== undefined) opt.body = JSON.stringify(body);
+    return api(path2, opt);
+  }
+  function pv2CheckedMode() {
+    const el = document.querySelector('input[name="pv2-mode"]:checked');
+    return el ? el.value : 'prompt';
+  }
+
+  // 单会话改卡
+  async function pv2Assign(sel) {
+    const chatKey = sel.dataset.chat;
+    const personaId = sel.value;
+    try {
+      await pv2Api('PUT', '/api/persona-assignments', { chatKey, personaId });
+      pv2Hint('pv2-batch-hint', chatKey + ' → ' + (personaId ? pv2CardName(state.config, personaId) : '静默') + ' ✅', 'var(--green)');
+    } catch (e) { pv2Hint('pv2-batch-hint', '保存失败：' + e.message, 'var(--red)'); }
+  }
+  // 批量设为 / 清除
+  async function pv2Batch(clear) {
+    const chatKeys = pv2Picked();
+    if (!chatKeys.length) { pv2Hint('pv2-batch-hint', '先勾选会话', 'var(--orange)'); return; }
+    const cardSel = document.getElementById('pv2-batch-card');
+    const personaId = clear ? '' : (cardSel ? cardSel.value : '');
+    if (!clear && !personaId) { pv2Hint('pv2-batch-hint', '先选一张卡', 'var(--orange)'); return; }
+    try {
+      const r = await pv2Api('POST', '/api/persona-assignments/batch', { chatKeys, personaId });
+      pv2Hint('pv2-batch-hint', '已更新 ' + (r.updated || chatKeys.length) + ' 个会话 ✅', 'var(--green)');
+      pv2Reload();
+    } catch (e) { pv2Hint('pv2-batch-hint', '失败：' + e.message, 'var(--red)'); }
+  }
+  function pv2PickAll(on) {
+    document.querySelectorAll('.pv2-pick').forEach((x) => { x.checked = !!on; });
+  }
+  // 默认卡
+  async function pv2SaveDefault() {
+    const sel = document.getElementById('pv2-default');
+    try {
+      await pv2Api('PUT', '/api/persona-default', { personaId: sel ? sel.value : '' });
+      pv2Hint('pv2-batch-hint', '默认卡已保存 ✅', 'var(--green)');
+    } catch (e) { pv2Hint('pv2-batch-hint', '失败：' + e.message, 'var(--red)'); }
+  }
+  // 共用段
+  async function pv2SaveShared() {
+    const core = (document.getElementById('pv2-shared-core') || {}).value || '';
+    const voice = (document.getElementById('pv2-shared-voice') || {}).value || '';
+    try {
+      await pv2Api('PUT', '/api/persona-shared', { core, voice });
+      pv2Hint('pv2-shared-hint', '共用部分已保存（core ' + core.length + ' / voice ' + voice.length + ' 字）✅', 'var(--green)');
+    } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + e.message, 'var(--red)'); }
+  }
+  // 黑名单
+  async function pv2SavePolicy() {
+    const text = (document.getElementById('pv2-banned') || {}).value || '';
+    const bannedPhrases = text.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    try {
+      await pv2Api('PUT', '/api/persona-policy', { bannedPhrases, bannedPhraseMode: pv2CheckedMode() });
+      pv2Hint('pv2-policy-hint', '黑名单已保存（' + bannedPhrases.length + ' 条，模式 ' + pv2CheckedMode() + '）✅', 'var(--green)');
+    } catch (e) { pv2Hint('pv2-policy-hint', '失败：' + e.message, 'var(--red)'); }
+  }
+  // 卡片编辑器
+  function pv2OpenEditor(card) {
+    const isNew = !card;
+    const c0 = card || { name: '', variant: '', examples: [], scenarios: [] };
+    const js = (v) => esc(JSON.stringify(v || [], null, 2));
+    const overlay = modelModalShell({
+      head: isNew ? '新建人格卡' : '编辑人格卡：' + c0.name,
+      body: `<div class="field"><label>名称</label><input type="text" id="pv2e-name" value="${esc(c0.name || '')}" /></div>
+        <div class="field"><label>本卡特有（variant / 变体：依赖型、害羞型…）</label>
+          <textarea id="pv2e-variant" class="persona-role-text" style="min-height:180px">${esc(c0.variant || '')}</textarea>
+          <div class="hint">这段会拼在 shared(core+voice) 之后，作为本卡的差异部分。内置卡/独立卡（useShared=false）则只用它。</div></div>
+        <div class="field"><label>回复示例（JSON 数组：{user,bad,good}）</label>
+          <textarea id="pv2e-examples" class="persona-role-text" style="min-height:90px">${js(c0.examples)}</textarea></div>
+        <div class="field"><label>按需场景（JSON 数组：{id,trigger,text}，trigger 为正则）</label>
+          <textarea id="pv2e-scenarios" class="persona-role-text" style="min-height:120px">${js(c0.scenarios)}</textarea></div>
+        <div class="field checkbox-row"><input type="checkbox" id="pv2e-useshared" ${c0.useShared !== false ? 'checked' : ''} />
+          <label for="pv2e-useshared">使用共用部分（core + voice）</label></div>`,
+      foot: `<button class="btn" id="pv2e-cancel">取消</button><button class="btn btn-primary" id="pv2e-save">保存</button>`
+    });
+    const q = (id) => overlay.querySelector('#' + id);
+    q('pv2e-cancel').addEventListener('click', () => closeModelModal(overlay));
+    q('pv2e-save').addEventListener('click', async () => {
+      let examples = [];
+      let scenarios = [];
+      try { examples = JSON.parse(q('pv2e-examples').value || '[]'); } catch { showNoticeModal('JSON 错误', '回复示例不是合法 JSON'); return; }
+      try { scenarios = JSON.parse(q('pv2e-scenarios').value || '[]'); } catch { showNoticeModal('JSON 错误', '场景不是合法 JSON'); return; }
+      const payload = {
+        name: q('pv2e-name').value.trim(),
+        variant: q('pv2e-variant').value,
+        examples: Array.isArray(examples) ? examples : [],
+        scenarios: Array.isArray(scenarios) ? scenarios : []
+      };
+      if (!payload.name) { showNoticeModal('缺少名称', '给这张卡起个名字'); return; }
+      payload.useShared = q('pv2e-useshared').checked;
+      try {
+        if (isNew) await pv2Api('POST', '/api/personas', payload);
+        else await pv2Api('PUT', '/api/personas/' + encodeURIComponent(card.id), payload);
+        closeModelModal(overlay);
+        pv2Reload();
+      } catch (e) { showNoticeModal('保存失败', String(e.message || e)); }
+    });
+    overlay.querySelector('#pv2e-name').focus();
+  }
+  async function pv2CopyCard(id) {
+    const c = state.config || {};
+    const card = pv2Cards(c).find((x) => x && x.id === id);
+    if (!card) return;
+    try {
+      await pv2Api('POST', '/api/personas', {
+        name: card.name + '（副本）',
+        variant: card.builtin ? '' : (card.variant || ''),
+        examples: card.builtin ? [] : (card.examples || []),
+        scenarios: card.builtin ? [] : (card.scenarios || []),
+        useShared: card.builtin ? true : (card.useShared !== false)
+      });
+      pv2Reload();
+    } catch (e) { showNoticeModal('复制失败', String(e.message || e)); }
+  }
+  async function pv2DelCard(id) {
+    const c = state.config || {};
+    const card = pv2Cards(c).find((x) => x && x.id === id);
+    if (!card) return;
+    const refs = Object.keys(c.personaByChat || {}).filter((k) => c.personaByChat[k]?.personaId === id).length;
+    const msg = refs
+      ? `「${card.name}」正被 ${refs} 个会话使用。删除后这些会话会回落到默认卡（默认卡也是它则静默）。确定删除？`
+      : `确定删除「${card.name}」？`;
+    if (!confirm(msg)) return;
+    try {
+      const r = await pv2Api('DELETE', '/api/personas/' + encodeURIComponent(id));
+      showNoticeModal('已删除', `影响 ${r.affected || 0} 个会话，回落目标：${r.fallback || '无'}`);
+      pv2Reload();
+    } catch (e) { showNoticeModal('删除失败', String(e.message || e)); }
+  }
+
+  function renderPersonaSectionV2(c) {
+    const cards = pv2Cards(c);
+    const byChat = c.personaByChat || {};
+    const allowIds = [
+      ...(c.allow?.groups || []).map((g) => 'group:' + g),
+      ...(c.allow?.private || []).map((p) => 'private:' + p)
+    ].map(String);
+    const extraIds = Object.keys(byChat).filter((k) => !allowIds.includes(k));
+    const chatIds = [...allowIds, ...extraIds];
+    const unassigned = chatIds.filter((k) => !byChat[k]?.personaId).length;
+    const rows = chatIds.map((k) => {
+      const cur = byChat[k]?.personaId || '';
+      const title = formatChatTitle(k, extraIds.includes(k) ? '' : chatNameOf(k));
+      return `<tr>
+        <td><input type="checkbox" class="pv2-pick" data-chat="${esc(k)}" /></td>
+        <td>${esc(title)}</td>
+        <td><select class="pv2-assign" data-chat="${esc(k)}" onchange="pv2Assign(this)">
+          <option value=""${cur ? '' : ' selected'}>未选择 → 静默</option>${pv2Opts(c, cur)}</select></td>
+      </tr>`;
+    }).join('');
+    const cardRows = cards.map((x) => {
+      const shared = x.useShared !== false ? String((c.personaShared?.core || '') + (c.personaShared?.voice || '')).length : 0;
+      const len = shared + String(x.variant || '').length;
+      const refs = Object.keys(byChat).filter((k) => byChat[k]?.personaId === x.id).length;
+      return `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)">
+        <b style="min-width:160px">${esc(x.name)}${x.builtin ? '（只读）' : ''}</b>
+        <span class="muted" style="font-size:12px">常驻 ${len} 字${refs ? ' · 被 ' + refs + ' 个会话使用' : ''}</span>
+        <span style="flex:1"></span>
+        ${x.builtin ? '' : `<button class="btn btn-small" onclick="pv2OpenEditor(state.config.personas.find(p=>p.id==='${esc(x.id)}'))">编辑</button>
+        <button class="btn btn-small btn-danger" onclick="pv2DelCard('${esc(x.id)}')">删除</button>`}
+        <button class="btn btn-small" onclick="pv2CopyCard('${esc(x.id)}')">复制</button>
+      </div>`;
+    }).join('');
+    const policy = c.personaPolicy || {};
+    const mode = policy.bannedPhraseMode || 'prompt';
+    const part = c.persona?.participation || 'medium';
+    return `
+      <h3 id="settings-persona">人设（人格卡）</h3>
+      <div class="hint">每个会话独立选卡；<b>未分配的会话将静默</b>（只存档、不回复、0 token）。</div>
+      <div class="field-row" style="margin-top:10px">
+        <div class="field"><label>机器人名字</label><input type="text" id="cfg-botname" value="${esc(c.persona?.botName || '')}" /></div>
+        <div class="field"><label>群内展示名（可选）</label><input type="text" id="cfg-selfnick" value="${esc(c.persona?.selfNickname || '')}" /></div>
+        <div class="field"><label>参与度</label><select id="cfg-participation">
+          <option value="low"${part === 'low' ? ' selected' : ''}>安静型</option>
+          <option value="medium"${part === 'medium' ? ' selected' : ''}>普通群友</option>
+          <option value="high"${part === 'high' ? ' selected' : ''}>活跃型</option></select></div>
+      </div>
+      <h3>① 会话分配</h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn btn-small" onclick="pv2PickAll(true)">全选</button>
+        <button class="btn btn-small" onclick="pv2PickAll(false)">全不选</button>
+        <span class="muted">批量设为</span>
+        <select id="pv2-batch-card"><option value="">（选择卡片）</option>${pv2Opts(c, '')}</select>
+        <button class="btn btn-small btn-primary" onclick="pv2Batch(false)">应用</button>
+        <button class="btn btn-small" onclick="pv2Batch(true)">清除选择（静默）</button>
+        <span class="hint" id="pv2-batch-hint"></span>
+      </div>
+      <table class="table"><thead><tr><th style="width:36px"></th><th>会话</th><th>人格卡</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="hint">当前未分配 ${unassigned} 个（会静默）。</div>
+      <h3>② 默认卡</h3>
+      <div class="field"><label>新建分配时预选 / 删除卡后的回落目标</label>
+        <div style="display:flex;gap:8px">
+          <select id="pv2-default" style="flex:1"><option value="">（不设置）</option>${pv2Opts(c, c.personaDefault || '')}</select>
+          <button class="btn btn-small" onclick="pv2SaveDefault()">保存</button>
+        </div></div>
+      <h3>③ 人格卡管理</h3>
+      <div style="display:flex;gap:8px;margin-bottom:6px">
+        <button class="btn btn-small btn-primary" onclick="pv2OpenEditor(null)">＋ 新建人格卡</button>
+      </div>
+      ${cardRows || '<div class="muted">（还没有卡片）</div>'}
+      <h3>④ 共用部分（useShared 的卡共享）</h3>
+      <div class="field"><label>core（身份/性格/定位）· ${String(c.personaShared?.core || '').length} 字</label>
+        <textarea id="pv2-shared-core" class="persona-role-text" style="min-height:150px">${esc(c.personaShared?.core || '')}</textarea></div>
+      <div class="field"><label>voice（说话铁律/方式/节奏/工具）· ${String(c.personaShared?.voice || '').length} 字</label>
+        <textarea id="pv2-shared-voice" class="persona-role-text" style="min-height:220px">${esc(c.personaShared?.voice || '')}</textarea></div>
+      <button class="btn btn-small btn-primary" onclick="pv2SaveShared()">保存共用部分</button>
+      <span class="hint" id="pv2-shared-hint"></span>
+      <h3>⑤ AI 味黑名单</h3>
+      <div class="hint">模式：<b>写进提示词</b>=模型自觉避免（自然，可能漏）；<b>出站过滤器</b>=生成后自动删（确定，可能句子变短）。</div>
+      <div style="display:flex;gap:16px;margin:8px 0">
+        <label><input type="radio" name="pv2-mode" value="prompt"${mode === 'prompt' ? ' checked' : ''}/> 写进提示词</label>
+        <label><input type="radio" name="pv2-mode" value="filter"${mode === 'filter' ? ' checked' : ''}/> 出站过滤器</label>
+        <label><input type="radio" name="pv2-mode" value="both"${mode === 'both' ? ' checked' : ''}/> 两者都要</label>
+      </div>
+      <div class="field"><label>短语（一行一条，${(policy.bannedPhrases || []).length} 条）</label>
+        <textarea id="pv2-banned" style="min-height:140px">${esc((policy.bannedPhrases || []).join('\n'))}</textarea></div>
+      <button class="btn btn-small btn-primary" onclick="pv2SavePolicy()">保存黑名单</button>
+      <span class="hint" id="pv2-policy-hint"></span>
+      <details style="margin-top:14px"><summary class="muted" style="cursor:pointer">高级：附加规则 / 系统提示词覆盖</summary>
+        <div class="field"><label>管理员附加规则（追加到系统提示）</label><textarea id="cfg-customrules" class="persona-role-text" style="min-height:80px">${esc(c.persona?.customRules || '')}</textarea></div>
+        <div class="field"><label>系统提示词覆盖（整体替换默认准则，谨慎）</label><textarea id="cfg-sysprompt" class="persona-role-text" style="min-height:100px">${esc(c.persona?.systemPromptOverride || '')}</textarea></div>
+      </details>`;
+  }
 
 function renderPersonaSection(c) {
   // 统一人设开关：开启（默认）= 所有用同一套全局人设（下方完整编辑器）；
