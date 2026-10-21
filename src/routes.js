@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { getConfig, updateConfig, deepMerge as deepMergeConfig, DATA_DIR } from './config.js';
+import { getConfig, updateConfig, deepMerge as deepMergeConfig, DATA_DIR, ROOT } from './config.js';
 import { customSearch } from './web-search.js';
 import { listModels, chatCompletion, resolveApiKey, estimateCost, cacheHitRate } from './llm.js';
 import { resolveOfficialPrice, listOfficialPrices } from './model-prices.js';
@@ -951,6 +951,55 @@ export function createRoutes(deps) {
         } catch (error) {
           return json(res, 500, { ok: false, error: `重扫失败：${String(error?.message ?? error)}` });
         }
+      }
+    },
+    {
+      // 删除插件/技能：目录移到 data/trash/extensions/<id>-<时间戳>（可恢复），
+      // 同时清掉配置段（skills.<id>），最后重扫磁盘。
+      method: 'POST', pattern: '/api/skills/delete',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        const id = String(body?.id || '').trim();
+        if (!id) return json(res, 400, { ok: false, error: '缺少 id' });
+        const context = skillRuntimeContext();
+        const hit = skillManager.list(context).find((x) => x && x.id === id);
+        if (!hit) return json(res, 404, { ok: false, error: '未找到该插件/技能：' + id });
+        if (!hit.dir) return json(res, 400, { ok: false, error: '该条目没有可删除的目录（可能是内置）' });
+        const abs = path.resolve(ROOT, hit.dir);
+        const rel = path.relative(ROOT, abs);
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !/^(skills|plugins)[/\\]/.test(rel)) {
+          return json(res, 400, { ok: false, error: '目录不在 skills/ 或 plugins/ 下，拒绝删除' });
+        }
+        const trashRoot = path.join(DATA_DIR, 'trash', 'extensions');
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const trashDir = path.join(trashRoot, id + '-' + stamp);
+        try {
+          fs.mkdirSync(trashRoot, { recursive: true });
+          fs.renameSync(abs, trashDir);
+        } catch (error) {
+          try {
+            fs.cpSync(abs, trashDir, { recursive: true });
+            fs.rmSync(abs, { recursive: true, force: true });
+          } catch (error2) {
+            return json(res, 500, { ok: false, error: '删除失败：' + (error2?.message || error?.message || 'unknown') });
+          }
+        }
+        const skillsCfg = getConfig()?.skills || {};
+        if (Object.prototype.hasOwnProperty.call(skillsCfg, id)) {
+          const next = { ...skillsCfg };
+          delete next[id];
+          updateConfig({ skills: { __replace__: next } });
+        }
+        try { await reloadSkills({ reason: 'extension-delete' }); } catch { /* 忽略 */ }
+        emit('status', { configUpdated: true });
+        return json(res, 200, {
+          ok: true,
+          id,
+          kind: hit.kind || hit.source || '',
+          name: hit.name || id,
+          trash: path.relative(DATA_DIR, trashDir),
+          config: sanitizeConfig(getConfig())
+        });
       }
     },
     {

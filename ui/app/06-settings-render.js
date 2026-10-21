@@ -1838,6 +1838,7 @@ function renderModulePage(kind) {
       ? `<button class="mcard-gear" data-skill-id="${esc(s.id)}" title="设置（${allFields.length} 项）" aria-label="打开 ${esc(s.name)} 的设置">⚙</button>`
       : '';
     const uploadBtn = `<button class="mcard-upload" data-skill-id="${esc(s.id)}" data-skill-kind="${kind}" title="上传到市场" aria-label="上传 ${esc(s.name)} 到市场">⬆</button>`;
+      const delBtn = `<button class="mcard-del" data-skill-id="${esc(s.id)}" data-skill-name="${esc(s.name)}" title="删除（移到回收站，可恢复）" aria-label="删除 ${esc(s.name)}">🗑</button>`;
     const haystack = [s.id, s.name, s.description, s.dir].filter(Boolean).join(' ').toLowerCase();
     return `
     <div class="mcard ${stateCls}" data-skill-id="${esc(s.id)}" data-search="${esc(haystack)}" role="button" tabindex="0" title="${esc(stateTitle)}">
@@ -1847,7 +1848,7 @@ function renderModulePage(kind) {
         <div class="mcard-desc">${esc(s.description || '（没有写介绍）')}</div>
         ${errLine ? `<div class="mcard-err">${esc(errLine)}</div>` : ''}
       </div>
-      <div class="mcard-acts">${uploadBtn}${settingsBtn}</div>
+      <div class="mcard-acts">${uploadBtn}${settingsBtn}${delBtn}</div>
     </div>`;
   };
 
@@ -1941,6 +1942,29 @@ function bindModulePageEvents(kind) {
       openMarketUploadModal(btn.dataset.skillKind || kind, btn.dataset.skillId);
     });
   });
+    // 删除（🗑）：移到回收站 + 清配置段，然后重扫
+    scope.querySelectorAll('.mcard-del').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const id = btn.dataset.skillId;
+        const name = btn.dataset.skillName || id;
+        if (!(await uiConfirm(`删除「${name}」？
+
+目录会移到 data/trash/extensions/（可恢复），同时清掉它的配置段。
+想恢复：把目录移回 skills/ 或 plugins/，再点「刷新」即可。`))) return;
+        btn.disabled = true;
+        try {
+          const r = await api('/api/skills/delete', { method: 'POST', body: JSON.stringify({ id }) });
+          if (r.config) state.config = r.config;
+          await loadModulePage(kind, { rescan: true });
+        } catch (err) {
+          alert(`删除失败：${err?.message || err}`);
+          btn.disabled = false;
+        }
+      });
+    });
+
   // ── 整卡即开关：点击卡片任意处切换启停（复用原 skill-toggle 的请求链）──
   // 键盘可达：Enter/Space 同样触发（role=button + tabindex=0）。
   scope.querySelectorAll('.mcard').forEach((cardEl) => {
