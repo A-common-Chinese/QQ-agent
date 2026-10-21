@@ -228,7 +228,7 @@ function renderSettingsSection(c) {
   const sections = {
     api: () => renderApiSection(c),
     search: () => renderSearchSection(c),
-    memory: () => renderMemorySectionV2(c),
+    memory: () => renderMemorySettingsSection(c),
     persona: () => renderPersonaSectionV2(c),
     allow: () => renderAllowSection(c),
     chat: () => renderChatSection(c),
@@ -485,6 +485,13 @@ function renderSearchSection(c) {
 
   // ═══ 记忆 V2：群聊 / 个人 / 基本事实 ═══
   const MEM_TABS = [{ id: 'groups', label: '群聊/私聊' }, { id: 'persons', label: '个人' }, { id: 'general', label: '基本事实' }];
+  // 记忆相关操作后的重渲染：记忆 tab 走 loadMemoryView，设置页走 loadSettings
+  function memRerender() {
+    try {
+      if (state.tab === 'memory' && typeof loadMemoryView === 'function') { loadMemoryView(); return; }
+      if (typeof loadSettings === 'function') memRerender();
+    } catch (e) { /* 静默 */ }
+  }
   function memState() {
     if (!state.memV2) state.memV2 = { tab: 'groups', list: null, sel: null, detail: null, q: '' };
     return state.memV2;
@@ -559,7 +566,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
             else if (st.tab === 'general') st.sel = { tab: 'general' };
           }
           await memLoadDetail();
-          if (state.tab === 'memory') loadSettings();
+          if (state.tab === 'memory') memRerender();
         } catch (e) { /* 静默 */ }
       }, 30);
       return '<h3 id="settings-memory">记忆</h3><div class="hint">加载记忆卡…</div>';
@@ -647,7 +654,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       const st2 = memState();
       await memLoadDetail();
       st2.list = null;   // 让列表下次重拉
-      setTimeout(() => { if (state.tab === 'memory') loadSettings(); }, 300);
+      setTimeout(() => { if (state.tab === 'memory') memRerender(); }, 300);
     } catch (e) {
       const hint = document.getElementById('memv-hint');
       if (hint) { hint.textContent = '保存失败：' + (e?.message || e); hint.style.color = 'var(--red)'; }
@@ -665,7 +672,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
         e.preventDefault();
         st.tab = el.dataset.tab; st.sel = null; st.detail = null; st.q = '';
         st.list = null;
-        loadSettings();
+        memRerender();
         return;
       }
       if (act === 'sel') {
@@ -673,7 +680,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
         try { st.sel = JSON.parse(el.dataset.json); } catch { return; }
         if (st.sel && st.sel.tab) st.tab = st.sel.tab;
         st.detail = null;
-        memLoadDetail().then(() => { if (state.tab === 'memory') loadSettings(); });
+        memLoadDetail().then(() => { if (state.tab === 'memory') memRerender(); });
         return;
       }
       if (act === 'save') {
@@ -688,7 +695,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
           try {
             await api('/api/memory-cards/person/' + encodeURIComponent(el.dataset.qq), { method: 'DELETE' });
             st.sel = null; st.detail = null; st.list = null;
-            loadSettings();
+            memRerender();
           } catch (err) { alert('删除失败：' + (err?.message || err)); }
         })();
         return;
@@ -700,7 +707,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       const st = memState();
       st.q = el.value;
       clearTimeout(window.__memvQT);
-      window.__memvQT = setTimeout(() => { if (state.tab === 'memory') loadSettings(); }, 200);
+      window.__memvQT = setTimeout(() => { if (state.tab === 'memory') memRerender(); }, 200);
     });
   }
 
@@ -710,7 +717,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     return pv2Cards(c).map((x) => `<option value="${esc(x.id)}"${x.id === sel ? ' selected' : ''}>${esc(x.name)}${x.builtin ? '（只读）' : ''}</option>`).join('');
   }
   function pv2CardName(c, id) { const x = pv2Cards(c).find((k) => k && k.id === id); return x ? x.name : ''; }
-  function pv2Reload() { try { if (typeof loadSettings === 'function') loadSettings(); else location.reload(); } catch { location.reload(); } }
+  function pv2Reload() { try { if (typeof loadSettings === 'function') memRerender(); else location.reload(); } catch { location.reload(); } }
   function pv2Hint(id, text, color) { const e = document.getElementById(id); if (e) { e.textContent = text || ''; e.style.color = color || ''; } }
   function pv2Picked() {
     return [...document.querySelectorAll('.pv2-pick')].filter((x) => x.checked).map((x) => x.dataset.chat);
@@ -1355,7 +1362,7 @@ function openGlobalPersonaModal() {
     try {
       await api('/api/config', { method: 'POST', body: JSON.stringify(patch) });
       closeModelModal(overlay);
-      loadSettings();
+      memRerender();
     } catch (e) {
       alert(`保存全局人设失败：${e.message}`);
     }
@@ -1434,7 +1441,7 @@ function openPerChatPersonaModal(chatKey) {
   // 老路的两个坑（2026-09-17 用户实测）：
   //   1. modal 挂在 body 下、不在 #settings-form 内，dispatchEvent(change) 冒泡
   //      到不了 form 的委托监听 —— 从来没触发过自动保存；
-  //   2. 就算触发了，随后的 loadSettings() 重建表单 DOM，隐藏 input 被重渲染成
+  //   2. 就算触发了，随后的 memRerender() 重建表单 DOM，隐藏 input 被重渲染成
   //      GET 回来的旧值，用户刚写的条目被无声丢弃 → 重开 modal 一片空白。
   const saveToMap = async (entry) => {
     const current = state.config?.personaByChat || {};

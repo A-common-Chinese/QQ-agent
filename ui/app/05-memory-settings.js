@@ -1,7 +1,7 @@
 // 〔记忆视图 / 设置加载 / 价格表状态〕——M9 拆分第 6 段
 'use strict';
 // ── 记忆视图 ──
-async function loadMemoryView() {
+async function loadMemoryViewLegacy() {
   try {
     const [cfg, chats] = await Promise.all([api('/api/config'), api('/api/chats')]);
     state.config = cfg;
@@ -785,3 +785,101 @@ function renderHealthCard() {
 }
 
 // 人设模板数据：state.personaTemplates（由 loadSettings 从后端填充）
+
+
+  // 【记忆栏目 V2】顶部「记忆」tab 的三分区卡片视图（覆盖上面的旧 loadMemoryView）
+  async function loadMemoryView() {
+    const itemsBox = document.getElementById('memory-items');
+    const detailBox = document.getElementById('memory-detail');
+    if (!itemsBox || !detailBox) return;
+    const st = (typeof memState === 'function') ? memState() : null;
+    if (!st) return;
+    // 首次加载列表
+    if (!st.list) {
+      itemsBox.innerHTML = '<div class="list-head muted">加载记忆卡…</div>';
+      try {
+        st.list = await api('/api/memory-cards');
+      } catch (e) {
+        itemsBox.innerHTML = '<div class="list-head muted">加载失败：' + esc(String(e?.message || e)) + '</div>';
+        return;
+      }
+      if (st.list.groups?.length || st.list.persons?.length) {
+        if (st.tab === 'groups' && st.list.groups[0]) st.sel = { tab: 'groups', chatKey: st.list.groups[0].chatKey };
+        else if (st.tab === 'persons' && st.list.persons[0]) st.sel = { tab: 'persons', qq: st.list.persons[0].qq };
+      }
+      await memLoadDetail();
+    }
+    // 左栏：分区 + 搜索 + 列表
+    const tabs = [{ id: 'groups', label: '群聊/私聊' }, { id: 'persons', label: '个人' }, { id: 'general', label: '基本事实' }];
+    const q = String(st.q || '').trim().toLowerCase();
+    let items = [];
+    if (st.tab === 'groups') items = (st.list.groups || []).map((g) => ({ key: 'g:' + g.chatKey, label: g.name || g.chatKey, sub: g.summary || '', sel: st.sel && st.sel.tab === 'groups' && st.sel.chatKey === g.chatKey, data: { tab: 'groups', chatKey: g.chatKey } }));
+    else if (st.tab === 'persons') items = (st.list.persons || []).map((p) => ({ key: 'p:' + p.qq, label: (p.name || '') + ' (' + p.qq + ')', sub: (p.summary || '') + ' · 群' + (p.groups || 0), sel: st.sel && st.sel.tab === 'persons' && st.sel.qq === p.qq, data: { tab: 'persons', qq: p.qq } }));
+    else items = [{ key: 'general', label: '通用卡', sub: st.list.general?.summary || '', sel: true, data: { tab: 'general' } }];
+    if (q) items = items.filter((x) => (x.label + ' ' + x.sub).toLowerCase().includes(q));
+    const listHtml = items.map((x) => `<div class="memv-item${x.sel ? ' memv-sel' : ''}" data-mem="sel" data-json='${esc(JSON.stringify(x.data))}'>
+        <div style="font-weight:600">${esc(x.label)}</div>
+        <div class="muted" style="font-size:12px">${esc(String(x.sub).slice(0, 60))}</div>
+      </div>`).join('') || '<div class="list-head muted">（没有匹配项）</div>';
+    itemsBox.innerHTML = `
+      <div style="padding:8px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          ${tabs.map((t) => `<button class="btn btn-small ${st.tab === t.id ? 'btn-primary' : ''}" data-mem="tab" data-tab="${t.id}">${t.label}</button>`).join('')}
+        </div>
+        <input type="text" data-mem="search" id="memv-q" placeholder="搜索名字/QQ…" value="${esc(st.q || '')}" style="width:100%;margin-bottom:6px" />
+        <div class="muted" style="font-size:12px;margin-bottom:6px">群 ${(st.list.groups || []).length} · 个人 ${(st.list.persons || []).length}</div>
+        <div>${listHtml}</div>
+      </div>`;
+    // 右栏：详情
+    detailBox.innerHTML = (typeof memDetailHtml === 'function') ? memDetailHtml() : '<div class="muted">（无详情）</div>';
+    // 记忆 tab 的点击/输入也要绑定（#memory-items 是动态生成的）
+    if (typeof bindMemoryTabEvents === 'function') bindMemoryTabEvents();
+  }
+
+  // 记忆 tab 的事件（因为 #memory-items 每次重建，绑在容器上做一次委托就够）
+  if (!window.__memTabDelegated) {
+    window.__memTabDelegated = true;
+    document.addEventListener('click', (e) => {
+      if (state.tab !== 'memory') return;
+      const el = e.target.closest('#view-memory [data-mem]');
+      if (!el) return;
+      e.preventDefault();
+      const st = (typeof memState === 'function') ? memState() : null;
+      if (!st) return;
+      const act = el.dataset.mem;
+      if (act === 'tab') {
+        st.tab = el.dataset.tab; st.sel = null; st.detail = null; st.q = '';
+        loadMemoryView();
+        return;
+      }
+      if (act === 'sel') {
+        try { st.sel = JSON.parse(el.dataset.json); } catch { return; }
+        if (st.sel && st.sel.tab) st.tab = st.sel.tab;
+        st.detail = null;
+        memLoadDetail().then(() => { if (state.tab === 'memory') loadMemoryView(); });
+        return;
+      }
+      if (act === 'save') { memSave(el.dataset.key, st); return; }
+      if (act === 'del') {
+        (async () => {
+          if (!(await uiConfirm('删除该记忆卡？'))) return;
+          try {
+            await api('/api/memory-cards/person/' + encodeURIComponent(el.dataset.qq), { method: 'DELETE' });
+            st.sel = null; st.detail = null; st.list = null;
+            loadMemoryView();
+          } catch (err) { alert('删除失败：' + (err?.message || err)); }
+        })();
+        return;
+      }
+    });
+    document.addEventListener('input', (e) => {
+      if (state.tab !== 'memory') return;
+      const el = e.target.closest('#view-memory #memv-q');
+      if (!el) return;
+      const st = (typeof memState === 'function') ? memState() : null;
+      if (!st) return;
+      st.q = el.value;
+      clearTimeout(window.__memTabQT);
+      window.__memTabQT = setTimeout(() => { if (state.tab === 'memory') loadMemoryView(); }, 250);
+    });
+  }
