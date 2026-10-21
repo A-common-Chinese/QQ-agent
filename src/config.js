@@ -41,6 +41,18 @@ export const DEFAULT_CONFIG = {
   telemetry: {
     enabled: false,
   },
+
+  // ── 记忆卡（群聊 / 个人 / 基本事实 按需注入）─────────────────────
+  memoryCards: {
+    enabled: true,          // 总开关：关掉则完全不注入【记忆卡】段
+    maxChars: 1500,         // 每轮记忆卡总预算（字符）
+    maxPersonCount: 6,      // 最多带几个在场成员
+    presentWindow: 20,      // "在场"判定：最近多少条消息里出现过
+    presenceWindow: true,   // 在场判定：用"最近 N 条出现过的人"
+    presenceMention: true,  // 在场判定：用"被点名的人"
+    flashbackCount: 2,      // 随机闪回几张话题卡（0=关）
+    impressionScope: 'auto' // auto=通用+本会话 / all=全部 / model=只给通留给模型自己查
+  },
   api: {
     // 出厂留空：这是作者本机的网关地址，对其他人毫无意义，
     // 留空能让「就绪度体检」正确提示"还没填 Base URL"。

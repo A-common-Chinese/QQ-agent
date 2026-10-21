@@ -11,6 +11,7 @@
 // 沉睡/唤醒/等待机制（由编排器的"已读/未读驱动"取代）。
 
 import { getConfig, personaForChat, personaCardForChat, matchPersonaScenarios } from './config.js';
+import { buildMemoryCardsBlock } from './memory-cards-prompt.js';
 // 滑条换算放在独立模块（零依赖），避免 config.js ↔ prompt.js 循环依赖。
 // 这里 re-export 是为了让已经从 prompt.js 引用的代码不受影响。
 import { sliderToTier as _sliderToTier, tierToSlider as _tierToSlider, TIER_SLIDER_BANDS as _TIER_SLIDER_BANDS } from './tier-slider.js';
@@ -885,6 +886,19 @@ export function buildUserPrompt(ctx) {
 
   // 未读信息
   const triggerBlock = buildTriggerBlock(ctx.triggerEntries, ctx);
+  // 记忆卡（群聊/个人/基本事实，按需注入；预算 1500 字；开关在 config.memoryCards.enabled）
+  try {
+    const _memBlock = buildMemoryCardsBlock({
+      chatKey: ctx.chatKey,
+      triggerEntries: ctx.triggerEntries || [],
+      pastMessages: (past?.messages || []),
+      cfg: getConfig().memoryCards || {}
+    });
+    if (_memBlock) parts.push(_memBlock);
+  } catch (error) {
+    // 记忆卡失败绝不影响主流程
+  }
+
   // 按需场景段（决策：regex 路由；命中才注入，位置在易变区，不破坏缓存前缀）
   if (_cardInfo.card) {
     const _trigText = (ctx.triggerEntries || []).map((m) => String(m?.text || '')).join('\n');
