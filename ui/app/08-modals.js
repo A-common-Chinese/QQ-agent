@@ -1234,6 +1234,13 @@ async function saveConfig({ quiet = false } = {}) {
 
   const patch = {};
 
+  // 自动更新（阶段 1）：字段在「界面」区块；用当前配置兜底，任何区块保存都不会误改
+  patch.update = {
+    ...(c.update || {}),
+    autoDownload: chk('#cfg-update-auto', c.update?.autoDownload === true),
+    intervalHours: Math.max(1, Number(val('#cfg-update-hours', c.update?.intervalHours ?? 12)) || 12),
+  };
+
   if (sec === 'memory') {
     patch.memory = {
       ...(c.memory || {}),

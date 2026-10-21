@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { getConfig, updateConfig, ROOT, DATA_DIR } from './config.js';
+import { checkForUpdate as updateCheck, getDownloadState as updateStatus, downloadUpdate as updateDownload } from './updater.js';
 import { OneBotClient, segmentsToText, extractMediaFromSegments, expandForwardNodes } from './onebot.js';
 import { isAtMe } from './prompt.js';
 import { ChatStore } from './store.js';
@@ -1311,6 +1312,7 @@ export function createApp({ log = console.log } = {}) {
     store, memory, sessions, onebot, orchestrator, sender,
     emit, log,
     localVersion, compareSemver, UPDATE_INFO_URL,
+  updateCheck, updateStatus, updateDownload,
     sanitizeConfig, keyEndpointAllowed, sanitizeProvider,
     readBody, authorize,
     snowlumaDir, snowlumaWsPort, snowlumaWebuiUrl, snowlumaWebuiPort, snowlumaStatus, snowlumaLogs,

@@ -26,6 +26,16 @@ export const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 
 export const DEFAULT_CONFIG = {
   // OpenAI 兼容 API（必填才能跑）
+  // ── 自动更新（期 1：检查 + 提示 + 下载，不自动安装）──────────────
+  update: {
+    enabled: true,
+    // github = 读本 fork 的 Releases（推荐）；server = 兼容旧版读作者服务器的 version.json
+    source: 'github',
+    githubRepo: 'A-common-Chinese/QQ-agent',
+    checkOnStartup: true,
+    intervalHours: 12,
+    autoDownload: false,
+  },
   api: {
     // 出厂留空：这是作者本机的网关地址，对其他人毫无意义，
     // 留空能让「就绪度体检」正确提示"还没填 Base URL"。

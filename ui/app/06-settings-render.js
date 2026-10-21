@@ -1206,10 +1206,23 @@ function renderDesktopSection(c) {
     </div>
     <h3>版本更新</h3>
     <div class="field"><label>当前版本 <b id="update-current">…</b><span id="update-status-text">${(typeof updateAvailable !== 'undefined' && updateAvailable) ? '<b style="color:var(--orange)">；发现新版本</b>' : '；检查线上是否有新版本'}</span></label>
+      <div class="hint">更新源：<code>${esc(c.update?.githubRepo || 'A-common-Chinese/QQ-agent')}</code> 的最新 Release（只读检查，默认 12 小时一次；阶段 1 只下载安装包，不自动替换程序）</div>
       <div style="display:flex;gap:10px;align-items:center">
-        <button class="btn btn-small" id="check-update-btn">检查更新</button>
+        <button class="btn btn-small" id="check-update-btn">立即检查</button>
         <span class="hint" id="update-hint" style="margin:0"></span>
-      </div></div>`;
+      </div></div>
+    <div class="field" id="update-detail" style="display:none">
+      <label>新版本 <b id="update-latest"></b> <span class="hint" id="update-size"></span></label>
+      <div class="hint" id="update-notes" style="white-space:pre-wrap;max-height:140px;overflow:auto;margin:6px 0"></div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn btn-primary" id="download-update-btn">下载安装包</button>
+        <span class="hint" id="update-progress" style="margin:0"></span>
+      </div>
+      <div class="hint" style="margin-top:6px">⚠️ 阶段 1 只下载、不自动安装。下载完在 <code>data/updates/</code> 里，手动双击安装；升级前建议备份 <code>plugins/</code>、<code>skills/</code>、<code>snowluma/</code>。</div>
+    </div>
+    <div class="checkbox-row"><input type="checkbox" id="cfg-update-auto" ${c.update?.autoDownload ? 'checked' : ''} />
+      <label for="cfg-update-auto">发现新版本时自动下载安装包（不自动安装）</label></div>
+    <div class="field"><label>检查间隔（小时）</label><input type="number" id="cfg-update-hours" min="1" max="168" value="${esc(c.update?.intervalHours ?? 12)}" /></div>`;
 }
 
 function renderOnebotSection(c) {

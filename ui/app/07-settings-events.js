@@ -944,22 +944,71 @@ function bindSettingsEvents(c) {
     api('/api/version').then((d) => { curVerEl.textContent = `v${d.version || '?'}`; })
       .catch(() => { curVerEl.textContent = ''; });
   }
+  // ── 自动更新（阶段 1：检查 + 下载，不自动安装）──
+  function showUpdateDetail(data) {
+    const box = $('#update-detail');
+    if (!box) return;
+    box.style.display = '';
+    const latest = $('#update-latest'); if (latest) latest.textContent = 'v' + data.latest;
+    const size = $('#update-size');
+    if (size) size.textContent = data.asset?.size ? '(' + (data.asset.size / 1048576).toFixed(1) + ' MB)' : '';
+    const notes = $('#update-notes'); if (notes) notes.textContent = data.notes || '（这个 Release 没有写说明）';
+    const hint = $('#update-hint'); if (hint) hint.textContent = '发现新版本 v' + data.latest + '（当前 v' + data.current + '）';
+  }
+  async function pollUpdateDownload() {
+    const hint = $('#update-progress');
+    const btn = $('#download-update-btn');
+    for (let i = 0; i < 3600; i += 1) {
+      const st = await api('/api/update/status').catch(() => null);
+      if (!st) break;
+      if (st.state === 'downloading') {
+        const got = (st.received / 1048576).toFixed(1);
+        const all = st.total ? (st.total / 1048576).toFixed(1) + ' MB' : '?';
+        if (hint) hint.textContent = '下载中 ' + (st.percent || 0) + '%（' + got + ' / ' + all + '）';
+      } else if (st.state === 'done') {
+        if (hint) hint.innerHTML = '下载完成 ✓ <code>' + esc(st.path || '') + '</code><br>sha256: <code>' + esc(st.sha256 || '') + '</code>';
+        if (btn) btn.disabled = false;
+        return;
+      } else if (st.state === 'error') {
+        if (hint) hint.textContent = '下载失败：' + (st.error || '未知错误');
+        if (btn) btn.disabled = false;
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
   const checkUpdateBtn = $('#check-update-btn');
   if (checkUpdateBtn) checkUpdateBtn.addEventListener('click', async () => {
     const hint = $('#update-hint');
     checkUpdateBtn.disabled = true;
     if (hint) hint.textContent = '检查中…';
-    const data = await runUpdateCheck({ manual: true });   // 手动：即使关过浮窗也再弹一次
+    const data = await runUpdateCheck({ manual: true });
     if (!data) {
       if (hint) hint.textContent = '检查失败：网络不可达';
     } else if (!data.ok) {
-      if (hint) hint.textContent = `检查失败：${data.error || '未知错误'}`;
+      if (hint) hint.textContent = '检查失败：' + (data.error || '未知错误');
     } else if (data.hasUpdate) {
-      // 有新版：给下载链接。Electron 里 target=_blank 会被 main.js 转给系统浏览器。
-      if (hint) hint.innerHTML = `发现新版本 <b>v${esc(data.latest)}</b>（当前 v${esc(data.current)}） <a href="${esc(data.url)}" target="_blank" rel="noopener">去下载</a>`;
-    } else if (hint) hint.textContent = `已是最新（v${data.current}）`;
+      showUpdateDetail(data);
+    } else if (hint) hint.textContent = '已是最新（v' + data.current + '）';
     checkUpdateBtn.disabled = false;
   });
+  const dlUpdateBtn = $('#download-update-btn');
+  if (dlUpdateBtn) dlUpdateBtn.addEventListener('click', async () => {
+    const hint = $('#update-progress');
+    dlUpdateBtn.disabled = true;
+    if (hint) hint.textContent = '开始下载…';
+    const r = await api('/api/update/download', { method: 'POST' });
+    if (!r || r.ok === false) {
+      if (hint) hint.textContent = '下载失败：' + (r?.error || '未知错误');
+      dlUpdateBtn.disabled = false;
+      return;
+    }
+    await pollUpdateDownload();
+  });
+  // 打开设置页时若有已知新版本，直接把详情填好（走缓存，不额外打网络）
+  if (typeof updateAvailable !== 'undefined' && updateAvailable) {
+    api('/api/update-check').then((d) => { if (d?.ok && d.hasUpdate) showUpdateDetail(d); }).catch(() => {});
+  }
 
   // ── OneBot 区块事件 ──
   const openSnowlumaBtn = $('#open-snowluma-btn');

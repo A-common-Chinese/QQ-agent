@@ -46,6 +46,7 @@ export function createRoutes(deps) {
     emit, log,
     // app.js 内部的过程/状态
     localVersion, compareSemver, UPDATE_INFO_URL,
+  updateCheck, updateStatus, updateDownload,
     sanitizeConfig, keyEndpointAllowed, sanitizeProvider,
     readBody, authorize,
     snowlumaDir, snowlumaWsPort, snowlumaWebuiUrl, snowlumaStatus, snowlumaLogs,
@@ -1109,22 +1110,30 @@ export function createRoutes(deps) {
     },
     {
       method: 'GET', pattern: '/api/update-check',
+      handler: async ({ res, json, url }) => {
+        const force = String(url?.searchParams?.get('force') || '') === '1';
+        const info = await updateCheck({ force, current: localVersion() });
+        return json(res, 200, info);
+      }
+    },
+    {
+      // 下载进度（前端轮询）
+      method: 'GET', pattern: '/api/update/status',
+      handler: async ({ res, json }) => json(res, 200, updateStatus())
+    },
+    {
+      // 期 1：只下载安装包，绝不自动安装
+      method: 'POST', pattern: '/api/update/download',
       handler: async ({ res, json }) => {
-        const current = localVersion();
         try {
-          const r = await fetch(UPDATE_INFO_URL, { signal: AbortSignal.timeout(8000), cache: 'no-store' });
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const info = await r.json();
-          const latest = String(info.version || '');
-          if (!latest) throw new Error('version.json 缺少 version 字段');
-          return json(res, 200, {
-            ok: true, current, latest,
-            hasUpdate: compareSemver(latest, current) > 0,
-            url: String(info.url || 'https://kondius.cn/qq-agent'),
-            notes: String(info.notes || '')
-          });
+          const info = await updateCheck({ force: false, current: localVersion() });
+          if (!info?.ok) return json(res, 200, { ok: false, error: info?.error || '检查更新失败' });
+          if (!info.hasUpdate) return json(res, 200, { ok: false, error: '已是最新版本', latest: info.latest });
+          if (!info.asset?.url) return json(res, 200, { ok: false, error: '这个 Release 没有可下载的安装包资产' });
+          const r = await updateDownload(info.asset, info.latest);
+          return json(res, 200, { ok: r.ok !== false, error: r.error || '', state: r.state || updateStatus() });
         } catch (error) {
-          return json(res, 200, { ok: false, current, error: String(error?.message ?? error) });
+          return json(res, 200, { ok: false, error: String(error?.message ?? error) });
         }
       }
     },
