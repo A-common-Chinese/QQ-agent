@@ -240,6 +240,27 @@ export function buildBundle({ appVersion = '', botName = '', sections = null, si
   };
 }
 
+/**
+ * 记忆包统计（给「载入当前记忆」用，与 qq-memory-studio 的 stats() 同口径）：
+ *   cards —— 卡片总数；chars —— 所有卡片里字符串字段的总字数（解释器按它算压缩比例）。
+ * 只做纯计算，不读写磁盘，路由层可放心调。
+ */
+export function bundleStats(bundle) {
+  let cards = 0;
+  let chars = 0;
+  const walk = (value) => {
+    if (typeof value === 'string') { chars += value.length; return; }
+    if (Array.isArray(value)) { for (const item of value) walk(item); return; }
+    if (value && typeof value === 'object') { for (const v of Object.values(value)) walk(v); }
+  };
+  const payload = bundle?.payload || {};
+  for (const section of ALL_SECTIONS) {
+    const list = Array.isArray(payload[section]) ? payload[section] : [];
+    for (const card of list) { cards += 1; walk(card); }
+  }
+  return { cards, chars, approxTokens: Math.round(chars / 1.6) };
+}
+
 /** 校验一个包能不能导入 */
 export function validateBundle(obj) {
   const errors = [];

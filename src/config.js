@@ -208,6 +208,14 @@ export const DEFAULT_CONFIG = {
     accessToken: '',           // WebSocket 令牌
     httpAccessToken: ''        // HTTP API 令牌（SnowLuma 可与 WS 不同；留空沿用 accessToken）
   },
+  // ── 记忆解释器（qq-memory-studio，独立零依赖目录）──────────────────
+  // 解释器由 QQ Agent 用 Electron 自带运行时拉起（用户不用装 Node），
+  // 接口经 /api/memory-studio/* 中转（见 src/memory-studio.js）。
+  memoryStudio: {
+    enabled: true,           // 总开关：关掉后 start 直接拒绝
+    dir: '',                 // 解释器目录；留空 = 自动探测 tools/memory-studio 等候选
+    port: 7788               // 首选端口；被占用时自动顺延（+1…+9）
+  },
   // 人设与行为
   persona: {
     botName: '小鲸鱼',

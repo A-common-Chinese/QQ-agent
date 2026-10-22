@@ -33,7 +33,7 @@ import { parseLegacyCard } from './persona-import.js';
 import { runBackup, listBackups } from './backup.js';
 import { installUpdate, cleanUpdateTemp } from './updater.js';
 import { analyzeExtension } from './plugin-compat.js';
-import { exportToFile, previewImport, applyImport } from './memory-bundle.js';
+import { exportToFile, previewImport, applyImport, buildBundle, bundleStats } from './memory-bundle.js';
 import { redactText, getSafeModeConfig } from './safe-mode.js';
 import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral, listTopics, getTopic, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
@@ -42,6 +42,29 @@ import { safeFetchBinary, browseLockState } from './safe-fetch.js';
 import { getGlobalBlocklist, updateGlobalBlocklist, FIXED_PRICE_FEED_URL } from './community.js';
 import { listAccounts, removeAccount, loginAccount, publishModule, verifyInstallCodes, installByCode } from './market.js';
 import { detectDialect as detectThinkingDialect } from './thinking.js';
+
+/**
+ * 解析 /api/memory-bundle/json?sections=generals,topics 的栏目选择。
+ * 不传 / 传 all / 传 * → null（null = 全选，交给 memory-bundle.normalizeSections）；
+ * 支持重复参数（sections=generals&sections=persons）；不认识的名字忽略。
+ */
+function parseSectionsQuery(searchParams) {
+  const names = [];
+  for (const value of searchParams.getAll('sections')) {
+    for (const part of String(value ?? '').split(',')) {
+      const name = part.trim().toLowerCase();
+      if (name) names.push(name);
+    }
+  }
+  if (!names.length) return null;
+  if (names.includes('all') || names.includes('*')) return null;
+  const picked = { generals: false, groups: false, persons: false, topics: false };
+  let hit = false;
+  for (const name of names) {
+    if (name in picked) { picked[name] = true; hit = true; }
+  }
+  return hit ? picked : null;
+}
 
 /**
  * 构建路由表。
@@ -59,6 +82,8 @@ export function createRoutes(deps) {
     snowlumaDir, snowlumaWsPort, snowlumaWebuiUrl, snowlumaStatus, snowlumaLogs,
     launchSnowluma, stopSnowluma,
     qqPortableStatus, qqPortableLogs, launchPortableQQ, stopPortableQQ,
+    // 记忆解释器桥（src/memory-studio.js）：状态 / 启动 / 停止 / 白名单代理
+    memoryStudioStatus, memoryStudioStart, memoryStudioStop, memoryStudioCall,
     visionScan,
     buildUsageStats, buildUsageBreakdown,
     reloadSkills
@@ -1830,6 +1855,62 @@ export function createRoutes(deps) {
         const opts = { mode, sections: body?.sections ?? null, since: body?.since || null, until: body?.until || null };
         try { return json(res, 200, applyImport(obj, opts)); }
         catch (error) { return json(res, 200, { ok: false, errors: [String(error?.message ?? error)] }); }
+      }
+    },
+    {
+      // 「载入当前记忆」：直接把 bundle 回给前端（不落文件）。
+      // 现有 /api/memory-bundle/export 只写 data/exports/*.qqmem.json，
+      // 而「记忆解释器」需要把当前记忆当场喂给解释器的 /api/bundle/inspect。
+      method: 'GET', pattern: '/api/memory-bundle/json',
+      handler: async ({ res, json, url }) => {
+        try {
+          const params = url?.searchParams || new URLSearchParams();
+          const bundle = buildBundle({
+            appVersion: localVersion(),
+            botName: getConfig()?.persona?.botName || '',
+            sections: parseSectionsQuery(params),
+            since: params.get('since') || null,
+            until: params.get('until') || null
+          });
+          return json(res, 200, { ok: true, bundle, counts: bundle.counts, stats: bundleStats(bundle) });
+        } catch (error) {
+          return json(res, 200, { ok: false, error: String(error?.message ?? error) });
+        }
+      }
+    },
+
+    // ── 记忆解释器（本地 qq-memory-studio 桥）────────────────────────────
+    // 解释器本体是独立零依赖目录（server.mjs + src/merge.mjs），模块见
+    // src/memory-studio.js，由 app.js 注入 deps。这里只做参数转发 ——
+    // 所有失败都由模块兜成 { ok:false, error }，路由层不会 500。
+    // 口径：状态/代理一律 200（前端只看 ok）；启动与停止失败用 400
+    // （与 /api/snowluma/launch、/api/qq-portable/launch 一致）。
+    {
+      method: 'GET', pattern: '/api/memory-studio/status',
+      handler: async ({ res, json }) => json(res, 200, memoryStudioStatus())
+    },
+    {
+      method: 'POST', pattern: '/api/memory-studio/start',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const wanted = Number(body?.port);
+        const result = await memoryStudioStart(Number.isFinite(wanted) && wanted > 0 ? { port: wanted } : {});
+        return json(res, result.ok ? 200 : 400, result);
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/memory-studio/stop',
+      handler: async ({ res, json }) => {
+        const result = await memoryStudioStop();
+        return json(res, result.ok ? 200 : 400, result);
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/memory-studio/call',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const result = await memoryStudioCall({ path: body?.path, method: body?.method, body: body?.body });
+        return json(res, 200, result);
       }
     },
     {

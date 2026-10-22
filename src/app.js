@@ -33,6 +33,7 @@ import { createRoutes } from './routes.js';
 import * as instanceLockModule from './instance-lock.js';
 import { logger } from './logger.js';
 import { startCommunitySync, isGloballyBlocked, FIXED_PRICE_FEED_URL } from './community.js';
+import { getStatus as memoryStudioStatus, startStudio as memoryStudioStart, stopStudio as memoryStudioStop, callStudio as memoryStudioCall, disposeStudio as memoryStudioDispose } from './memory-studio.js';
 
 // 全局 fetch（undici）默认连接建立超时只有 10 秒，openrouter.ai 这类海外端点
 // 握手慢时会直接报 "Connect Timeout Error ... timeout: 10000ms"（注意这不是
@@ -134,6 +135,9 @@ export function createApp({ log = console.log } = {}) {
      曾经只在 stop() 里释放 —— 进程被直接杀掉（任务管理器结束、控制台叉掉）
      时锁文件残留，下次启动要靠"PID 已死"探测才能清掉，多一层失败面。 */
   instanceLockModule.registerLockCleanup();
+  // 记忆解释器：注册进程退出兜底（正常退出走 stop() → stopStudio()；
+  // 这里保证被直接关窗/崩溃时也不给用户留一个孤儿解释器进程）。幂等。
+  memoryStudioDispose();
   const sseClients = new Set();
 
   // ── SnowLuma 程序目录与进程管理 ──
@@ -1428,6 +1432,8 @@ export function createApp({ log = console.log } = {}) {
     snowlumaDir, snowlumaWsPort, snowlumaWebuiUrl, snowlumaWebuiPort, snowlumaStatus, snowlumaLogs,
     launchSnowluma, stopSnowluma,
     qqPortableStatus, qqPortableLogs, launchPortableQQ, stopPortableQQ,
+    // 记忆解释器桥（src/memory-studio.js）：状态 / 启动 / 停止 / 白名单代理
+    memoryStudioStatus, memoryStudioStart, memoryStudioStop, memoryStudioCall,
     visionScan, isPortOpen,
     buildUsageStats, buildUsageBreakdown,
     reloadSkills
@@ -1793,6 +1799,9 @@ try {
     dshBridge.abortAll();
     if (communitySyncTimer) clearInterval(communitySyncTimer);
     if (obPortPollTimer) clearInterval(obPortPollTimer);
+    // 记忆解释器：只结束本进程拉起过的那个子进程（接管来的外部实例只解除登记）。
+    // 没启动过时是 no-op；失败不阻塞退出（模块内部已兜住异常）。
+    try { await memoryStudioStop(); } catch { /* ignore */ }
     // 索引缓存立刻落盘：正常运行中靠防抖（5s），退出前必须写一次，
     // 否则最后的会话变动丢失、下次启动要靠后台对账补（慢路径）
     sessions.flushIndexCache();
