@@ -1766,19 +1766,31 @@ return `
     ${fold({
       id: 'card-cmdmute',
       icon: '🔇',
-      title: '指令禁言',
-      sub: '被 @ 附带指令就安静一段时间',
+      title: '禁言指令（@机器人 + 指令）',
+      sub: '触发后该群只回艾特，关键词与随机插话全部暂停',
       open: false,
       body: `
+      <div class="hint" style="margin-top:0">
+        <b>作用</b>：群里太吵、或不想让它接话时，用一条消息把机器人「半静音」——
+        它<b>只回 @ 它的消息</b>，不再按关键词接话、也不会看心情插嘴。
+      </div>
       <div class="field-row">
-        <div class="field"><label>禁言指令（需与 @机器人 同条消息）</label>
+        <div class="field"><label>触发指令（必须和 @机器人 在同一条消息里）</label>
           <input type="text" id="ac-cmdmute-command" value="${esc(c.commandMute?.command || '/安静')}" placeholder="如 /安静" /></div>
-        <div class="field"><label>禁言时长（分钟，0 = 直到手动解除）</label>
+        <div class="field"><label>持续时长（分钟；填 0 = 一直生效，直到手动解除）</label>
           <input type="number" id="ac-cmdmute-duration" min="0" value="${esc(Number(c.commandMute?.durationMin ?? 30))}" /></div>
       </div>
       <div class="checkbox-row"><input type="checkbox" id="ac-cmdmute-enabled" ${c.commandMute?.enabled !== false ? 'checked' : ''} />
-        <label for="ac-cmdmute-enabled">启用指令禁言</label></div>
-      <div class="hint">改动即时生效（自动保存），无需单独点保存。</div>`
+        <label for="ac-cmdmute-enabled">启用禁言指令</label></div>
+      <div class="hint">
+        <b>谁都能触发</b>（不限管理员）：群友发「<code>@机器人 触发指令</code>」即可，@ 和指令必须在同一条消息里，分两条发不生效。
+      </div>
+      <div class="hint">
+        <b>范围</b>：只影响触发它的那个群，其他群照常。<b>恢复</b>：到时间自动恢复；时长填 0 则需手动解除。
+      </div>
+      <div class="hint">
+        ⚠️ 禁言期间<b>被 @ 还是会回</b>。想让它在某个群<b>完全不说话</b>，用上方的「静默会话」，不要用这个。
+      </div>`
     })}
 
     ${fold({

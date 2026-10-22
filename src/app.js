@@ -943,6 +943,42 @@ export function createApp({ log = console.log } = {}) {
   }
 
   /**
+   * 清理指令禁言的过期条目（active 里存的是到期时间戳，0 = 直到手动解除）。
+   * 之前只在判定时懒判断"已过期"，配置里的脏条目会一直留着；这里主动清掉并记日志。
+   * @returns {Array<[群号, 到期时间戳]>} 仍在生效的条目
+   */
+  function cleanupCommandMute({ announce = true } = {}) {
+    const cm = getConfig().commandMute;
+    if (!cm || !cm.active || typeof cm.active !== 'object') return [];
+    const now = Date.now();
+    const kept = {};
+    const expired = [];
+    for (const [gid, until] of Object.entries(cm.active)) {
+      const u = Number(until);
+      if (!Number.isFinite(u)) continue;
+      if (u !== 0 && u <= now) { expired.push(gid); continue; }
+      kept[gid] = u;
+    }
+    if (expired.length) {
+      updateConfig({ commandMute: { active: { __replace__: kept } } });
+      if (announce) log('[指令禁言] 已到期自动恢复：' + expired.map((g) => '群 ' + g).join('、'));
+    }
+    return Object.entries(kept);
+  }
+
+  /** 启动时汇报当前生效的禁言（顺便清一次过期） */
+  function reportCommandMutes() {
+    const cm = getConfig().commandMute || {};
+    if (cm.enabled !== true) { log('[指令禁言] 未启用'); return; }
+    const active = cleanupCommandMute();
+    if (!active.length) { log('[指令禁言] 已启用，当前没有群处于禁言'); return; }
+    const parts = active.map(([gid, until]) => until === 0
+      ? '群 ' + gid + '（直到手动解除）'
+      : '群 ' + gid + '（到 ' + new Date(until).toLocaleTimeString('zh-CN', { hour12: false }) + '）');
+    log('[指令禁言] 已启用，当前生效：' + parts.join('、'));
+  }
+
+  /**
    * 指令禁言：检测"@机器人 + 指定指令"，命中则把该群响应档位暂时固定为 1 档。
    * 禁言状态写入 config.commandMute.active[群号] = 到期时间戳（0 = 直到手动解除）。
    */
@@ -970,7 +1006,7 @@ export function createApp({ log = console.log } = {}) {
     active[String(groupId)] = until;
     updateConfig({ commandMute: { active: { __replace__: active } } });
     const untilStr = until ? new Date(until).toLocaleTimeString('zh-CN', { hour12: false }) : '直到手动解除';
-    log(`[指令禁言] 群 ${groupId} 已被「${command}」禁言，响应档位临时固定为 1 档（仅艾特），${untilStr} 解除`);
+    log(`[指令禁言] 群 ${groupId} 触发「${command}」：该群响应档位固定为 1 档（只回 @），${untilStr}自动恢复`);
     emit('chat-update', `group:${groupId}`);
   }
 
@@ -1520,6 +1556,11 @@ export function createApp({ log = console.log } = {}) {
     // 匿名用量遥测：启动 90 秒后发第一次，之后每 6 小时一次；失败静默不影响使用
     startTelemetryLoop(log);
 try { startAutoBackup(log); } catch (error) { log('[backup] 启动失败：' + (error?.message ?? error)); }
+try { reportCommandMutes(); } catch (error) { log('[指令禁言] 启动检查失败：' + (error?.message ?? error)); }
+try {
+  const muteTimer = setInterval(() => { try { cleanupCommandMute(); } catch { /* ignore */ } }, 5 * 60 * 1000);
+  muteTimer.unref?.();
+} catch { /* ignore */ }
 
     // 会话索引后台对账：启动读的是毫秒级缓存，这里异步补扫磁盘修正差异
     // （缓存缺失的新文件/外部删除的文件）。不 await —— 不挡任何启动步骤。
