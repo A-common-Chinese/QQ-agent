@@ -1438,6 +1438,7 @@ function openPerChatPersonaModal(chatKey) {
         <input type="text" id="pcp-pick" readonly placeholder="点击选择人设" value="${esc(conf.roleText ? (Object.values(state.personaTemplates || {}).find((p) => p.text === conf.roleText)?.name || '自定义') : '')}" style="flex:1;cursor:pointer" />
         <button class="btn btn-small" id="pcp-new-btn">＋ 添加人设</button>
       </div>
+      ${renderForwardRulesSection(c)}
       <div class="field"><label>参与度（留空跟随全局）</label>
         <select id="pcp-participation">
           <option value="" ${!conf.participation ? 'selected' : ''}>跟随全局</option>
@@ -1550,9 +1551,8 @@ function renderAllowSection(c) {
         <span id="pick-result" class="muted allow-pick-msg"></span>
       </div></div>
     <div class="field-row">
-      <div class="field"><label>允许的群号（逗号分隔）</label><input type="text" id="cfg-allowgroups" value="${esc((c.allow.groups || []).join(','))}" /></div>
-      <div class="field"><label>允许的 QQ（逗号分隔）</label><input type="text" id="cfg-allowprivate" value="${esc((c.allow.private || []).join(','))}" /></div>
-      ${renderForwardRulesSection(c)}
+      <div class="field"><label>允许的群号</label>${renderTagInput('groups', c.allow.groups || [])}</div>
+      <div class="field"><label>允许的 QQ</label>${renderTagInput('private', c.allow.private || [])}</div>
     </div>
     <div class="checkbox-row"><input type="checkbox" id="cfg-allowallwhenempty" ${c.allowAllWhenEmpty === true ? 'checked' : ''} />
       <label for="cfg-allowallwhenempty">白名单留空时允许所有会话</label></div>
@@ -2848,4 +2848,29 @@ function renderSafeModeSection(c) {
         '<div class="hint" id="safe-test-out" style="margin-top:6px"></div>' +
       '</div>'
   });
+}
+
+// ── 白名单标签输入（底层仍然是逗号串：hidden input 的 value 就是原来那个串）──
+function renderTagInput(kind, list) {
+  const hiddenId = kind === 'groups' ? 'cfg-allowgroups' : 'cfg-allowprivate';
+  const vals = (Array.isArray(list) ? list : []).map((x) => String(x).trim()).filter(Boolean);
+  const chips = vals.map((v) => renderTagChip(kind, v)).join('');
+  const prefix = kind === 'groups' ? 'group:' : 'private:';
+  const opts = (typeof state !== 'undefined' ? (state.chats || []) : [])
+    .filter((x) => String(x.key || '').startsWith(prefix))
+    .map((x) => {
+      const id = String(x.key).split(':')[1] || '';
+      const name = String(x.chatName || '').trim();
+      return id ? '<option value="' + esc(id) + '">' + esc(id + (name ? ' · ' + name : '')) + '</option>' : '';
+    }).join('');
+  return '<div class="tag-input" data-tag="' + kind + '">' +
+      '<div class="tag-list" data-tag-list="' + kind + '">' + chips + '</div>' +
+      '<input class="tag-box" data-tag-box="' + kind + '" list="tag-suggest-' + kind + '" placeholder="输入号码回车，或从下拉选" />' +
+      '<datalist id="tag-suggest-' + kind + '">' + opts + '</datalist>' +
+    '</div>' +
+    '<input type="text" id="' + hiddenId + '" value="' + esc(vals.join(',')) + '" style="display:none" />';
+}
+function renderTagChip(kind, v) {
+  return '<span class="tag" data-tag-chip="' + kind + '"><span>' + esc(v) + '</span>' +
+    '<b class="tag-x" data-tag-del="' + kind + '" data-tag-val="' + esc(v) + '" title="删除">✕</b></span>';
 }

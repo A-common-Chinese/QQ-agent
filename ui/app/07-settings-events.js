@@ -1127,3 +1127,62 @@ document.addEventListener('input', (e) => {
     }
   }, 350);
 });
+
+// ── 白名单标签块：增 / 删 / 下拉选择 ──────────────────────────────
+function tagHiddenEl(kind) { return document.getElementById(kind === 'groups' ? 'cfg-allowgroups' : 'cfg-allowprivate'); }
+function tagValsOf(kind) {
+  const h = tagHiddenEl(kind);
+  if (!h) return [];
+  return String(h.value || '').split(/[,，\s]+/).map((v) => v.trim()).filter(Boolean);
+}
+function tagRenderChips(kind) {
+  const box = document.querySelector('[data-tag-list="' + kind + '"]');
+  if (!box) return;
+  const escFn = (typeof esc === 'function') ? esc : (x) => String(x);
+  box.innerHTML = tagValsOf(kind).map((v) =>
+    '<span class="tag" data-tag-chip="' + kind + '"><span>' + escFn(v) + '</span>' +
+    '<b class="tag-x" data-tag-del="' + kind + '" data-tag-val="' + escFn(v) + '" title="删除">✕</b></span>'
+  ).join('');
+}
+function tagWrite(kind, vals) {
+  const h = tagHiddenEl(kind);
+  if (!h) return;
+  h.value = vals.join(',');
+  tagRenderChips(kind);
+  // 复用既有自动保存：对整个设置表单生效的 input 监听会读到这个新值
+  h.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function tagAddVal(kind, raw) {
+  const v = String(raw || '').replace(/[^0-9]/g, '');
+  if (!v) return false;
+  const cur = tagValsOf(kind);
+  if (cur.includes(v)) return false;
+  tagWrite(kind, [...cur, v]);
+  return true;
+}
+document.addEventListener('click', (e) => {
+  const x = e.target.closest('[data-tag-del]');
+  if (!x) return;
+  e.preventDefault();
+  const kind = x.dataset.tagDel;
+  const val = String(x.dataset.tagVal || '');
+  tagWrite(kind, tagValsOf(kind).filter((v) => v !== val));
+});
+document.addEventListener('keydown', (e) => {
+  const box = e.target.closest('[data-tag-box]');
+  if (!box || e.key !== 'Enter') return;
+  e.preventDefault();
+  if (box.value.trim()) { tagAddVal(box.dataset.tagBox, box.value); box.value = ''; }
+});
+document.addEventListener('change', (e) => {
+  const box = e.target.closest('[data-tag-box]');
+  if (!box) return;
+  // 下拉（datalist）选完之后 change 触发：直接变成标签
+  if (String(box.value || '').trim()) { tagAddVal(box.dataset.tagBox, box.value); box.value = ''; }
+});
+// 「从 QQ 账号直接勾选」弹窗会直接改 hidden input 的值 → 让标签跟着刷新
+document.addEventListener('input', (e) => {
+  const id = e.target && e.target.id;
+  if (id === 'cfg-allowgroups') tagRenderChips('groups');
+  else if (id === 'cfg-allowprivate') tagRenderChips('private');
+});
