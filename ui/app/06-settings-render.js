@@ -1438,7 +1438,6 @@ function openPerChatPersonaModal(chatKey) {
         <input type="text" id="pcp-pick" readonly placeholder="点击选择人设" value="${esc(conf.roleText ? (Object.values(state.personaTemplates || {}).find((p) => p.text === conf.roleText)?.name || '自定义') : '')}" style="flex:1;cursor:pointer" />
         <button class="btn btn-small" id="pcp-new-btn">＋ 添加人设</button>
       </div>
-      ${renderForwardRulesSection(c)}
       <div class="field"><label>参与度（留空跟随全局）</label>
         <select id="pcp-participation">
           <option value="" ${!conf.participation ? 'selected' : ''}>跟随全局</option>
