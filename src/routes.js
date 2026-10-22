@@ -1816,6 +1816,16 @@ export function createRoutes(deps) {
         const chats = store.listChats().map((key) => ({ key, ...store.getChatMeta(key) }))
           .sort((a, b) => b.lastTs - a.lastTs);
         await Promise.allSettled(chats.map(async (c) => {
+          const key = String(c.key || '');
+          const mp = /^private:(\d+)$/.exec(key);
+          if (mp) {
+            // 私聊：人物卡昵称最准；拿不到再用收到的最后一条消息昵称
+            try { c.chatName = String(getPerson(mp[1])?.name || '').trim(); } catch { c.chatName = ''; }
+            if (!c.chatName) {
+              try { c.chatName = String(store.lastIncomingSenderName(key) || '').trim(); } catch { /* ignore */ }
+            }
+            return;
+          }
           const m = /^group:(\d+)$/.exec(String(c.key || ''));
           if (!m) { c.chatName = ''; return; }
           try {

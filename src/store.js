@@ -81,6 +81,16 @@ export class ChatStore {
     return { chatKey, total: st.messages.length, unread, lastTs: last?.ts ?? 0, lastText: last?.text ?? '' };
   }
 
+  /** 最后一条"别人发的"消息的昵称（私聊名兜底用；只读，不改已读状态） */
+  lastIncomingSenderName(chatKey) {
+    const st = this.#state(chatKey);
+    for (let i = st.messages.length - 1; i >= 0; i -= 1) {
+      const m = st.messages[i];
+      if (!m.self && m.senderName) return String(m.senderName);
+    }
+    return '';
+  }
+
   /** 追加一条收到的消息（未读）。返回写入的条目。 */
   appendIncoming(chatKey, { mid, ts, senderId, senderName, text, reply = null, media = [], isPoke = false, atMe = null, atNames = [] }) {
     const st = this.#state(chatKey);
