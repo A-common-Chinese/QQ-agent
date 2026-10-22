@@ -998,6 +998,15 @@ function renderHealthCard() {
   }
 
 
+  // 记忆页右栏的子页签。`compress` 是「记忆压缩」：不依赖选中会话，
+  // 读的是整份记忆 bundle（见文件末尾「记忆压缩」段）。
+  const MEM_SUBTABS = [
+    { id: 'groups', label: '本会话' },
+    { id: 'persons', label: '个人卡' },
+    { id: 'general', label: '基本事实' },
+    { id: 'compress', label: '压缩' }
+  ];
+
   // 【记忆栏目 V2】顶部「记忆」tab 的三分区卡片视图（覆盖上面的旧 loadMemoryView）
   async function loadMemoryView() {
     const itemsBox = document.getElementById('memory-items');
@@ -1053,17 +1062,19 @@ function renderHealthCard() {
       '</div>';
 
     // ── 右栏：子页签 + 内容（点进会话后才显示） ──
-    const subs = [
-      { id: 'groups', label: '本会话' },
-      { id: 'persons', label: '个人卡' },
-      { id: 'general', label: '基本事实' }
-    ];
+    // 子页签清单在 MEM_SUBTABS（顶部），压缩是它的最后一项。
+    // 「压缩」用 st.sub 记，不动 st.tab：st.tab 是 06 段「设置→记忆」分区共用的
+    // 选中态，写成 compress 会让那个分区找不到自己的 tab。
     let activeSub = 'groups';
     if (st.tab === 'persons') activeSub = 'persons';
     else if (st.tab === 'general') activeSub = 'general';
+    if (st.sub === 'compress') activeSub = 'compress';
 
     let body = '';
-    if (activeSub === 'groups') {
+    if (activeSub === 'compress') {
+      // 压缩面板自己管渲染与轮询（全部 data-* + 文档级委托），这里只给挂载点
+      body = memStudioPanelHtml();
+    } else if (activeSub === 'groups') {
       body = (typeof memDetailHtml === 'function') ? memDetailHtml() : '<div class="muted" style="padding:20px">从左侧选一个会话</div>';
       // 话题卡只属于具体会话：挂在「本会话」页签下半区。
       // 首次进入时先异步拉取，数据回来后会再渲染一次（memTopicEnsure 内部处理）。
@@ -1098,12 +1109,13 @@ function renderHealthCard() {
     }
 
     detailBox.innerHTML = '<div class="mem-main">' +
-      '<div class="mem-subtabs">' + subs.map((t) =>
+      '<div class="mem-subtabs">' + MEM_SUBTABS.map((t) =>
         '<button class="mem-subtab' + (activeSub === t.id ? ' act' : '') + '" data-mem="subtab" data-sub="' + t.id + '">' + t.label + '</button>'
       ).join('') + '</div>' +
       '<div class="mem-sub-body">' + body + '</div>' +
     '</div>';
     if (typeof bindMemoryTabEvents === 'function') bindMemoryTabEvents();
+    if (activeSub === 'compress') memStudioMount();
   }
 
 
@@ -1130,6 +1142,13 @@ function renderHealthCard() {
       if (act === 'subtab') {
         const sub = el.dataset.sub;
         st.sub = sub;
+        // 「压缩」不需要先选会话：直接渲染压缩面板（不进 memLoadDetail，
+        // 它只认群/个人/通用三种卡，传 compress 会去拉通用卡）
+        if (sub === 'compress') {
+          st.detail = null;
+          loadMemoryView();
+          return;
+        }
         if (sub === 'groups') {
           st.tab = 'groups';
           st.sel = st.chatSel ? { tab: 'groups', chatKey: st.chatSel.chatKey, name: st.chatSel.name } : null;
@@ -1275,4 +1294,977 @@ function renderHealthCard() {
         ${g.scope === 'global' ? '' : '<button class="btn btn-small btn-danger" data-mem="gen-del" data-gid="' + esc(g.id) + '">删除</button>'}
         <span class="hint" id="memg-hint"></span>
       </div>`;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 记忆「压缩」子页签（本地记忆解释器 qq-memory-studio）
+  //
+  // 为什么要有这一页：记忆包要靠外部解释器压缩，以前只能开解释器的网页版手动
+  // 上传/下载 .qqmem.json，再切回「记忆导出 / 记忆导入」导回去 —— 三步、两个
+  // 页面。这里把它做进控制台：载入 → 压缩（带进度）→ 导回（带二次确认），
+  // 全程不离开本页面。
+  //
+  // 后端契约（已冻结，见 task-4；src/ 由 backend 负责，前端不碰）：
+  //   GET  /api/memory-studio/status → {ok,found,dir,running,port,url,version}
+  //   POST /api/memory-studio/start  → {ok,running,port,url,error?}（幂等，可能几秒）
+  //   POST /api/memory-studio/stop   → {ok,stopped}
+  //   POST /api/memory-studio/call   {path,method?,body?} → {ok,status,data}
+  //   GET  /api/memory-bundle/json   → {ok,bundle,counts,stats}
+  //   POST /api/memory-bundle/import {bundle,mode,sections?} → {ok,written,skipped,mode}
+  //   解释器侧：POST /api/compress/start {bundle,options} → {ok,jobId}
+  //             GET  /api/job/:id → {ok,status,progress,result?,error?}
+  //
+  // 接线约定（控制台 CSP 禁内联 onclick）：
+  //   所有控件只有三种 data 属性 —— data-studio（点击动作）/
+  //   data-studio-opt（change：单选、复选）/ data-studio-input（input：文本框、
+  //   数字、搜索、文件）。三个选择器都登记在 test/coverage-wiring.mjs 的
+  //   DELEGATED_SELECTOR 里，否则接线测试会判"可见但没接线"。
+  // ════════════════════════════════════════════════════════════════════════
+
+  /** 记忆解释器（qq-memory-studio）仓库地址：找不到解释器时给用户指路 */
+  const MEM_STUDIO_REPO = 'https://github.com/A-common-Chinese/qq-memory-studio';
+  /** 解释器应放的相对位置（相对 QQ Agent 安装目录） */
+  const MEM_STUDIO_INSTALL_HINT = '<安装目录>\\tools\\memory-studio';
+  const MEM_STUDIO_SECTION_LABEL = { generals: '通用', groups: '群聊', persons: '个人', topics: '话题' };
+  const MEM_STUDIO_MODE_LABEL = { merge: '合并卡片', both: '合并 + 压文字', text: '只压文字' };
+  const MEM_STUDIO_COLD_LABEL = { oneline: '一句话背景', drop: '完全忘掉' };
+  const MEM_STUDIO_KEEP_FIELDS = [
+    ['facts', '事实'], ['impressions', '印象'], ['events', '重要事件'],
+    ['prefs', '偏好'], ['aliases', '别名'], ['body', '正文']
+  ];
+
+  // 压缩页的全部状态都放这里（不依赖 DOM）：切页签 / 面板重渲染后进度与结果还在。
+  // 放在 window 上是为了与同文件的话题卡状态（__memTopicState）一致，也方便测试读取。
+  const memStudioState = window.__memStudioState || (window.__memStudioState = {
+    status: null,          // 解释器状态（/api/memory-studio/status 原样）
+    statusError: '',       // 检测/启停失败原文（必须显示，不许静默）
+    statusBusy: '',        // '' | 'detect' | 'start' | 'stop'
+    statusAt: 0,           // 上次检测时间（挂载时判断要不要自动重检）
+    source: null,          // { kind:'live'|'file', name, counts, stats, at }
+    bundle: null,          // 载入的完整记忆包（解释器只认它）
+    loadBusy: false,
+    loadError: '',
+    options: {
+      mode: 'both',
+      targetMode: 'ratio', // ratio | kb | free（不指定）
+      ratio: 40,
+      targetKB: 60,
+      coldMode: 'oneline',
+      longTermOnly: true,
+      extractFromTopics: false,
+      keepTopShare: 0.45,
+      keep: { facts: true, impressions: true, events: true, prefs: true, aliases: true, body: false },
+      activeParams: { topN: '', minMsgs: '', recentDays: '', minMemScore: '' },
+      mustKeep: []
+    },
+    mustKeepQuery: '',
+    job: { id: '', status: '', progress: null, error: '', startedAt: 0, pct: 0, pollTimer: null, pollFails: 0, tick: null },
+    result: null,          // { bundle, stats, warnings, at }
+    importOpen: false,     // 「导回」二次确认面板是否展开
+    importMode: 'merge',   // merge | replace
+    importBusy: false,
+    importError: '',
+    importDone: null,      // { written, skipped, mode, filteredOut }
+    downloadOk: '',
+    downloadError: ''
+  });
+
+  // ── 小工具 ──────────────────────────────────────────────────────────────
+  function memStudioNum(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  function memStudioFmt(v) {
+    const n = memStudioNum(v);
+    return n === null ? '-' : n.toLocaleString('zh-CN');
+  }
+  function memStudioDelta(before, after) {
+    const b = memStudioNum(before), a = memStudioNum(after);
+    if (b === null || a === null || !b) return '';
+    const d = Math.round(((a - b) / b) * 100);
+    return d === 0 ? '持平' : (d > 0 ? '+' : '') + d + '%';
+  }
+  function memStudioElapsedSec() {
+    const st = memStudioState;
+    if (!st.job || !st.job.startedAt) return 0;
+    return Math.max(0, Math.round((Date.now() - st.job.startedAt) / 1000));
+  }
+  /** 解释器进度对象 → 百分比估算（合并/提炼/压文字三段的进度不是一个分母） */
+  function memStudioEstimatePct(p) {
+    if (typeof p === 'number' && Number.isFinite(p)) return p <= 1 ? p * 100 : p;
+    if (!p || typeof p !== 'object') return null;
+    const index = Number(p.index) || 0;
+    const total = Math.max(1, Number(p.total) || 1);
+    const frac = Math.min(1, index / total);
+    const phase = String(p.phase || '');
+    if (phase === 'batch') return 55 + frac * 40;      // 压文字：55% → 95%
+    if (phase === 'topics') return 45 + frac * 8;      // 提炼话题：45% → 53%
+    return 6 + frac * 38;                              // 合并卡片：6% → 44%
+  }
+  /** 进度文案：阶段 + 第几批 + 卡数/字数 + 已用时（解释器只给结构体，文案在前端拼） */
+  function memStudioStageText(p, sec) {
+    if (!p || typeof p !== 'object') return '任务已提交，等待解释器返回第一批进度…（已 ' + sec + 's）';
+    const phase = String(p.phase || '');
+    const label = phase === 'batch' ? '压缩文字' : phase === 'topics' ? '提炼话题要点' : phase === 'merge' ? '合并卡片' : '处理中';
+    let text = label;
+    if (Number(p.total)) text += '（第 ' + (Number(p.index) || 0) + '/' + Number(p.total) + ' 批）';
+    if (Number(p.cards)) text += ' · ' + Number(p.cards) + ' 张卡';
+    if (Number(p.chars)) text += ' · ' + Number(p.chars) + ' 字';
+    return text + '（已 ' + sec + 's）';
+  }
+  function memStudioCountsText(counts) {
+    const c = counts || {};
+    return '通用 ' + memStudioFmt(c.generals) + ' · 群聊 ' + memStudioFmt(c.groups) +
+      ' · 个人 ' + memStudioFmt(c.persons) + ' · 话题 ' + memStudioFmt(c.topics);
+  }
+
+  // ── 渲染：整块面板 ──────────────────────────────────────────────────────
+  function memStudioBlocksHtml() {
+    return '<div id="memstudio-status">' + memStudioStatusInnerHtml() + '</div>' +
+      '<div id="memstudio-source">' + memStudioSourceInnerHtml() + '</div>' +
+      '<div id="memstudio-options">' + memStudioOptionsInnerHtml() + '</div>' +
+      '<div id="memstudio-progress">' + memStudioProgressInnerHtml() + '</div>' +
+      '<div id="memstudio-result">' + memStudioResultInnerHtml() + '</div>';
+  }
+  function memStudioPanelHtml() {
+    return '<div id="memstudio-panel" class="mem-studio" style="padding:2px 0">' +
+      '<div class="hint" style="margin:0 0 10px">在控制台里直接完成：把现有记忆（或一个 .qqmem.json）交给本地「记忆解释器」压缩，再把结果导回 QQ Agent。全程不离开本页面。</div>' +
+      memStudioBlocksHtml() +
+    '</div>';
+  }
+  function memStudioRenderStatus() { const el = $('#memstudio-status'); if (el) el.innerHTML = memStudioStatusInnerHtml(); }
+  function memStudioRenderSource() { const el = $('#memstudio-source'); if (el) el.innerHTML = memStudioSourceInnerHtml(); }
+  function memStudioRenderOptions() { const el = $('#memstudio-options'); if (el) el.innerHTML = memStudioOptionsInnerHtml(); }
+  function memStudioRenderProgress() { const el = $('#memstudio-progress'); if (el) el.innerHTML = memStudioProgressInnerHtml(); }
+  function memStudioRenderResult() { const el = $('#memstudio-result'); if (el) el.innerHTML = memStudioResultInnerHtml(); }
+  function memStudioRenderMustKeep() {
+    const el = $('#memstudio-mustkeep-list');
+    if (el) el.innerHTML = memStudioMustKeepListHtml();
+    const cnt = $('#memstudio-mustkeep-count');
+    if (cnt) cnt.textContent = '已选 ' + (memStudioState.options.mustKeep || []).length + ' 张';
+  }
+  function memStudioRenderAll() {
+    const panel = $('#memstudio-panel');
+    if (!panel) return;
+    panel.innerHTML = memStudioBlocksHtml();
+    memStudioRenderMustKeep();
+  }
+
+  const MEM_STUDIO_BLOCK_STYLE = 'border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px';
+  const MEM_STUDIO_TITLE_STYLE = 'font-weight:600;font-size:13px;margin-bottom:6px';
+
+  // ── 状态条 ──────────────────────────────────────────────────────────────
+  function memStudioStatusInnerHtml() {
+    const st = memStudioState;
+    const s = st.status;
+    const busy = !!st.statusBusy;
+    const dis = busy ? ' disabled' : '';
+    let inner = '';
+    if (!s && !st.statusError) {
+      inner = '<span class="muted">正在检测记忆解释器…</span>';
+    } else if (!s) {
+      inner = '<div class="mem-studio-err" style="color:var(--red);font-size:12px;line-height:1.6">检测失败：' + esc(st.statusError) + '</div>' +
+        '<div class="hint">如果这个控制台版本里没有 <code>/api/memory-studio/status</code> 接口，说明后端还是旧版；先升级程序再试。</div>';
+    } else if (!s.found) {
+      inner =
+        '<div style="font-weight:600;color:var(--orange);margin-bottom:4px">⚠ 未找到解释器</div>' +
+        '<div style="font-size:12.5px;line-height:1.75">' +
+          '<div>压缩需要本机「记忆解释器」（qq-memory-studio），请把它的源码放到：</div>' +
+          '<div style="margin:4px 0"><code style="background:var(--bg-3);padding:2px 6px;border-radius:4px">' + esc(MEM_STUDIO_INSTALL_HINT) + '</code></div>' +
+          '<div class="muted" style="font-size:12px">该目录里应有 <code>server.mjs</code> 与 <code>src\\merge.mjs</code>；放好后点「重新检测」。</div>' +
+          '<div>仓库地址：<a href="' + esc(MEM_STUDIO_REPO) + '" target="_blank" rel="noreferrer">' + esc(MEM_STUDIO_REPO) + '</a></div>' +
+        '</div>';
+    } else {
+      const ver = s.version ? ' · v' + esc(s.version) : '';
+      if (s.running) {
+        inner =
+          '<div style="font-weight:600;color:var(--green)">✅ 解释器运行中 <span class="muted" style="font-weight:400">127.0.0.1:' + esc(s.port || '') + ver + '</span></div>' +
+          '<div class="muted" style="font-size:12px;line-height:1.6">' + (s.url ? '地址：' + esc(s.url) + '　' : '') + '目录：' + esc(s.dir || '(未知)') + '</div>' +
+          '<div class="hint" style="font-size:11.5px">「停止」只结束控制台拉起的那一份；如果你另外手动开过解释器窗口，那份不受影响。</div>';
+      } else {
+        inner =
+          '<div style="font-weight:600;color:var(--orange)">⚙ 已找到解释器，但未运行' + ver + '</div>' +
+          '<div class="muted" style="font-size:12px;line-height:1.6">目录：' + esc(s.dir || '(未知)') + '　点「启动解释器」拉起（需要几秒）。</div>';
+      }
+    }
+    let buttons;
+    if (!s || st.statusError) {
+      buttons = '<button class="btn btn-small" data-studio="redetect"' + dis + '>' + (st.statusBusy === 'detect' ? '检测中…' : '重新检测') + '</button>';
+    } else if (s.found && !s.running) {
+      buttons = '<button class="btn btn-small btn-primary" data-studio="start"' + dis + '>' + (st.statusBusy === 'start' ? '正在启动解释器…（最长约 20 秒）' : '启动解释器') + '</button>' +
+        '<button class="btn btn-small" data-studio="redetect"' + dis + '>重新检测</button>';
+    } else {
+      buttons = '<button class="btn btn-small" data-studio="stop"' + dis + '>' + (st.statusBusy === 'stop' ? '停止中…' : '停止') + '</button>' +
+        '<button class="btn btn-small" data-studio="redetect"' + dis + '>重新检测</button>';
+    }
+    if (st.statusError && s) inner += '<div class="mem-studio-err" style="color:var(--red);font-size:12px;margin-top:6px">' + esc(st.statusError) + '</div>';
+    return '<div class="mem-studio-block" style="' + MEM_STUDIO_BLOCK_STYLE + '">' +
+      '<div style="' + MEM_STUDIO_TITLE_STYLE + '">解释器状态</div>' + inner +
+      '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">' + buttons + '</div>' +
+    '</div>';
+  }
+
+  // ── 载入来源 ────────────────────────────────────────────────────────────
+  function memStudioSourceInnerHtml() {
+    const st = memStudioState;
+    const s = st.source;
+    const info = s
+      ? '<div style="font-size:12.5px;line-height:1.7;margin-top:6px">已载入 <b>' + esc(s.name || '记忆包') + '</b>：' +
+        memStudioCountsText(s.counts) + '　·　共 <b>' + memStudioFmt(s.stats && s.stats.cards) + '</b> 张卡 / <b>' +
+        memStudioFmt(s.stats && s.stats.chars) + '</b> 字</div>'
+      : '<div class="muted" style="font-size:12px;line-height:1.7;margin-top:6px">还没有载入记忆。可读取 QQ Agent 现有记忆，或选择一个本地 .qqmem.json 文件。</div>';
+    const err = st.loadError ? '<div class="mem-studio-err" style="color:var(--red);font-size:12px;margin-top:6px">载入失败：' + esc(st.loadError) + '</div>' : '';
+    return '<div class="mem-studio-block" style="' + MEM_STUDIO_BLOCK_STYLE + '">' +
+      '<div style="' + MEM_STUDIO_TITLE_STYLE + '">载入来源</div>' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        '<button class="btn btn-small" data-studio="load-live"' + (st.loadBusy ? ' disabled' : '') + '>' + (st.loadBusy ? '读取中…' : '载入当前记忆') + '</button>' +
+        '<button class="btn btn-small" data-studio="pick-file">选择 .qqmem.json 文件…</button>' +
+        '<input type="file" id="memstudio-file" data-studio-input="file" accept=".json,.qqmem.json,application/json" style="display:none" />' +
+      '</div>' +
+      '<div class="hint">「载入当前记忆」只读现有记忆卡，不改动数据；选择文件只在本机读取，不上传。</div>' +
+      info + err +
+    '</div>';
+  }
+
+  // ── 压缩选项 ────────────────────────────────────────────────────────────
+  function memStudioRadioRow(name, act, value, checked, label, disabled) {
+    return '<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 14px 2px 0;font-size:12.5px;cursor:pointer">' +
+      '<input type="radio" name="' + name + '" value="' + value + '" data-studio-opt="' + act + '"' +
+      (checked ? ' checked' : '') + (disabled ? ' disabled' : '') + ' /> <span>' + label + '</span></label>';
+  }
+  function memStudioCheckRow(act, key, checked, label, disabled) {
+    return '<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 14px 2px 0;font-size:12.5px;cursor:pointer">' +
+      '<input type="checkbox" data-studio-opt="' + act + '" data-k="' + key + '"' + (checked ? ' checked' : '') +
+      (disabled ? ' disabled' : '') + ' /> <span>' + label + '</span></label>';
+  }
+  function memStudioCardIndex() {
+    const st = memStudioState;
+    const payload = (st.bundle && st.bundle.payload) || {};
+    const out = [];
+    const add = (section, key, title, sub) => {
+      const k = String(key == null ? '' : key).trim();
+      if (!k) return;
+      out.push({ id: section + '|' + k, section, key: k, title: String(title || k), sub: String(sub || '') });
+    };
+    for (const g of (payload.generals || [])) add('generals', g.id, g.name || g.id, g.summary);
+    for (const g of (payload.groups || [])) add('groups', g.chatKey, g.name || g.chatKey, g.chatKey);
+    for (const p of (payload.persons || [])) add('persons', p.qq, p.name || ('QQ' + p.qq), 'QQ ' + p.qq);
+    for (const t of (payload.topics || [])) add('topics', t.id, t.title || t.id, t.chatKey);
+    return out;
+  }
+  function memStudioMustKeepListHtml() {
+    const st = memStudioState;
+    const all = memStudioCardIndex();
+    if (!all.length) return '<div class="muted" style="padding:6px;font-size:12px">先载入记忆，才能选择要保留的卡。</div>';
+    const q = String(st.mustKeepQuery || '').trim().toLowerCase();
+    const hit = q ? all.filter((x) => (x.title + ' ' + x.key + ' ' + x.sub).toLowerCase().includes(q)) : all;
+    const selected = new Set(st.options.mustKeep || []);
+    const MAX = 120;
+    const rows = hit.slice(0, MAX).map((x) => {
+      return '<label style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;cursor:pointer">' +
+        '<input type="checkbox" data-studio-opt="mustkeep" data-key="' + esc(x.id) + '"' + (selected.has(x.id) ? ' checked' : '') + ' />' +
+        '<span class="muted" style="flex-shrink:0">[' + esc(MEM_STUDIO_SECTION_LABEL[x.section] || x.section) + ']</span>' +
+        '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(x.title) + '</span>' +
+        '<span class="muted" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(x.sub) + '</span>' +
+      '</label>';
+    }).join('');
+    const more = hit.length > MAX ? '<div class="muted" style="font-size:11px;padding:4px 0">还有 ' + (hit.length - MAX) + ' 张没显示，用上面的搜索缩小范围。</div>' : '';
+    return (rows || '<div class="muted" style="padding:6px;font-size:12px">没有匹配的卡。</div>') + more;
+  }
+  function memStudioOptionsInnerHtml() {
+    const st = memStudioState;
+    const o = st.options;
+    const running = !!(st.status && st.status.running);
+    const hasSource = !!st.bundle;
+    const jobRunning = st.job.status === 'running';
+    const dis = jobRunning ? ' disabled' : '';
+    const disabledAttr = jobRunning ? ' disabled' : '';
+
+    const modeRow = ['merge', 'both', 'text'].map((m) =>
+      memStudioRadioRow('memstudio-mode', 'mode', m, o.mode === m, MEM_STUDIO_MODE_LABEL[m], !!dis)
+    ).join('');
+
+    const targetRow =
+      memStudioRadioRow('memstudio-target', 'target-mode', 'ratio', o.targetMode === 'ratio', '压到原字数的', !!dis) +
+      '<input type="number" min="5" max="95" step="1" data-studio-input="ratio" value="' + esc(o.ratio) + '"' +
+      ' style="width:64px;margin:0 4px 0 2px" title="5-95（%）"' + (o.targetMode !== 'ratio' || jobRunning ? ' disabled' : '') + ' />' +
+      '<span style="font-size:12.5px;margin-right:14px">%</span>' +
+      memStudioRadioRow('memstudio-target', 'target-mode', 'kb', o.targetMode === 'kb', '压到约', !!dis) +
+      '<input type="number" min="1" step="1" data-studio-input="targetKB" value="' + esc(o.targetKB) + '"' +
+      ' style="width:74px;margin:0 4px 0 2px" title="KB（按载入字数换算百分比）"' + (o.targetMode !== 'kb' || jobRunning ? ' disabled' : '') + ' />' +
+      '<span style="font-size:12.5px;margin-right:14px">KB</span>' +
+      memStudioRadioRow('memstudio-target', 'target-mode', 'free', o.targetMode === 'free', '不指定（交给模型按约 30% 自行取舍）', !!dis);
+
+    const coldRow = ['oneline', 'drop'].map((m) =>
+      memStudioRadioRow('memstudio-cold', 'cold-mode', m, o.coldMode === m, MEM_STUDIO_COLD_LABEL[m], !!dis)
+    ).join('');
+
+    const apInput = (key, label, extra, value, tip) =>
+      '<label style="font-size:11.5px;color:var(--tx3);display:block">' + label +
+        '<input type="number" ' + extra + ' data-studio-input="' + key + '" value="' + esc(value) + '" style="width:100%;margin-top:2px" title="' + esc(tip) + '"' + disabledAttr + ' /></label>';
+    const ap = o.activeParams || {};
+
+    const keepRow = MEM_STUDIO_KEEP_FIELDS.map(([k, label]) =>
+      memStudioCheckRow('keep', k, !!o.keep[k], label, !!dis)
+    ).join('');
+
+    let runBlock;
+    if (jobRunning) {
+      runBlock = '<span class="hint">压缩进行中…进度见下方。</span>';
+    } else if (!hasSource) {
+      runBlock = '<button class="btn btn-primary" data-studio="run" disabled>开始压缩</button><span class="hint">先载入记忆。</span>';
+    } else if (!running) {
+      runBlock = '<button class="btn btn-primary" data-studio="run" disabled>开始压缩</button><span class="hint">先在上方启动记忆解释器。</span>';
+    } else {
+      runBlock = '<button class="btn btn-primary" data-studio="run">开始压缩</button><span class="hint">会调用本地解释器的模型（消耗 API 额度），可能持续几分钟；期间可切页签。</span>';
+    }
+
+    return '<div class="mem-studio-block" style="' + MEM_STUDIO_BLOCK_STYLE + '">' +
+      '<div style="' + MEM_STUDIO_TITLE_STYLE + '">压缩选项</div>' +
+      '<div class="field" style="margin-bottom:10px"><label>压缩方式</label><div>' + modeRow + '</div>' +
+        '<div class="hint">合并卡片不调模型（只裁剪/合并同类卡），<b>不需要 API Key</b>；「压文字 / 合并+压文字」会让模型改写长文本，需要解释器那边先配好 Key（<code>tools\\memory-studio\\data\\config.json</code>，或单独运行解释器在它的设置里填）。</div></div>' +
+      '<div class="field" style="margin-bottom:10px"><label>目标大小</label><div style="display:flex;align-items:center;flex-wrap:wrap">' + targetRow + '</div>' +
+        '<div class="hint">目标只用于换算压缩比例；实际结果受「保留字段 / 冷门策略」影响。</div></div>' +
+      '<div class="field" style="margin-bottom:10px"><label>冷门策略（很少出现的人怎么处理）</label><div>' + coldRow + '</div></div>' +
+      '<div class="field" style="margin-bottom:10px"><label>活跃参数（留空 = 不限制）</label>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">' +
+          apInput('ap-topn', '最多保留活跃成员 topN', 'min="1" step="1"', ap.topN, '按活跃度排序后最多保留多少人（留空 = 按保留比例自动定）') +
+          apInput('ap-minmsgs', '最少消息数 minMsgs', 'min="0" step="1"', ap.minMsgs, '在本群累计发言少于该数的人算冷门（留空 = 不限）') +
+          apInput('ap-recentdays', '最近活跃天数 recentDays', 'min="1" step="1"', ap.recentDays, '最近 N 天出现过的人算活跃（留空 = 不限）') +
+          apInput('ap-minmemscore', '最低记忆分 minMemScore', 'min="0" max="30" step="0.5"', ap.minMemScore, '记忆综合分低于该值算冷门（大致 0~23：facts/事件/印象/摘要长度/近期活跃的加权分，留空 = 不限）') +
+        '</div>' +
+        '<div class="hint">四个阈值任意填一个就按阈值筛人；全部留空 = 按综合分 + 冷门策略保留。</div></div>' +
+      '<div class="field" style="margin-bottom:10px"><label>必须保留的卡（mustKeep）</label>' +
+        '<input type="text" data-studio-input="mustkeep-search" placeholder="搜索名字 / QQ / 卡标题…" value="' + esc(st.mustKeepQuery) + '" style="width:100%"' + disabledAttr + ' />' +
+        '<div id="memstudio-mustkeep-list" style="max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:6px;margin-top:6px;padding:6px">' + memStudioMustKeepListHtml() + '</div>' +
+        '<div class="hint" id="memstudio-mustkeep-count">已选 ' + ((o.mustKeep || []).length) + ' 张</div></div>' +
+      '<div class="field" style="margin-bottom:10px"><label>保留字段（不勾的字段压缩后会从卡里删掉）</label><div>' + keepRow + '</div>' +
+        '<div class="hint">别名（aliases）是身份字段，解释器始终保留。</div></div>' +
+      '<div class="field" style="margin-bottom:10px"><label>从话题提炼长期要点</label><div>' +
+        memStudioCheckRow('extract', 'topics', !!o.extractFromTopics, '勾选后会把话题卡交给模型提炼成长期要点', !!dis) +
+        '</div><div class="hint">会多一次模型调用（不确定要不要就留空）。</div></div>' +
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">' + runBlock + '</div>' +
+    '</div>';
+  }
+
+  // ── 进度 ────────────────────────────────────────────────────────────────
+  function memStudioProgressInnerHtml() {
+    const st = memStudioState;
+    const job = st.job || {};
+    if (job.status === 'failed') {
+      return '<div class="mem-studio-block" style="' + MEM_STUDIO_BLOCK_STYLE + '">' +
+        '<div style="' + MEM_STUDIO_TITLE_STYLE + 'color:var(--red)">压缩失败</div>' +
+        '<div class="mem-studio-err" style="color:var(--red);font-size:12.5px;line-height:1.6;white-space:pre-wrap">' + esc(job.error || '解释器没有给出错误信息') + '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn btn-small" data-studio="recompress">重新压缩</button></div>' +
+      '</div>';
+    }
+    if (job.status !== 'running') return '';
+    const pct = Math.max(2, Math.min(100, Math.round(memStudioNum(job.pct) || 2)));
+    const stage = memStudioStageText(job.progress, memStudioElapsedSec());
+    return '<div class="mem-studio-block" style="' + MEM_STUDIO_BLOCK_STYLE + '">' +
+      '<div style="' + MEM_STUDIO_TITLE_STYLE + '">压缩中…</div>' +
+      '<div style="height:8px;background:var(--line);border-radius:99px;overflow:hidden">' +
+        '<div style="height:100%;width:' + pct + '%;background:var(--accent);transition:width .3s ease"></div>' +
+      '</div>' +
+      '<div class="hint" id="memstudio-progress-text" style="margin-top:6px">' + esc(stage) + '</div>' +
+      '<div class="hint" style="font-size:11.5px">任务 ' + esc(job.id || '(提交中)') + ' · 切到别的页签不会中断，回来还能看到进度。</div>' +
+    '</div>';
+  }
+
+  // ── 结果 + 导回 ─────────────────────────────────────────────────────────
+  function memStudioResultInnerHtml() {
+    const st = memStudioState;
+    const r = st.result;
+    if (!r) return '';
+    const stats = r.stats || {};
+    // mode='both' 时解释器把最终文字压缩的 stats 放在顶层、合并阶段的
+    // stats 塞在 stats.merge 里（server.mjs: { ...texted.stats, merge: merged.stats }）。
+    // 原始的「压缩前」和每轮注入成本只有 merge 那份有 —— 不往下找就会显示成 "-"。
+    const mergeStats = (stats.merge && typeof stats.merge === 'object') ? stats.merge : null;
+    const before = (mergeStats && mergeStats.before) || stats.before || {};
+    const after = stats.after || (mergeStats && mergeStats.after) || {};
+    const costBefore = stats.costBefore || (mergeStats && mergeStats.costBefore) || {};
+    const costAfter = stats.costAfter || (mergeStats && mergeStats.costAfter) || {};
+    // 冷门统计只在合并阶段产生（只压文字的模式没有）
+    const coldStats = (stats.coldMode !== undefined || stats.personsMerged !== undefined)
+      ? stats : (mergeStats || stats);
+    const rows = [
+      ['记忆卡数', memStudioFmt(before.cards), memStudioFmt(after.cards), memStudioDelta(before.cards, after.cards)],
+      ['总字数', memStudioFmt(before.chars), memStudioFmt(after.chars), memStudioDelta(before.chars, after.chars)],
+      ['每轮注入字数（中位会话）', memStudioFmt(costBefore.perTurnChars), memStudioFmt(costAfter.perTurnChars), memStudioDelta(costBefore.perTurnChars, costAfter.perTurnChars)]
+    ].map(([label, b, a, d]) => {
+      return '<tr><td style="padding:3px 8px 3px 0;color:var(--tx3);font-size:12px">' + esc(label) + '</td>' +
+        '<td style="padding:3px 8px;font-size:12.5px">' + esc(b) + '</td>' +
+        '<td style="padding:3px 8px;font-size:12.5px">→ ' + esc(a) + '</td>' +
+        '<td style="padding:3px 0;font-size:12px;color:var(--green)">' + esc(d) + '</td></tr>';
+    }).join('');
+    // 冷门数：解释器给 personsMerged / coldDropped / coldMode / coldLines
+    const merged = memStudioNum(coldStats.personsMerged);
+    const coldMode = String(coldStats.coldMode || memStudioState.options.coldMode || 'oneline');
+    let coldText = '冷门成员：-';
+    if (merged !== null) {
+      const dropped = memStudioNum(coldStats.coldDropped) || 0;
+      const lines = memStudioNum(coldStats.coldLines) || 0;
+      coldText = '冷门成员：' + merged + ' 人（' + (MEM_STUDIO_COLD_LABEL[coldMode] || coldMode) +
+        (coldMode === 'drop' ? '，实际丢弃 ' + dropped + ' 人' : '，缩成 ' + lines + ' 行背景') + '）';
+    }
+    const kept = memStudioNum(coldStats.kept);
+    const keptText = kept === null ? '' : '　·　保留 ' + kept + ' 张完整卡';
+    const warnings = Array.isArray(r.warnings) && r.warnings.length
+      ? '<div class="hint" style="color:var(--orange);font-size:12px;margin-top:6px">提示：' + r.warnings.map((w) => esc(String(w))).join('；') + '</div>'
+      : '';
+
+    const done = st.importDone;
+    let importHtml = '';
+    if (st.importOpen) {
+      const payload = (r.bundle && r.bundle.payload) || {};
+      const est = (k) => (payload[k] || []).length;
+      importHtml =
+        '<div style="border:1px dashed var(--orange);border-radius:8px;padding:10px;margin-top:10px">' +
+          '<div style="font-weight:600;font-size:13px;color:var(--orange);margin-bottom:4px">⚠ 确认导回 QQ Agent？</div>' +
+          '<div class="hint" style="font-size:12px">会写入 <code>data/memory-cards/</code>。压缩前的记忆不会自动备份 —— 想留底先点「下载 .qqmem.json」。</div>' +
+          '<div style="margin:6px 0">' +
+            '<label style="display:block;font-size:12.5px;margin:2px 0"><input type="radio" name="memstudio-importmode" value="merge" data-studio-opt="import-mode"' + (st.importMode === 'merge' ? ' checked' : '') + ' /> 合并（推荐）：按 updatedAt 取新的，较旧的卡跳过</label>' +
+            '<label style="display:block;font-size:12.5px;margin:2px 0"><input type="radio" name="memstudio-importmode" value="replace" data-studio-opt="import-mode"' + (st.importMode === 'replace' ? ' checked' : '') + ' /> 覆盖：包里同 key 的卡用它覆盖，包里没有的卡保留（不清空）</label>' +
+          '</div>' +
+          '<div class="hint" style="font-size:12px">这次将提交：通用 ' + est('generals') + ' · 群聊 ' + est('groups') + ' · 个人 ' + est('persons') + ' · 话题 ' + est('topics') + ' 张卡。</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">' +
+            '<button class="btn btn-small btn-primary" data-studio="import-confirm"' + (st.importBusy ? ' disabled' : '') + '>' + (st.importBusy ? '导回中…' : '确认导回') + '</button>' +
+            '<button class="btn btn-small" data-studio="import-cancel"' + (st.importBusy ? ' disabled' : '') + '>取消</button>' +
+            '<span class="hint">导回期间别关窗口</span>' +
+          '</div>' +
+          (st.importError ? '<div class="mem-studio-err" style="color:var(--red);font-size:12px;margin-top:6px;white-space:pre-wrap">导回失败：' + esc(st.importError) + '</div>' : '') +
+        '</div>';
+    } else if (done) {
+      const w = done.written || {};
+      const sk = done.skipped || {};
+      const totalW = ['generals', 'groups', 'persons', 'topics'].reduce((n, k) => n + (memStudioNum(w[k]) || 0), 0);
+      const totalS = ['generals', 'groups', 'persons', 'topics'].reduce((n, k) => n + (memStudioNum(sk[k]) || 0), 0);
+      importHtml =
+        '<div style="border:1px solid var(--green);border-radius:8px;padding:10px;margin-top:10px">' +
+          '<div style="font-weight:600;font-size:13px;color:var(--green)">✅ 已导回 QQ Agent（' + esc(done.mode || st.importMode) + '）</div>' +
+          '<div style="font-size:12.5px;line-height:1.7;margin-top:4px">写入 <b>' + totalW + '</b> 张：' + memStudioCountsText(w) + '</div>' +
+          '<div style="font-size:12.5px;line-height:1.7">跳过 <b>' + totalS + '</b> 张（同 key 且不比现有新）：' + memStudioCountsText(sk) + '</div>' +
+          (done.filteredOut ? '<div class="hint">另有 ' + done.filteredOut + ' 张因时间范围被过滤。</div>' : '') +
+          '<div class="hint">切到「本会话 / 个人卡 / 基本事实」可看到最新数据（列表会自动重拉）。</div>' +
+        '</div>';
+    }
+    return '<div class="mem-studio-block" style="' + MEM_STUDIO_BLOCK_STYLE + '">' +
+      '<div style="' + MEM_STUDIO_TITLE_STYLE + '">压缩结果 <span class="muted" style="font-weight:400;font-size:12px">' + esc(MEM_STUDIO_MODE_LABEL[r.mode || stats.mode || ''] || '') + '</span></div>' +
+      '<table style="border-collapse:collapse;margin-bottom:2px">' + rows + '</table>' +
+      '<div style="font-size:12.5px;line-height:1.7">' + esc(coldText) + esc(keptText) + '</div>' +
+      warnings +
+      '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">' +
+        '<button class="btn btn-small btn-primary" data-studio="import">导回 QQ Agent</button>' +
+        '<button class="btn btn-small" data-studio="download">下载 .qqmem.json</button>' +
+        '<button class="btn btn-small" data-studio="recompress">重新压缩</button>' +
+        (st.downloadOk ? '<span class="hint" style="color:var(--green)">' + esc(st.downloadOk) + '</span>' : '') +
+        (st.downloadError ? '<span class="hint" style="color:var(--red)">' + esc(st.downloadError) + '</span>' : '') +
+      '</div>' +
+      importHtml +
+    '</div>';
+  }
+
+  // ── 状态拉取 / 启停 ────────────────────────────────────────────────────
+  async function memStudioLoadStatus(force) {
+    const st = memStudioState;
+    if (st.statusBusy === 'detect') return;
+    if (!force && st.status && st.statusAt && Date.now() - st.statusAt < 8000) return;
+    st.statusBusy = 'detect';
+    memStudioRenderStatus();
+    try {
+      const r = await api('/api/memory-studio/status');
+      if (!r || r.ok === false) throw new Error((r && r.error) || '状态接口返回 ok=false');
+      st.status = r;
+      st.statusError = '';
+    } catch (e) {
+      st.status = null;
+      st.statusError = String((e && e.message) || e);
+    }
+    st.statusBusy = '';
+    st.statusAt = Date.now();
+    memStudioRenderStatus();
+    memStudioRenderOptions();
+  }
+
+  async function memStudioStart() {
+    const st = memStudioState;
+    if (st.statusBusy) return;
+    st.statusBusy = 'start';
+    st.statusError = '';
+    memStudioRenderStatus();
+    try {
+      const r = await api('/api/memory-studio/start', { method: 'POST', body: '{}' });
+      if (!r || r.ok === false) throw new Error((r && r.error) || '启动接口返回 ok=false');
+      st.status = { ...(st.status || {}), ...r, ok: true, found: true, running: !!r.running };
+      st.statusAt = Date.now();
+    } catch (e) {
+      st.statusError = String((e && e.message) || e);
+    }
+    st.statusBusy = '';
+    memStudioRenderStatus();
+    memStudioRenderOptions();
+    memStudioLoadStatus(true);   // 启动可能顺延端口 → 以真实状态为准
+  }
+
+  async function memStudioStop() {
+    const st = memStudioState;
+    if (st.statusBusy) return;
+    st.statusBusy = 'stop';
+    st.statusError = '';
+    memStudioRenderStatus();
+    try {
+      const r = await api('/api/memory-studio/stop', { method: 'POST', body: '{}' });
+      if (!r || r.ok === false) throw new Error((r && r.error) || '停止接口返回 ok=false');
+      st.status = { ...(st.status || {}), running: false, port: null, url: null };
+      st.statusAt = Date.now();
+    } catch (e) {
+      st.statusError = String((e && e.message) || e);
+    }
+    st.statusBusy = '';
+    memStudioRenderStatus();
+    memStudioRenderOptions();
+    memStudioLoadStatus(true);
+  }
+
+  // ── 载入记忆 ────────────────────────────────────────────────────────────
+  function memStudioAcceptBundle(bundle, meta) {
+    const st = memStudioState;
+    const payload = (bundle && bundle.payload) || {};
+    const counts = (meta && meta.counts) || {
+      generals: (payload.generals || []).length,
+      groups: (payload.groups || []).length,
+      persons: (payload.persons || []).length,
+      topics: (payload.topics || []).length
+    };
+    let stats = (meta && meta.stats) || null;
+    if (!stats || memStudioNum(stats.cards) === null) {
+      let chars = 0;
+      try { chars = JSON.stringify(payload).length; } catch (e) { chars = 0; }
+      stats = {
+        cards: ['generals', 'groups', 'persons', 'topics'].reduce((n, k) => n + ((payload[k] || []).length), 0),
+        chars
+      };
+    }
+    st.bundle = bundle;
+    st.source = { kind: meta.kind, name: meta.name, counts, stats, at: Date.now() };
+    st.loadError = '';
+    // 换了份记忆包：旧的进度/结果/勾选都要清掉，避免把 A 包的结果导进 B 包
+    const valid = new Set(memStudioCardIndex().map((x) => x.id));
+    st.options.mustKeep = (st.options.mustKeep || []).filter((id) => valid.has(id));
+    memStudioResetJob();
+    memStudioRenderAll();
+  }
+
+  async function memStudioLoadLive() {
+    const st = memStudioState;
+    if (st.loadBusy) return;
+    st.loadBusy = true;
+    st.loadError = '';
+    memStudioRenderSource();
+    try {
+      const r = await api('/api/memory-bundle/json');
+      if (!r || r.ok === false) throw new Error((r && r.error) || '接口返回 ok=false');
+      if (!r.bundle || !r.bundle.payload) throw new Error('返回里没有 bundle（接口版本可能不匹配）');
+      memStudioAcceptBundle(r.bundle, { kind: 'live', name: '当前记忆', counts: r.counts, stats: r.stats });
+    } catch (e) {
+      st.loadError = String((e && e.message) || e);
+    }
+    st.loadBusy = false;
+    memStudioRenderSource();
+    memStudioRenderOptions();
+  }
+
+  function memStudioReadFile(file) {
+    const st = memStudioState;
+    st.loadError = '';
+    try {
+      if (typeof FileReader !== 'function') throw new Error('当前环境不支持 FileReader');
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const obj = JSON.parse(String(reader.result == null ? '' : reader.result));
+          const payload = obj && obj.payload;
+          if (!payload || typeof payload !== 'object') throw new Error('不是 QQ Agent 记忆包（缺少 payload）');
+          memStudioAcceptBundle(obj, { kind: 'file', name: file && file.name ? file.name : '本地文件' });
+        } catch (e) {
+          st.loadError = String((e && e.message) || e);
+          memStudioRenderSource();
+          memStudioRenderOptions();
+        }
+      };
+      reader.onerror = () => {
+        st.loadError = String((reader.error && reader.error.message) || '读取文件失败');
+        memStudioRenderSource();
+      };
+      reader.readAsText(file, 'utf-8');
+    } catch (e) {
+      st.loadError = String((e && e.message) || e);
+      memStudioRenderSource();
+    }
+  }
+
+  // ── 构造解释器 options（形状已冻结，别改字段名）──────────────────────────
+  function memStudioBuildOptions() {
+    const o = memStudioState.options;
+    const options = {
+      mode: o.mode === 'merge' || o.mode === 'text' ? o.mode : 'both',
+      coldMode: o.coldMode === 'drop' ? 'drop' : 'oneline',
+      longTermOnly: o.longTermOnly !== false,
+      extractFromTopics: !!o.extractFromTopics,
+      keepTopShare: memStudioNum(o.keepTopShare) === null ? 0.45 : memStudioNum(o.keepTopShare),
+      keep: {
+        facts: !!o.keep.facts,
+        impressions: !!o.keep.impressions,
+        events: !!o.keep.events,
+        prefs: !!o.keep.prefs,
+        aliases: !!o.keep.aliases,
+        body: !!o.keep.body
+      },
+      mustKeep: (o.mustKeep || []).slice(),
+      activeParams: {
+        topN: (o.activeParams || {}).topN === undefined ? '' : (o.activeParams || {}).topN,
+        minMsgs: (o.activeParams || {}).minMsgs === undefined ? '' : (o.activeParams || {}).minMsgs,
+        recentDays: (o.activeParams || {}).recentDays === undefined ? '' : (o.activeParams || {}).recentDays,
+        minMemScore: (o.activeParams || {}).minMemScore === undefined ? '' : (o.activeParams || {}).minMemScore
+      }
+    };
+    if (o.targetMode === 'kb') options.targetKB = Math.max(1, memStudioNum(o.targetKB) || 1);
+    else if (o.targetMode === 'ratio') options.ratio = Math.min(95, Math.max(5, memStudioNum(o.ratio) || 40));
+    else { options.ratio = 30; options.free = true; }   // 不指定：交给模型按约 30% 自行取舍
+    return options;
+  }
+
+  // ── 执行压缩 + 轮询 ─────────────────────────────────────────────────────
+  function memStudioStopTicker() {
+    const job = memStudioState.job;
+    if (job && job.tick) { clearInterval(job.tick); job.tick = null; }
+  }
+  function memStudioStartTicker() {
+    const st = memStudioState;
+    if (st.job.tick) return;
+    st.job.tick = setInterval(() => {
+      const job = st.job;
+      if (!job || job.status !== 'running') { memStudioStopTicker(); return; }
+      const text = $('#memstudio-progress-text');
+      if (text) text.textContent = memStudioStageText(job.progress, memStudioElapsedSec());
+      // 还没有任何进度时让进度条缓慢往前挪，避免看起来像卡死（最多到 12%）
+      if (!job.progress && (memStudioNum(job.pct) || 0) < 12) {
+        job.pct = Math.min(12, (memStudioNum(job.pct) || 2) + 1);
+        memStudioRenderProgress();
+      }
+    }, 1000);
+  }
+  function memStudioResetJob() {
+    const st = memStudioState;
+    memStudioStopTicker();
+    st.job = { id: '', status: '', progress: null, error: '', startedAt: 0, pct: 0, pollTimer: null, pollFails: 0, tick: null };
+    st.result = null;
+    st.importOpen = false;
+    st.importBusy = false;
+    st.importError = '';
+    st.importDone = null;
+    st.downloadOk = '';
+    st.downloadError = '';
+  }
+  function memStudioFail(message) {
+    const st = memStudioState;
+    memStudioStopTicker();
+    st.job.status = 'failed';
+    st.job.error = String(message == null ? '未知错误' : message);
+    st.job.pollTimer = null;
+    memStudioRenderProgress();
+    memStudioRenderOptions();
+  }
+  async function memStudioRun() {
+    const st = memStudioState;
+    if (!st.bundle) return;
+    if (!(st.status && st.status.running)) return;
+    if (st.job.status === 'running') return;
+    const options = memStudioBuildOptions();
+    st.job = { id: '', status: 'running', progress: null, error: '', startedAt: Date.now(), pct: 3, pollTimer: null, pollFails: 0, tick: null };
+    st.result = null;
+    st.importOpen = false;
+    st.importBusy = false;
+    st.importError = '';
+    st.importDone = null;
+    st.downloadOk = '';
+    st.downloadError = '';
+    memStudioRenderProgress();
+    memStudioRenderResult();
+    memStudioRenderOptions();
+    memStudioStartTicker();
+    try {
+      const r = await api('/api/memory-studio/call', {
+        method: 'POST',
+        body: JSON.stringify({ path: '/api/compress/start', method: 'POST', body: { bundle: st.bundle, options } })
+      });
+      if (!r || r.ok === false) throw new Error(String((r && r.error) || '调用解释器失败'));
+      const data = r.data || {};
+      if (data && data.ok === false) throw new Error(String(data.error || '解释器拒绝了压缩任务'));
+      const jobId = String((data && data.jobId) || '');
+      if (!jobId) {
+        let brief = '';
+        try { brief = JSON.stringify(data).slice(0, 200); } catch (e) { brief = String(data).slice(0, 200); }
+        throw new Error('解释器没有返回 jobId（返回：' + brief + '）');
+      }
+      st.job.id = jobId;
+      memStudioRenderProgress();
+      memStudioPollJob(jobId);
+    } catch (e) {
+      memStudioFail('压缩任务提交失败：' + String((e && e.message) || e));
+    }
+  }
+  function memStudioPollJob(jobId) {
+    const st = memStudioState;
+    if (!jobId || st.job.id !== jobId) return;
+    if (st.job.pollTimer) { clearTimeout(st.job.pollTimer); st.job.pollTimer = null; }
+    const tick = async () => {
+      const job = st.job;
+      if (!job || job.id !== jobId || job.status !== 'running') return;
+      job.pollTimer = null;
+      try {
+        const r = await api('/api/memory-studio/call', {
+          method: 'POST',
+          body: JSON.stringify({ path: '/api/job/' + encodeURIComponent(jobId), method: 'GET' })
+        });
+        if (!r || r.ok === false) throw new Error(String((r && r.error) || '轮询接口返回 ok=false'));
+        const data = r.data || {};
+        if (data && data.ok === false) throw new Error(String(data.error || '解释器查任务失败'));
+        const status = String((data && data.status) || 'running');
+        if (data && data.progress) {
+          job.progress = data.progress;
+          const est = memStudioEstimatePct(data.progress);
+          if (est !== null) job.pct = Math.max(memStudioNum(job.pct) || 0, est);
+        }
+        if (status === 'done') {
+          const res = (data && data.result) || {};
+          if (!res.bundle || !res.bundle.payload) {
+            memStudioFail('解释器返回完成，但结果里没有 bundle');
+            return;
+          }
+          job.status = 'done';
+          job.pct = 100;
+          job.progress = null;
+          st.result = {
+            bundle: res.bundle,
+            stats: res.stats || {},
+            warnings: Array.isArray(res.warnings) ? res.warnings : [],
+            mode: st.options.mode,
+            at: Date.now()
+          };
+          memStudioStopTicker();
+          memStudioRenderProgress();
+          memStudioRenderResult();
+          memStudioRenderOptions();
+          return;
+        }
+        if (status === 'failed') {
+          memStudioFail('压缩失败：' + String((data && data.error) || '解释器没有给出错误信息'));
+          return;
+        }
+        memStudioRenderProgress();
+        job.pollTimer = setTimeout(tick, 900);
+      } catch (e) {
+        job.pollFails = (memStudioNum(job.pollFails) || 0) + 1;
+        if (job.pollFails <= 3) {
+          memStudioRenderProgress();
+          job.pollTimer = setTimeout(tick, 1500);
+        } else {
+          memStudioFail('轮询压缩进度失败：' + String((e && e.message) || e));
+        }
+      }
+    };
+    tick();
+  }
+
+  // ── 下载（前端 Blob，不走解释器）────────────────────────────────────────
+  function memStudioDownload() {
+    const st = memStudioState;
+    const bundle = st.result && st.result.bundle;
+    if (!bundle) return;
+    st.downloadOk = '';
+    st.downloadError = '';
+    let text = '';
+    try { text = JSON.stringify(bundle, null, 1); }
+    catch (e) { st.downloadError = '下载失败：序列化出错（' + String((e && e.message) || e) + '）'; memStudioRenderResult(); return; }
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const name = 'compressed-' + stamp + '.qqmem.json';
+    try {
+      if (typeof Blob !== 'function' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+        throw new Error('当前环境不支持前端下载');
+      }
+      const blob = new Blob([text], { type: 'application/json' });
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = name;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        try { a.remove(); URL.revokeObjectURL(href); } catch (e) { /* ignore */ }
+      }, 0);
+      st.downloadOk = '已开始下载 ' + name;
+    } catch (e) {
+      st.downloadError = '下载失败：' + String((e && e.message) || e);
+    }
+    memStudioRenderResult();
+  }
+
+  // ── 导回 QQ Agent（二次确认 + written/skipped）──────────────────────────
+  async function memStudioImport() {
+    const st = memStudioState;
+    if (!st.result || !st.result.bundle || st.importBusy) return;
+    st.importBusy = true;
+    st.importError = '';
+    st.importDone = null;
+    memStudioRenderResult();
+    try {
+      const r = await api('/api/memory-bundle/import', {
+        method: 'POST',
+        body: JSON.stringify({ bundle: st.result.bundle, mode: st.importMode === 'replace' ? 'replace' : 'merge' })
+      });
+      if (!r || r.ok === false) {
+        const list = r && Array.isArray(r.errors) ? r.errors.filter(Boolean) : [];
+        throw new Error(list.length ? list.join('；') : String((r && r.error) || '导回接口返回 ok=false'));
+      }
+      st.importDone = {
+        written: r.written || {},
+        skipped: r.skipped || {},
+        mode: r.mode || st.importMode,
+        filteredOut: memStudioNum(r.filteredOut) || 0
+      };
+      st.importOpen = false;
+      // 让「本会话 / 个人卡 / 基本事实」下次进入时重拉数据（导回已经改动磁盘上的卡）
+      try { if (typeof memState === 'function') { const ms = memState(); if (ms) ms.list = null; } } catch (e) { /* ignore */ }
+    } catch (e) {
+      st.importError = String((e && e.message) || e);
+    }
+    st.importBusy = false;
+    memStudioRenderResult();
+  }
+
+  // ── 事件委托用到的面板动作分发 ─────────────────────────────────────────
+  function memStudioResetResult() {
+    memStudioState.result = null;
+    memStudioState.importOpen = false;
+    memStudioState.importDone = null;
+    memStudioState.importError = '';
+    memStudioState.downloadOk = '';
+    memStudioState.downloadError = '';
+    memStudioRenderProgress();
+    memStudioRenderResult();
+  }
+  function memStudioHandleAction(act) {
+    if (act === 'redetect') { memStudioLoadStatus(true); return; }
+    if (act === 'start') { memStudioStart(); return; }
+    if (act === 'stop') { memStudioStop(); return; }
+    if (act === 'load-live') { memStudioLoadLive(); return; }
+    if (act === 'pick-file') {
+      const file = $('#memstudio-file');
+      if (file) file.click();
+      return;
+    }
+    if (act === 'run') { memStudioRun(); return; }
+    if (act === 'recompress') { memStudioResetResult(); return; }
+    if (act === 'download') { memStudioDownload(); return; }
+    if (act === 'import') {
+      if (!memStudioState.result) return;
+      memStudioState.importOpen = true;
+      memStudioState.importError = '';
+      memStudioRenderResult();
+      return;
+    }
+    if (act === 'import-cancel') {
+      memStudioState.importOpen = false;
+      memStudioState.importError = '';
+      memStudioRenderResult();
+      return;
+    }
+    if (act === 'import-confirm') { memStudioImport(); return; }
+  }
+  function memStudioHandleOption(el) {
+    const st = memStudioState;
+    const kind = el.dataset ? el.dataset.studioOpt : '';
+    const value = el.value;
+    if (kind === 'mode') { st.options.mode = value === 'merge' || value === 'text' ? value : 'both'; return; }
+    if (kind === 'target-mode') {
+      st.options.targetMode = value === 'kb' || value === 'free' ? value : 'ratio';
+      memStudioRenderOptions();
+      return;
+    }
+    if (kind === 'cold-mode') { st.options.coldMode = value === 'drop' ? 'drop' : 'oneline'; return; }
+    if (kind === 'keep') {
+      const k = el.dataset.k;
+      if (k && Object.prototype.hasOwnProperty.call(st.options.keep, k)) st.options.keep[k] = !!el.checked;
+      return;
+    }
+    if (kind === 'extract') { st.options.extractFromTopics = !!el.checked; return; }
+    if (kind === 'import-mode') { st.importMode = value === 'replace' ? 'replace' : 'merge'; return; }
+    if (kind === 'mustkeep') {
+      const key = String(el.dataset.key || '');
+      if (!key) return;
+      const set = new Set(st.options.mustKeep || []);
+      if (el.checked) set.add(key); else set.delete(key);
+      st.options.mustKeep = [...set];
+      const cnt = $('#memstudio-mustkeep-count');
+      if (cnt) cnt.textContent = '已选 ' + st.options.mustKeep.length + ' 张';
+      return;
+    }
+  }
+  function memStudioHandleInput(el) {
+    const st = memStudioState;
+    const kind = el.getAttribute('data-studio-input');
+    const value = String(el.value == null ? '' : el.value);
+    if (kind === 'ratio') { st.options.ratio = value === '' ? '' : Number(value); return; }
+    if (kind === 'targetKB') { st.options.targetKB = value === '' ? '' : Number(value); return; }
+    if (kind === 'ap-topn') { st.options.activeParams.topN = value; return; }
+    if (kind === 'ap-minmsgs') { st.options.activeParams.minMsgs = value; return; }
+    if (kind === 'ap-recentdays') { st.options.activeParams.recentDays = value; return; }
+    if (kind === 'ap-minmemscore') { st.options.activeParams.minMemScore = value; return; }
+    if (kind === 'mustkeep-search') { st.mustKeepQuery = value; memStudioRenderMustKeep(); return; }
+  }
+
+  // ── 挂载（每次「压缩」子页签渲染后调用）────────────────────────────────
+  function memStudioMount() {
+    const st = memStudioState;
+    memStudioRenderMustKeep();
+    if (!st.status && !st.statusBusy) memStudioLoadStatus();
+    else if (st.status && !st.statusBusy && st.statusAt && Date.now() - st.statusAt > 10000) memStudioLoadStatus(true);
+    if (st.job.status === 'running') {
+      memStudioStartTicker();
+      if (st.job.id && !st.job.pollTimer) memStudioPollJob(st.job.id);
+    }
+  }
+
+  // ── document 级一次性委托（CSP 禁内联 onclick；三个选择器登记在接线测试）──
+  if (!window.__memStudioDelegated) {
+    window.__memStudioDelegated = true;
+    document.addEventListener('click', (e) => {
+      if (state.tab !== 'memory') return;
+      const el = e.target.closest('#view-memory [data-studio]');
+      if (!el) return;
+      if (el.tagName === 'INPUT') return;   // 单选/复选走 change，别重复处理
+      e.preventDefault();
+      memStudioHandleAction(el.getAttribute('data-studio'));
+    });
+    document.addEventListener('change', (e) => {
+      if (state.tab !== 'memory') return;
+      const opt = e.target.closest('#view-memory [data-studio-opt]');
+      if (opt) { memStudioHandleOption(opt); return; }
+      const file = e.target.closest('#view-memory [data-studio-input="file"]');
+      if (!file) return;
+      const picked = file.files && file.files[0];
+      if (picked) memStudioReadFile(picked);
+      try { file.value = ''; } catch (err) { /* ignore */ }
+    });
+    document.addEventListener('input', (e) => {
+      if (state.tab !== 'memory') return;
+      const el = e.target.closest('#view-memory [data-studio-input]');
+      if (!el) return;
+      if (el.getAttribute('data-studio-input') === 'file') return;
+      memStudioHandleInput(el);
+    });
   }

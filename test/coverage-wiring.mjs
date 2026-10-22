@@ -99,7 +99,8 @@ function wired(el) {
       '[data-tag-box]', '[data-tag-del]',               // 白名单/静默会话标签块
       '[data-tag-input]',
       '[data-membundle]', '[data-membundle-section]',   // 记忆导出/导入
-      '#membundle-since', '#membundle-until', '#membundle-redact', '#membundle-file'
+      '#membundle-since', '#membundle-until', '#membundle-redact', '#membundle-file',
+      '[data-studio]', '[data-studio-opt]', '[data-studio-input]'  // 记忆「压缩」子页签（解释器状态/选项/进度/导回）
     ].join(', ');
     try { if (el.closest && el.closest(DELEGATED_SELECTOR)) return true; } catch { /* ignore */ }
   const tag = el.tagName.toLowerCase();
