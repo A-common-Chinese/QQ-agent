@@ -327,79 +327,263 @@ function freeBytesOf(dir) {
 }
 
 const USER_DIRS = ['plugins', 'skills', 'snowluma'];   // 安装包会覆盖 resources/app，这三样必须备份
+// data/ 下不参与备份的：updates（各版本安装包本体，一个几十 MB）、electron-user-data（Chromium 缓存）
+const DATA_SKIP = new Set(['updates', 'electron-user-data']);
+
+/**
+ * 找安装目录里"能启动"的 exe。
+ * ⚠️ 不能硬编码 "QQ Agent.exe"：本机装的是 DSH 版（productName=QQ Agent DSH，
+ * exe 叫 QQ Agent DSH.exe），跟 Release 产物的产品名不一致。硬编码的后果是
+ * 装完既不杀进程、也不重启（2026-10 实测：点「安装并重启」后机器人直接消失）。
+ * 优先级：当前进程的 exe → 常见产品名 → 目录里所有 QQ Agent*.exe。
+ */
+export function findRunnableExe(installDir) {
+  const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+  const out = [];
+  const push = (p) => { if (p && !out.includes(p)) out.push(p); };
+  try {
+    const cur = path.resolve(process.execPath);
+    if (path.dirname(cur).toLowerCase() === path.resolve(installDir).toLowerCase() && isFile(cur)) push(cur);
+  } catch { /* ignore */ }
+  for (const name of ['QQ Agent DSH.exe', 'QQ Agent.exe']) {
+    const p = path.join(installDir, name);
+    if (isFile(p)) push(p);
+  }
+  try {
+    for (const f of fs.readdirSync(installDir)) {
+      if (!/\.exe$/i.test(f)) continue;
+      if (/uninstall|卸载/i.test(f)) continue;
+      if (!/qq\s*agent/i.test(f)) continue;
+      push(path.join(installDir, f));
+    }
+  } catch { /* ignore */ }
+  return out[0] || '';
+}
+
+/** 目录占用字节数（跳过顶层指定子目录，口径与 copyTree 一致，用于算空间） */
+function dirBytesSkip(dir, skip) {
+  let total = 0;
+  let list = [];
+  try { list = fs.readdirSync(dir); } catch { return 0; }
+  for (const name of list) {
+    if (skip && skip.has(name)) continue;
+    const p = path.join(dir, name);
+    let st;
+    try { st = fs.statSync(p); } catch { continue; }
+    if (st.isDirectory()) total += dirBytesSkip(p, null);
+    else total += st.size;
+  }
+  return total;
+}
+
+/** 递归复制（可跳过顶层某些子目录） */
+export function copyTree(src, dst, skip = DATA_SKIP) {
+  if (!fs.existsSync(src)) return false;
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  fs.cpSync(src, dst, {
+    recursive: true,
+    force: true,
+    filter: (p) => {
+      const rel = path.relative(src, p);
+      if (!rel) return true;
+      return !skip.has(rel.split(path.sep)[0]);
+    }
+  });
+  return true;
+}
+
+/** PowerShell 单引号字面量（路径里出现 ' 也不会炸） */
+function psStr(value) {
+  return "'" + String(value == null ? '' : value).replace(/'/g, "''") + "'";
+}
+
+/**
+ * 写还原脚本。
+ * ⚠️ 必须带 UTF-8 BOM：Windows PowerShell 5.1 读 .ps1 默认按 ANSI，
+ * 中文注释/字符串会被解成乱码，进而把引号吃掉 → 整个脚本语法错误（实测踩过）。
+ */
+export function writeInstallScript(file, script) {
+  fs.writeFileSync(file, '\uFEFF' + script, 'utf8');
+  return file;
+}
+
+/**
+ * 生成还原脚本（纯函数，便于离线自测）：
+ *   等应用退出（按 **真实** exe 名） → 静默安装到 **原目录**（NSIS /D）→ 等新版本落位
+ *   → 还原 resources/app 下的 plugins/skills/snowluma + 安装根目录的 data/
+ *   → 启动应用（安装失败也要把旧版拉起来，不能让机器人就这么没了）
+ * @returns {{script:string, logPath:string}}
+ */
+export function buildInstallScript({
+  installerPath, version, installDir, appDir, dataDir, runExe, backupDir, stamp = Date.now()
+}) {
+  const nl = '\r\n';
+  const logPath = path.join(backupDir, 'install.log');
+  const exeName = runExe ? path.basename(runExe) : 'QQ Agent.exe';
+  const lines = [
+    '# 由 QQ Agent 更新器生成：等应用退出 → 静默安装 → 还原用户目录 → 重启',
+    "$ErrorActionPreference = 'Continue'",
+    '$log = ' + psStr(logPath),
+    'function L([string]$m) { try { ((Get-Date).ToString("yyyy-MM-dd HH:mm:ss") + " " + $m) | Add-Content -LiteralPath $log -Encoding UTF8 } catch {} }',
+    'L "=== 开始安装 v' + String(version).replace(/"/g, '') + '（stamp=' + stamp + '） ==="',
+    'L ("安装目录: " + ' + psStr(installDir) + ')',
+    'L ("目标程序: " + ' + psStr(runExe || '（未找到，安装后重新扫描）') + ')',
+    'Start-Sleep -Seconds 2',
+    '',
+    '# ① 关掉正在运行的实例：按真实 exe 名，等它真的退出（否则安装器会被"文件占用"卡住）',
+    '$exeName = ' + psStr(exeName),
+    '$procName = [IO.Path]::GetFileNameWithoutExtension($exeName)',
+    'for ($i = 0; $i -lt 20; $i++) {',
+    '  $alive = @(Get-Process -Name $procName -ErrorAction SilentlyContinue)',
+    '  if ($alive.Count -eq 0) { break }',
+    '  L ("结束进程 " + $procName + "：" + $alive.Count + " 个")',
+    '  & taskkill.exe /IM $exeName /T /F 2>$null | Out-Null',
+    '  Start-Sleep -Seconds 1',
+    '}',
+    'if (@(Get-Process -Name $procName -ErrorAction SilentlyContinue).Count -gt 0) { L "⚠ 进程仍未退出，继续尝试安装" }',
+    'Start-Sleep -Seconds 1',
+    '',
+    '# ② 静默安装到原目录。NSIS 的 /D 必须是最后一个参数，且**不能加引号**（含空格也不能）',
+    '$installer = ' + psStr(installerPath),
+    '$pkgPath = Join-Path ' + psStr(installDir) + ' "resources\\app\\package.json"',
+    '$before = ""',
+    'try { $before = (Get-Content -LiteralPath $pkgPath -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch {}',
+    'L ("安装前版本: " + $before)',
+    'if (-not (Test-Path -LiteralPath $installer)) {',
+    '  L "✗ 安装包不存在：$installer"',
+    '} else {',
+    '  $argStr = "/S /D=" + ' + psStr(installDir),
+    '  L ("执行: " + $installer + " " + $argStr)',
+    '  try { $p = Start-Process -FilePath $installer -ArgumentList $argStr -Wait -PassThru -ErrorAction Stop; L ("安装器退出码: " + $p.ExitCode) }',
+    '  catch { L ("✗ 安装器启动失败: " + $_.Exception.Message) }',
+    '}',
+    '',
+    '# ③ 等新版本落位（最长 90 秒）：package.json 的 version 变成目标版本',
+    '$want = ' + psStr(String(version)),
+    '$landed = $false',
+    'for ($i = 0; $i -lt 45; $i++) {',
+    '  $v = ""',
+    '  try { $v = (Get-Content -LiteralPath $pkgPath -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch {}',
+    '  if ($v -and $v -eq $want) { $landed = $true; L ("已落位: v" + $v); break }',
+    '  Start-Sleep -Seconds 2',
+    '}',
+    'if (-not $landed) { L ("⚠ 90 秒内没等到 v" + $want + "，当前 package.json 版本: " + $v + "（继续还原并重启旧版）") }',
+    '',
+    '# ④ 还原用户目录（安装器可能整目录删过，包括 data/）',
+    '$appDir = ' + psStr(appDir),
+    '$dataDir = ' + psStr(dataDir),
+    '$backup = ' + psStr(backupDir),
+    '$robolog = { param($src, $dst)',
+    '  if (-not (Test-Path -LiteralPath $src)) { return }',
+    '  New-Item -ItemType Directory -Force -Path $dst | Out-Null',
+    '  & robocopy.exe $src $dst /E /R:0 /W:0 /NFL /NDL /NJH /NJS /NP 2>$null | Out-Null',
+    '  L ("还原 " + $src + " -> " + $dst + "（robocopy=" + $LASTEXITCODE + "）")',
+    '}',
+    'foreach ($d in @("plugins","skills","snowluma")) { & $robolog (Join-Path $backup $d) (Join-Path $appDir $d) }',
+    '& $robolog (Join-Path $backup "data") $dataDir',
+    '',
+    '# ⑤ 启动应用：优先原来的 exe；它若被新版替换掉就扫目录里最新的 QQ Agent*.exe',
+    '$run = ' + psStr(runExe),
+    'if (-not $run -or -not (Test-Path -LiteralPath $run)) {',
+    '  $cand = @(Get-ChildItem -LiteralPath ' + psStr(installDir) + ' -Filter "*.exe" -ErrorAction SilentlyContinue |',
+    '    Where-Object { $_.Name -match "QQ Agent" -and $_.Name -notmatch "Uninstall|卸载" } | Sort-Object LastWriteTime -Descending)',
+    '  if ($cand.Count -gt 0) { $run = $cand[0].FullName; L ("重新定位可执行文件: " + $run) }',
+    '}',
+    'if ($run -and (Test-Path -LiteralPath $run)) {',
+    '  try { Start-Process -FilePath $run; L ("已启动: " + $run) }',
+    '  catch { L ("✗ 启动失败: " + $_.Exception.Message) }',
+    '} else {',
+    '  L "✗ 找不到可启动的程序，需要手动启动"',
+    '}',
+    'L "=== 结束 ==="',
+    ''
+  ];
+  return { script: lines.join(nl), logPath };
+}
 
 /**
  * 安装更新：
- *  1) plugins / skills / snowluma 备份到临时目录
+ *  1) plugins / skills / snowluma + data/（不含 updates、electron-user-data）备份到临时目录
  *  2) 检查临时盘空间（备份 + 安装包 + 200MB 余量），不够且没 force → 返回 needSpace 交给界面询问
- *  3) 写还原脚本并脱离进程拉起：等应用退出 → 静默安装 → 拷回三样 → 启动应用
+ *  3) 安装包**另拷一份到临时目录**（原路径在 data/updates 里，旧卸载器会连它一起删）
+ *  4) 写还原脚本并脱离进程拉起：等应用退出 → 静默安装到原目录 → 还原 → 启动应用
+ *
+ * `source` 只为离线自测而留：{ path, version, total }，不传就用下载器的当前状态。
  */
-export async function installUpdate({ force = false, dryRun = false, log = () => {} } = {}) {
-  const st = getDownloadState();
-  if (!st || st.state !== 'done' || !st.path || !fs.existsSync(st.path)) {
-    return { ok: false, error: '还没有下载完成的安装包' };
-  }
+export async function installUpdate({ force = false, dryRun = false, log = () => {}, source = null } = {}) {
+  const st = source || getDownloadState();
+  if (!st || !st.path || !fs.existsSync(st.path)) return { ok: false, error: '还没有下载完成的安装包' };
+  if (!source && st.state !== 'done') return { ok: false, error: '安装包还没下载完（state=' + st.state + '）' };
+
   const version = String(st.version || 'latest');
   const appDir = ROOT;
   const installDir = path.resolve(ROOT, '..', '..');
-  const appExe = path.join(installDir, 'QQ Agent.exe');
+  const dataDir = DATA_DIR;
+  const runExe = findRunnableExe(installDir);
   const backupDir = path.join(os.tmpdir(), 'qq-agent-update-' + version);
 
-  const backupBytes = USER_DIRS.reduce((sum, d) => sum + dirBytes(path.join(appDir, d)), 0);
+  const userBytes = USER_DIRS.reduce((sum, d) => sum + dirBytesSkip(path.join(appDir, d), null), 0);
+  const backupBytes = userBytes + dirBytesSkip(dataDir, DATA_SKIP);
   const installBytes = Number(st.total) || 0;
   const free = freeBytesOf(os.tmpdir());
   const need = backupBytes + installBytes + 200 * 1024 * 1024;
-  const info = { freeBytes: free, needBytes: need, backupBytes, installBytes, backupDir, installDir };
+  const info = {
+    freeBytes: free, needBytes: need, backupBytes, installBytes, backupDir,
+    installDir, appDir, dataDir, runExe
+  };
 
   if (free > 0 && free < need && !force) {
     log('[update] 空间不足：需要 ' + (need / 1048576).toFixed(0) + ' MB，可用 ' + (free / 1048576).toFixed(0) + ' MB');
     return { ok: false, needSpace: true, ...info };
   }
-  if (dryRun) return { ok: true, dryRun: true, ...info };
 
+  // 安装包另拷一份到临时目录：data/updates 里的原件会被旧卸载器连同 $INSTDIR 一起删掉
   fs.mkdirSync(backupDir, { recursive: true });
+  const installerCopy = path.join(backupDir, 'setup.exe');
+
+  const { script, logPath } = buildInstallScript({
+    installerPath: installerCopy, version, installDir, appDir, dataDir, runExe, backupDir
+  });
+  const restoreScript = path.join(backupDir, 'restore.ps1');
+  writeInstallScript(restoreScript, script);
+  const plan = { ...info, installerCopy, restoreScript, logPath, version };
+
+  if (dryRun) return { ok: true, dryRun: true, ...plan };
+
+  try {
+    fs.copyFileSync(st.path, installerCopy);
+  } catch (error) {
+    return { ok: false, error: '复制安装包失败：' + (error?.message ?? error) };
+  }
+
+  // 备份：resources/app 下的用户目录 + 安装根目录的 data/
   const copied = [];
   for (const d of USER_DIRS) {
     const src = path.join(appDir, d);
     if (!fs.existsSync(src)) continue;
     try {
-      fs.cpSync(src, path.join(backupDir, d), { recursive: true, force: true });
+      copyTree(src, path.join(backupDir, d));
       copied.push(d);
     } catch (error) { log('[update] 备份 ' + d + ' 失败：' + (error?.message ?? error)); }
   }
+  let dataCopied = false;
+  try {
+    if (fs.existsSync(dataDir)) { copyTree(dataDir, path.join(backupDir, 'data')); dataCopied = true; }
+  } catch (error) { log('[update] 备份 data 失败：' + (error?.message ?? error)); }
   fs.writeFileSync(path.join(backupDir, 'manifest.json'), JSON.stringify({
-    at: new Date().toISOString(), version, installer: st.path, dirs: copied, appDir, installDir
+    at: new Date().toISOString(), version, installer: st.path, installerCopy,
+    dirs: copied, dataCopied, appDir, installDir, dataDir, runExe, logPath
   }, null, 1), 'utf8');
 
-  const nl = String.fromCharCode(13, 10);
-  const ps = [
-    '$ErrorActionPreference = "SilentlyContinue"',
-    'Start-Sleep -Seconds 2',
-    'taskkill /IM "QQ Agent.exe" /T /F | Out-Null',
-    'Start-Sleep -Seconds 3',
-    '$installer = ' + JSON.stringify(st.path),
-    'if (Test-Path $installer) { Start-Process -FilePath $installer -ArgumentList "/S" -Wait }',
-    'Start-Sleep -Seconds 6',
-    '$backup = ' + JSON.stringify(backupDir),
-    '$appDir = ' + JSON.stringify(appDir),
-    'foreach ($d in @("plugins","skills","snowluma")) {',
-    '  $src = Join-Path $backup $d',
-    '  if (Test-Path $src) { Copy-Item -Path $src -Destination (Join-Path $appDir $d) -Recurse -Force }',
-    '}',
-    'Start-Sleep -Seconds 1',
-    '$exe = ' + JSON.stringify(appExe),
-    'if (Test-Path $exe) { Start-Process -FilePath $exe }',
-    ''
-  ].join(nl);
-  const restoreScript = path.join(backupDir, 'restore.ps1');
-  fs.writeFileSync(restoreScript, ps, 'utf8');
-
-  const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', restoreScript], {
-    detached: true, stdio: 'ignore', windowsHide: true
-  });
+  const child = spawn('powershell.exe', [
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', restoreScript
+  ], { detached: true, stdio: 'ignore', windowsHide: true });
   child.unref();
-  log('[update] 开始安装：备份在 ' + backupDir);
-  return { ok: true, backupDir, restoreScript, dirs: copied, ...info };
+  log('[update] 开始安装：备份在 ' + backupDir + '，日志 ' + logPath);
+  return {
+    ok: true, backupDir, restoreScript, dirs: copied, dataCopied, logPath, version,
+    installer: st.path, installerCopy, installDir, appDir, dataDir, runExe
+  };
 }
 
 /** 清理临时备份（用户选择取消安装时调用） */

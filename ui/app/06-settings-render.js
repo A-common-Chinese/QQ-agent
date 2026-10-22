@@ -2067,7 +2067,7 @@ function renderDesktopSection(c) {
     </div>
     <h3>版本更新</h3>
     <div class="field"><label>当前版本 <b id="update-current">…</b><span id="update-status-text">${(typeof updateAvailable !== 'undefined' && updateAvailable) ? '<b style="color:var(--orange)">；发现新版本</b>' : '；检查线上是否有新版本'}</span></label>
-      <div class="hint">更新源：<code>${esc(c.update?.githubRepo || 'A-common-Chinese/QQ-agent')}</code> 的最新 Release（只读检查，默认 12 小时一次；阶段 1 只下载安装包，不自动替换程序）</div>
+      <div class="hint">更新源：<code>${esc(c.update?.githubRepo || 'A-common-Chinese/QQ-agent')}</code> 的最新 Release（只读检查，默认 12 小时一次；下载完由你点「安装并重启」，不会偷偷替换程序）</div>
       <div style="display:flex;gap:10px;align-items:center">
         <button class="btn btn-small" id="check-update-btn">立即检查</button>
         <span class="hint" id="update-hint" style="margin:0"></span>
@@ -2080,7 +2080,7 @@ function renderDesktopSection(c) {
         <button class="btn" id="install-update-btn" style="display:none">安装并重启</button>
         <span class="hint" id="update-progress" style="margin:0"></span>
       </div>
-      <div class="hint" style="margin-top:6px">⚠️ 安装前会自动把 plugins / skills / snowluma 备份到临时目录，装完自动拷回并重启；空间不足会先问你。升级前建议备份 <code>plugins/</code>、<code>skills/</code>、<code>snowluma/</code>。</div>
+      <div class="hint" style="margin-top:6px">⚠️ 点「安装并重启」会先把 <code>plugins</code> / <code>skills</code> / <code>snowluma</code> 和安装目录的 <code>data</code>（配置、记忆、聊天记录）备份到临时目录，然后静默安装到 <b>原安装目录</b>、还原三样 + data、再自己启动起来（装失败也会把旧版拉起来）。备份目录和安装日志路径会显示在上面的进度里。空间不足会先问你。</div>
     </div>
     <div class="checkbox-row"><input type="checkbox" id="cfg-update-auto" ${c.update?.autoDownload ? 'checked' : ''} />
       <label for="cfg-update-auto">发现新版本时自动下载安装包（不自动安装）</label></div>

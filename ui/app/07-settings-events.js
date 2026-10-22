@@ -1014,11 +1014,13 @@ function bindSettingsEvents(c) {
     const hint = $('#update-progress');
     const mb = (n) => Math.round((Number(n) || 0) / 1048576) + ' MB';
     instUpdateBtn.disabled = true;
-    if (hint) hint.textContent = '正在备份 plugins / skills / snowluma 到临时目录…';
+    if (hint) hint.textContent = '正在备份 plugins / skills / snowluma 与 data/ 到临时目录（数据多时十几秒）…';
     const r = await api('/api/update/install', { method: 'POST', body: JSON.stringify({ force: false }) })
       .catch((e) => ({ ok: false, error: e?.message || String(e) }));
     if (r && r.ok) {
-      if (hint) hint.innerHTML = '已备份到 <code>' + esc(r.backupDir || '') + '</code>，应用即将退出并安装，装完自动还原并重启 ✅';
+      const log = r.logPath ? '<br>安装日志 <code>' + esc(r.logPath) + '</code>' : '';
+      const warn = r.runExe ? '' : '<br>⚠ 没定位到可执行文件，装完可能不会自动启动（看日志最后两行）';
+      if (hint) hint.innerHTML = '已备份到 <code>' + esc(r.backupDir || '') + '</code>' + log + '<br>应用即将退出并安装到 <code>' + esc(r.installDir || '') + '</code>，装完自动还原并重启 ✅' + warn;
       return;
     }
     if (r && r.needSpace) {
