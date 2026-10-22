@@ -1285,3 +1285,42 @@ document.addEventListener('change', async (e) => {
     if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(err?.message || err));
   }
 });
+
+// ── 指令禁言：解除按钮 + 解除指令配置 ──────────────────────────
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('#view-settings [data-cmdmute-release]');
+  if (!btn) return;
+  e.preventDefault();
+  const gid = String(btn.dataset.cmdmuteRelease || '');
+  btn.disabled = true;
+  try {
+    await api('/api/command-mute/release', { method: 'POST', body: JSON.stringify({ groupId: gid }) });
+    state.commandMute = await api('/api/command-mute');
+    if (typeof loadSettings === 'function') await loadSettings();
+  } catch (err) {
+    btn.disabled = false;
+    if (typeof showNoticeModal === 'function') showNoticeModal('解除失败', String(err?.message || err));
+  }
+});
+let cmdMuteCfgTimer = null;
+function saveCmdMuteCfg(patch) {
+  clearTimeout(cmdMuteCfgTimer);
+  cmdMuteCfgTimer = setTimeout(async () => {
+    try {
+      const r = await api('/api/config', { method: 'POST', body: JSON.stringify({ commandMute: patch }) });
+      if (r && r.config) state.config = r.config;
+    } catch (err) {
+      if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(err?.message || err));
+    }
+  }, 600);
+}
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('#view-settings #ac-cmdmute-releaseadmin');
+  if (!el) return;
+  saveCmdMuteCfg({ releaseAdminOnly: !!el.checked });
+});
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('#view-settings #ac-cmdmute-release');
+  if (!el) return;
+  saveCmdMuteCfg({ releaseCommand: el.value.trim() });
+});

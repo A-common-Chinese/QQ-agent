@@ -1716,6 +1716,39 @@ export function createRoutes(deps) {
     },
     {
       // 期 1：只下载安装包，绝不自动安装
+      method: 'GET', pattern: '/api/command-mute',
+      handler: async ({ res, json }) => {
+        const cm = getConfig().commandMute || {};
+        const active = Object.entries(cm.active || {}).map(([groupId, until]) => ({ groupId: String(groupId), until: Number(until) || 0 }));
+        return json(res, 200, {
+          ok: true,
+          enabled: cm.enabled !== false,
+          command: String(cm.command || ''),
+          releaseCommand: String(cm.releaseCommand || ''),
+          releaseAdminOnly: cm.releaseAdminOnly === true,
+          durationMin: Number(cm.durationMin) || 0,
+          active
+        });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/command-mute/release',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const active = { ...(getConfig().commandMute?.active || {}) };
+        const id = String(body?.groupId || '').trim();
+        let removed = 0;
+        if (id) {
+          if (Object.prototype.hasOwnProperty.call(active, id)) { delete active[id]; removed = 1; }
+        } else {
+          removed = Object.keys(active).length;
+          for (const k of Object.keys(active)) delete active[k];
+        }
+        updateConfig({ commandMute: { active: { __replace__: active } } });
+        return json(res, 200, { ok: true, removed, active });
+      }
+    },
+    {
       method: 'POST', pattern: '/api/update/install',
       handler: async ({ res, json, req }) => {
         const body = await readBody(req).catch(() => ({}));

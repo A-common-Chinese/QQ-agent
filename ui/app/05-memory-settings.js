@@ -11,6 +11,10 @@ async function loadMemoryViewLegacy() {
     state.personaShared = sh.shared || {};
     state.personaSharedPresets = sh.presets || { activeId: '', items: [] };
   } catch (e) { /* 老后端没有这个接口时静默 */ }
+  // 指令禁言运行态（哪些群正在禁言 / 解除指令配置）
+  try {
+    state.commandMute = await api('/api/command-mute');
+  } catch (e) { state.commandMute = null; }
     const files = await api('/api/memory-files');
     state.memoryFiles = files.files || [];
     state.chats = chats.chats || [];

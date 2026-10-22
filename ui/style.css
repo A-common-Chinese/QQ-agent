@@ -1850,3 +1850,8 @@ details.collapsible.coll-shut > summary::after { transform: rotate(0deg); }
 .tag-x:hover { background: rgba(226, 90, 90, .18); color: #e2564e; }
 .tag-box { flex: 1 1 120px; min-width: 110px; border: none; outline: none; background: transparent; color: var(--tx); font-size: 13px; padding: 2px 4px; }
 .tag-box::placeholder { color: var(--tx3); }
+
+
+/* ── 指令禁言：生效列表行 ─────────────────────────────────── */
+.cmd-mute-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--bd); border-radius: 9px; padding: 7px 10px; margin-top: 6px; font-size: 13px; background: var(--bg1); }
+.cmd-mute-row:hover { border-color: var(--bd2); }

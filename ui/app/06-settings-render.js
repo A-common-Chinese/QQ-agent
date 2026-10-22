@@ -1788,6 +1788,28 @@ return `
       <div class="hint">
         <b>范围</b>：只影响触发它的那个群，其他群照常。<b>恢复</b>：到时间自动恢复；时长填 0 则需手动解除。
       </div>
+      <div class="field-row" style="margin-top:10px">
+        <div class="field"><label>解除指令（同样要和 @机器人 同一条消息）</label>
+          <input type="text" id="ac-cmdmute-release" value="${esc(c.commandMute?.releaseCommand || '/起床')}" placeholder="如 /起床" /></div>
+        <div class="field"><label>&nbsp;</label>
+          <div class="checkbox-row" style="margin:0"><input type="checkbox" id="ac-cmdmute-releaseadmin" ${c.commandMute?.releaseAdminOnly === true ? 'checked' : ''} />
+            <label for="ac-cmdmute-releaseadmin">只有管理员能解除</label></div></div>
+      </div>
+      ${(() => {
+        const cm = (typeof state !== 'undefined' && state.commandMute) || null;
+        const active = (cm && Array.isArray(cm.active)) ? cm.active : [];
+        if (!cm) return '<div class="hint">（禁言状态读取失败）</div>';
+        if (!active.length) return '<div class="hint">当前没有群处于禁言状态。</div>';
+        const rows = active.map((x) => {
+          const info = (typeof formatChatTitle === 'function') ? formatChatTitle('group:' + x.groupId) : ('群 ' + x.groupId);
+          const when = x.until === 0 ? '直到手动解除' : ('到 ' + new Date(x.until).toLocaleTimeString('zh-CN', { hour12: false }));
+          return '<div class="cmd-mute-row"><span>' + esc(info) + ' <span class="muted">· ' + esc(when) + '</span></span>' +
+            '<button class="btn btn-small btn-danger" data-cmdmute-release="' + esc(x.groupId) + '">解除</button></div>';
+        }).join('');
+        return '<div class="field" style="margin-top:12px"><label>正在禁言（' + active.length + ' 个群）</label>' +
+          rows +
+          '<button class="btn btn-small" data-cmdmute-release="" style="margin-top:8px">全部解除</button></div>';
+      })()}
       <div class="hint">
         ⚠️ 禁言期间<b>被 @ 还是会回</b>。想让它在某个群<b>完全不说话</b>，用上方的「静默会话」，不要用这个。
       </div>`

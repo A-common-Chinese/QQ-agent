@@ -1011,6 +1011,29 @@ export function createApp({ log = console.log } = {}) {
       : (text.includes(`@${selfNick}`) || (botName && text.includes(`@${botName}`))
         || (selfId && new RegExp(`\\[CQ:at(?:,[^\\]]*?)?qq=${selfId}[^\\]]*\\]`).test(text)));
     if (!atMe) return;
+    // ── 解除指令（与触发指令对称，默认群里任何人都能用）──
+    const releaseCmd = String(cm.releaseCommand || '').trim();
+    if (releaseCmd && text.includes(releaseCmd)) {
+      const activeNow = { ...(getConfig().commandMute?.active || {}) };
+      const key = String(groupId);
+      if (Object.prototype.hasOwnProperty.call(activeNow, key)) {
+        if (cm.releaseAdminOnly === true) {
+          const ownerQQ = String(getConfig().forwardRules?.adminQQ || '85946573');
+          const speaker = String(event?.user_id ?? '');
+          if (speaker !== ownerQQ) {
+            log(`[指令禁言] 群 ${groupId} 收到「${releaseCmd}」但设置了仅管理员可解除（说话人 ${speaker || '未知'}），忽略`);
+            return;
+          }
+        }
+        delete activeNow[key];
+        updateConfig({ commandMute: { active: { __replace__: activeNow } } });
+        log(`[指令禁言] 群 ${groupId} 收到「${releaseCmd}」：已解除禁言，恢复正常响应档位`);
+        emit('chat-update', `group:${groupId}`);
+      } else {
+        log(`[指令禁言] 群 ${groupId} 收到「${releaseCmd}」但当前没有禁言，忽略`);
+      }
+      return;
+    }
     if (!text.includes(command)) return;
     // 设置禁言：durationMin>0 则到期时间戳，否则 0（直到手动解除）
     const durationMs = Math.max(0, Number(cm.durationMin) || 0) * 60000;

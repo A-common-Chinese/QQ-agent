@@ -361,6 +361,8 @@ export const DEFAULT_CONFIG = {
     enabled: true,              // 总开关
     command: '/安静',            // 触发指令（需与 @机器人 同条消息）
     durationMin: 30,            // 禁言时长（分钟），0 = 直到手动解除
+    releaseCommand: '/起床',     // 解除指令（同样需要与 @机器人 同条消息）
+    releaseAdminOnly: false,      // true = 只有管理员能解除；false = 群里任何人都能解除
     // 运行态（不在 UI 编辑）：{ [群号]: 禁言到期时间戳 }
     active: {}
   },
