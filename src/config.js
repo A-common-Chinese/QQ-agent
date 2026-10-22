@@ -378,6 +378,23 @@ export const DEFAULT_CONFIG = {
   // 最终"能不能用"由 tool-registry.getToolAvailability() 统一计算，
   // 顺序是：tools.enabled → skill 生效 → requires 能力 → 分类 → 单工具 → 运行期依赖。
   // 模块不允许再写自己的 isXxxEnabled 影子开关。
+  // ── 转发白名单（三档权限；成员必须先在 allow 白名单里）──────────────
+  //   free      = 谁让转都行
+  //   limited   = 模型自行判断要不要转（留空 = 没有这一档）
+  //   adminOnly = 只有 adminQQ 能让模型转
+  forwardRules: {
+    free: [],
+    limited: [],
+    adminOnly: [],
+    adminQQ: '85946573'
+  },
+  // ── 安全模式：写入存档前脱敏（密码/账号/电话等）────────────────────
+  //   enabled 默认 true；level 1=内置全拦 2=只用 customText 里的自定义规则
+  safeMode: {
+    enabled: true,
+    level: 1,
+    customText: ''
+  },
   tools: {
     enabled: true,              // 全局开关：false 时所有工具都禁用
     overrides: {},              // { [toolId]: boolean } 单个工具的启用状态

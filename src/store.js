@@ -43,6 +43,8 @@ function saveChat(state) {
   fs.renameSync(tmp, chatFile(state.chatKey));
 }
 
+import { redactForArchive } from './safe-mode.js';
+
 export class ChatStore {
   constructor(maxPerChat = 0) {
     this.maxPerChat = Math.max(0, Number(maxPerChat) || 0);
@@ -88,7 +90,8 @@ export class ChatStore {
       ts: ts || Date.now(),
       senderId: String(senderId ?? ''),
       senderName: String(senderName ?? ''),
-      text: String(text ?? ''),
+      // 安全模式：存档前把密码/账号/电话等换成占位符（关掉时原样返回）
+      text: redactForArchive(String(text ?? '')),
       self: false,
       read: false,
       reply: reply || null,

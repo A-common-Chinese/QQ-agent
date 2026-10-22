@@ -272,6 +272,8 @@ export function buildSystemPrompt({ persona, skillContext, extraSections = [] } 
     '',
     qqSceneRules(),
     '',
+    forwardRulesText(),
+    '',
     reportBan()
   ];
 
@@ -953,4 +955,20 @@ export function buildUserPrompt(ctx) {
   parts.push(`【当前时间】${formatFullTime(now)}`);
 
   return parts.join('\n\n');
+}
+
+// ── 转发白名单三档说明（无配置时返回空串，不占提示词）────────────────
+function forwardRulesText() {
+  // ⚠️ 不能用 buildSystemPrompt 里的 cfg —— 那是 persona 子对象，没有 forwardRules
+  const fr = getConfig()?.forwardRules || {};
+  const free = (fr.free || []).map(String).filter(Boolean);
+  const limited = (fr.limited || []).map(String).filter(Boolean);
+  const adminOnly = (fr.adminOnly || []).map(String).filter(Boolean);
+  if (!free.length && !limited.length && !adminOnly.length) return '';
+  const lines = ['【转发规则】', '你可以把话带到别的会话（send_to），但按目标分三档，越靠后越严：'];
+  if (free.length) lines.push('- 可自由转发（谁让你转都可以）：' + free.join('、'));
+  if (limited.length) lines.push('- 受限转发（你自己判断该不该转；没把握就别转）：' + limited.join('、'));
+  if (adminOnly.length) lines.push('- 仅管理员可要求（别人让你转就婉拒，只有主人明确要求时才转）：' + adminOnly.join('、'));
+  lines.push('不在以上列表里的会话一律不能转发；同一句话别反复转来转去，也别去别的群替人解释。');
+  return lines.join('\n');
 }

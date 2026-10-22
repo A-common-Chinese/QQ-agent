@@ -1185,8 +1185,8 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
         const activeId = String(box.activeId || '');
         const pickId = String((typeof state !== 'undefined' && state.pv2SharedPick) || '') || activeId;
         const shown = items.find((x) => x.id === pickId) || items.find((x) => x.id === activeId) || null;
-        const coreText = shown ? String(shown.core || '') : String(c0.personaShared?.core || '');
-        const voiceText = shown ? String(shown.voice || '') : String(c0.personaShared?.voice || '');
+        const coreText = shown ? String(shown.core || '') : String(c.personaShared?.core || '');
+        const voiceText = shown ? String(shown.voice || '') : String(c.personaShared?.voice || '');
         const nameText = shown ? String(shown.name || '') : '';
         const cards = items.map((x) => {
           const isActive = x.id === activeId;
@@ -1552,6 +1552,7 @@ function renderAllowSection(c) {
     <div class="field-row">
       <div class="field"><label>允许的群号（逗号分隔）</label><input type="text" id="cfg-allowgroups" value="${esc((c.allow.groups || []).join(','))}" /></div>
       <div class="field"><label>允许的 QQ（逗号分隔）</label><input type="text" id="cfg-allowprivate" value="${esc((c.allow.private || []).join(','))}" /></div>
+      ${renderForwardRulesSection(c)}
     </div>
     <div class="checkbox-row"><input type="checkbox" id="cfg-allowallwhenempty" ${c.allowAllWhenEmpty === true ? 'checked' : ''} />
       <label for="cfg-allowallwhenempty">白名单留空时允许所有会话</label></div>
@@ -1690,6 +1691,7 @@ function renderChatSection(c) {
   const fold = (typeof setCard === 'function') ? setCard : (o) => `<div class="setcard">${o.body}</div>`;
 return `
     <h3>聊天设置</h3>
+    ${renderSafeModeSection(c)}
     ${fold({
       id: 'card-send-config',
       icon: '📨',
@@ -2783,3 +2785,67 @@ async function refreshPromptPreview(overrides = null) {
       await pv2Reload();
     } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
   }
+
+// ── 转发白名单三档（显示在「聊天设置」分区）────────────────────────
+function renderForwardRulesSection(c) {
+  const fr = c.forwardRules || {};
+  const fold = (typeof setCard === 'function') ? setCard : (o) => '<div class="setcard">' + (o.body || '') + '</div>';
+  const all = [
+    ...(c.allow?.groups || []).map((x) => 'group:' + String(x).trim()),
+    ...(c.allow?.private || []).map((x) => 'private:' + String(x).trim())
+  ].filter(Boolean);
+  const total = (fr.free || []).length + (fr.limited || []).length + (fr.adminOnly || []).length;
+  const tier = (id, title, desc) => {
+    const sel = new Set((fr[id] || []).map(String));
+    const chips = all.map((k) => '<span class="fwd-chip' + (sel.has(k) ? ' on' : '') + '" data-fwd="' + id + '" data-key="' + esc(k) + '">' + esc(k) + '</span>').join('')
+      || '<span class="muted" style="font-size:12px">（白名单为空，先去「聊天白名单」加群号/QQ）</span>';
+    return '<div class="field"><label>' + title + ' <span style="font-weight:400;color:var(--tx3)">· ' + desc + '</span></label>' +
+      '<div class="fwd-row">' + chips + '</div></div>';
+  };
+  return fold({
+    id: 'card-forward-rules',
+    icon: '📤',
+    title: '转发白名单',
+    sub: '跨会话转发（send_to）三档权限 · 已选 ' + total + ' 个目标',
+    open: false,
+    body:
+      '<div class="hint" style="margin-bottom:10px">只能从「聊天白名单」里的会话中选，点一下选中/取消，立即生效。三档权限不同，越靠后越严：</div>' +
+      tier('free', '① 可自由转发', '任何人让模型转发都可以') +
+      tier('limited', '② 受限转发', '由模型自行判断要不要转；留空则没有这一档') +
+      tier('adminOnly', '③ 仅管理员可要求', '只有本机管理员（' + esc(String(fr.adminQQ || '85946573')) + '）能让模型转') +
+      '<div class="hint">不在任何一档里的会话一律不能转发。跨会话发送总开关在「工具与技能 → 发送到指定会话」。</div>'
+  });
+}
+
+// ── 安全模式卡（聊天设置分区）───────────────────────────────────
+function renderSafeModeSection(c) {
+  const sm = c.safeMode || {};
+  const enabled = sm.enabled !== false;
+  const level = Number(sm.level) === 2 ? 2 : 1;
+  const fold = (typeof setCard === 'function') ? setCard : (o) => '<div class="setcard">' + (o.body || '') + '</div>';
+  return fold({
+    id: 'card-safe-mode',
+    icon: '🛡',
+    title: '安全模式',
+    sub: enabled ? ('已开启 · ' + (level === 2 ? '自定义规则' : '全部拦截')) : '已关闭',
+    open: false,
+    body:
+      '<div class="checkbox-row"><input type="checkbox" id="safe-enabled" data-safe="enabled" ' + (enabled ? 'checked' : '') + ' />' +
+      '<label for="safe-enabled">开启安全模式（默认开）</label></div>' +
+      '<div class="hint">开启后，别人发来的消息在<b>写入本地存档之前</b>先脱敏 —— 存档里只剩占位符，模型、归档页、导出都看不到原文。</div>' +
+      '<div class="field" style="margin-top:10px"><label>拦截档位</label>' +
+        '<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">' +
+          '<label><input type="radio" name="safe-level" data-safe="level" value="1" ' + (level === 1 ? 'checked' : '') + '/> 第一档：全部拦 —— 电话 / 身份证 / 银行卡 / 邮箱 / 验证码 / 密码 / 账号 / 地址，替换成 [电话号码] 这类占位符</label>' +
+          '<label><input type="radio" name="safe-level" data-safe="level" value="2" ' + (level === 2 ? 'checked' : '') + '/> 第二档：我自己定 —— 只按下面的规则拦，替换词随便改</label>' +
+        '</div></div>' +
+      '<div class="field" id="safe-custom-wrap" style="' + (level === 2 ? '' : 'display:none') + '">' +
+        '<label>自定义规则（一行一条：名称 | 正则 | 替换词）</label>' +
+        '<textarea id="safe-custom" data-safe="customText" style="min-height:120px" placeholder="手机号 | 1[3-9]\\d{9} | [手机号]\n密码 | (密码|口令)\\s*[:：=]?\\s*\\S{4,} | [密码]">' + esc(String(sm.customText || '')) + '</textarea>' +
+        '<div class="hint">第二栏是正则（不写替换词就默认 [名称]）。正则写错的那行会被忽略，不会影响其它规则。</div>' +
+      '</div>' +
+      '<div class="field"><label>试一下（输入一段文字看脱敏结果）</label>' +
+        '<input type="text" id="safe-test-in" placeholder="例如：我手机号 13800138000，密码 abc12345" />' +
+        '<div class="hint" id="safe-test-out" style="margin-top:6px"></div>' +
+      '</div>'
+  });
+}

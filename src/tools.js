@@ -243,6 +243,31 @@ function registerAllTools() {
         if (!(allowList.map(String).includes(tId) || allowedAll)) {
           return err(`目标 ${wantTarget} 不在白名单内，不能发送。`);
         }
+        // ── 转发白名单三档（三档全空 = 沿用上面的白名单行为）──
+        const fr = getConfig().forwardRules || {};
+        const tiers = {
+          free: (fr.free || []).map(String).filter(Boolean),
+          limited: (fr.limited || []).map(String).filter(Boolean),
+          adminOnly: (fr.adminOnly || []).map(String).filter(Boolean)
+        };
+        const tiered = tiers.free.length + tiers.limited.length + tiers.adminOnly.length > 0;
+        if (tiered) {
+          const lastTrigger = Array.isArray(ctx.triggerEntries) ? ctx.triggerEntries[ctx.triggerEntries.length - 1] : null;
+          const speakerId = String(lastTrigger?.senderId ?? lastTrigger?.userId ?? lastTrigger?.uid ?? '');
+          if (tiers.adminOnly.includes(wantTarget)) {
+            const adminQQ = String(fr.adminQQ || '85946573');
+            if (speakerId !== adminQQ) {
+              return err(`目标 ${wantTarget} 属于「仅管理员可要求」的转发白名单，当前说话的人不是管理员，不能转发。`);
+            }
+          } else if (tiers.limited.includes(wantTarget)) {
+            // 受限档：放行，由模型自行判断该不该转
+          } else if (tiers.free.includes(wantTarget)) {
+            // 自由档：谁让转都行
+          } else {
+            const allowTargets = [...tiers.free, ...tiers.limited, ...tiers.adminOnly];
+            return err(`目标 ${wantTarget} 不在转发白名单内。可转发的目标：${allowTargets.join(' / ') || '（无）'}`);
+          }
+        }
         const messages = normalizeMessageList(args.messages);
         if (!messages.length) return err('消息内容为空');
         const filteredTo = messages.map((m) => applyBannedFilter(m)).filter((m) => String(m || '').trim());

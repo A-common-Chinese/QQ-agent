@@ -1052,3 +1052,78 @@ function bindSettingsEvents(c) {
     resetDataBtn.disabled = false;
   });
 }
+
+// ── 转发白名单：点 chip 切换档位，立即写配置 ──────────────────
+document.addEventListener('click', async (e) => {
+  const chip = e.target.closest('#view-settings [data-fwd]');
+  if (!chip) return;
+  e.preventDefault();
+  const tier = chip.dataset.fwd;
+  const key = chip.dataset.key;
+  if (!tier || !key) return;
+  const cur = Object.assign({ free: [], limited: [], adminOnly: [] }, (state.config && state.config.forwardRules) || {});
+  const list = new Set((cur[tier] || []).map(String));
+  if (list.has(key)) list.delete(key); else list.add(key);
+  cur[tier] = [...list];
+  chip.classList.toggle('on', list.has(key));
+  try {
+    await api('/api/config', { method: 'POST', body: JSON.stringify({ forwardRules: cur }) });
+    if (state.config) state.config.forwardRules = cur;
+  } catch (err) {
+    chip.classList.toggle('on', !list.has(key));
+    if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(err?.message || err));
+  }
+});
+
+// ── 安全模式：开关 / 档位 / 自定义规则 / 试一下 ────────────────────
+let safeSaveTimer = null;
+async function safeModeSave(patch, rerender = false) {
+  try {
+    const r = await api('/api/config', { method: 'POST', body: JSON.stringify({ safeMode: patch }) });
+    if (r && r.config) state.config = r.config;
+    else if (state.config) state.config.safeMode = Object.assign({}, state.config.safeMode || {}, patch);
+    if (rerender && typeof loadSettings === 'function') await loadSettings();
+  } catch (e) {
+    if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(e?.message || e));
+  }
+}
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('#view-settings [data-safe]');
+  if (!el) return;
+  const field = el.dataset.safe;
+  if (field === 'enabled') { safeModeSave({ enabled: !!el.checked }); return; }
+  if (field === 'level') {
+    const lvl = Number(el.value) === 2 ? 2 : 1;
+    const wrap = document.getElementById('safe-custom-wrap');
+    if (wrap) wrap.style.display = lvl === 2 ? '' : 'none';
+    const sub = document.querySelector('#settings-form .setcard');
+    safeModeSave({ level: lvl });
+    return;
+  }
+});
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('#view-settings [data-safe="customText"]');
+  if (!el) return;
+  clearTimeout(safeSaveTimer);
+  safeSaveTimer = setTimeout(() => { safeModeSave({ customText: el.value }); }, 600);
+});
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('#view-settings #safe-test-in');
+  if (!el) return;
+  clearTimeout(window.__safeTestT);
+  window.__safeTestT = setTimeout(async () => {
+    const out = document.getElementById('safe-test-out');
+    if (!out) return;
+    const text = el.value;
+    if (!text.trim()) { out.textContent = ''; return; }
+    try {
+      const r = await api('/api/safe-mode/test', { method: 'POST', body: JSON.stringify({ text }) });
+      out.innerHTML = r?.enabled === false
+        ? '<span style="color:var(--orange)">安全模式已关闭，不会脱敏</span>'
+        : '脱敏后：<b>' + (typeof esc === 'function' ? esc(String(r.after || '')) : String(r.after || '')) + '</b>' +
+          (Array.isArray(r.hits) && r.hits.length ? '　<span style="color:var(--tx3)">命中：' + r.hits.join('、') + '</span>' : '　<span style="color:var(--tx3)">没命中规则</span>');
+    } catch (err) {
+      out.textContent = '测试失败：' + (err?.message || err);
+    }
+  }, 350);
+});

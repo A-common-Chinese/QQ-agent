@@ -931,6 +931,7 @@ export class Orchestrator {
       session,
       reminders: this.reminders,
       videoReader: this.videoReader,
+      triggerEntries,
       emit: (type, payload) => this.emit(type, payload)
     };
 

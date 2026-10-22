@@ -31,6 +31,7 @@ import { logger } from './logger.js';
 import { skillManager } from './skills/manager.js';
 import { parseLegacyCard } from './persona-import.js';
 import { runBackup, listBackups } from './backup.js';
+import { redactText, getSafeModeConfig } from './safe-mode.js';
 import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral } from './memory-cards.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
 import { availabilityOf, listTools, CATEGORY_META } from './tool-registry.js';
@@ -1499,6 +1500,15 @@ export function createRoutes(deps) {
         personas.splice(idx, 1);
         updateConfig({ personas, personaByChat: { __replace__: byChat }, ...(cfg.personaDefault === id ? { personaDefault: fallback } : {}) });
         return json(res, 200, { ok: true, affected, fallback: fallback || '(未设置→这些会话将静默)' });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/safe-mode/test',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const before = String(body.text ?? '');
+        const r = redactText(before);
+        return json(res, 200, { ok: true, before, after: r.text, hits: r.hits, enabled: r.enabled, level: r.level, cfg: getSafeModeConfig().enabled });
       }
     },
     {
