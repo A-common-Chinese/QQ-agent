@@ -86,7 +86,19 @@ function wantedTypes(tag, type) {
 function wired(el) {
     // 人设页 V2：按钮带 data-pv2，统一由 document 上的一次性事件委托处理
     //（控制台 CSP 禁内联 onclick）。委托式接线在 listeners 表里查不到 —— 直接放行。
-    try { if (el.closest && el.closest('[data-pv2], [data-mem]')) return true; } catch { /* ignore */ }
+    // 控制台里凡是"文档级一次性委托"的控件都走这里放行 —— 它们的监听挂在 document 上，
+    // 逐个元素查 listeners 表永远查不到（CSP 禁内联 onclick，只能用委托）。
+    // 新增委托控件时把它的 data-* 属性加进 DELEGATED_SELECTOR。
+    const DELEGATED_SELECTOR = [
+      '[data-pv2]', '[data-mem]',                       // 人设页 / 记忆栏目
+      '[data-fwd]',                                     // 转发白名单 chip
+      '[data-safe]', '[data-silentat]', '[data-silent-unassigned]',  // 安全模式 / 静默@
+      '[data-cm-add]', '[data-cm-del]', '[data-cm-cmd]', '[data-cm-dur]',  // 禁言口令列表
+      '[data-cmdmute-release]',                         // 解除禁言按钮
+      '[data-tag-box]', '[data-tag-del]',               // 白名单/静默会话标签块
+      '[data-tag-input]'
+    ].join(', ');
+    try { if (el.closest && el.closest(DELEGATED_SELECTOR)) return true; } catch { /* ignore */ }
   const tag = el.tagName.toLowerCase();
   const type = (el.getAttribute('type') || '').toLowerCase();
   const want = wantedTypes(tag, type);
