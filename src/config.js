@@ -321,6 +321,8 @@ export const DEFAULT_CONFIG = {
     // 静默会话：只存档、只做确定性功能（链接转发、/dsh 命令），**永不调用模型**（0 token）。
     // 写法 'group:123456' / 'private:123456'；裸数字按**群**算（这个开关主要给群用）。
     silentChats: [],
+  // 未分配人格卡的会话是否也算静默（v0.5 起的默认规则；关掉 = 只认上面的名单）
+  silentWhenUnassigned: true,
     // 分群峰谷（2026-09-18 四象限改版）：unifiedTier=false 且 peakSchedule.enabled 时，
     // 每个群可以有自己的峰谷档位 { [群号]: { peak: 0~100, valley: 0~100 } }。
     // 时段（start/end）全局共享 —— 每群分开拖两个点的档位值即可。
@@ -845,17 +847,15 @@ export function personaForChat(chatKey) {
  * 名单支持 `group:123` / `private:123`；裸数字按**群**算（这个开关主要给群用）。
  * 第二个参数只为可测性存在：不传就读配置。
  */
-export function isSilentChat(chatKey, list = null) {
+/**
+ * 为什么这个会话是静默的？
+ * @returns {'list'|'unassigned'|''} 'list' = 在静默名单里；'unassigned' = 没分配人格卡；'' = 不静默
+ */
+export function silentReason(chatKey, list = null) {
   const src = Array.isArray(list) ? list : getConfig().store?.silentChats;
-  if (!Array.isArray(src) || !src.length) return false;
+  if (!Array.isArray(src) || !src.length) return '';
   const key = String(chatKey || '').trim();
-  if (!key) return false;
-  // ── 新规则（决策 2）：未分配人格的会话 = 静默（只存档/转发，不回复、不调模型）──
-  // 只在"新人格系统已落库"时生效；回退到旧配置（无 personas）时保持原行为，避免一 rollback 全哑。
-  if (!Array.isArray(list)) {
-    const _c = getConfig();
-    if (Array.isArray(_c.personas) && _c.personas.length && !_c.personaByChat?.[key]?.personaId) return true;
-  }
+  if (!key) return '';
   const wanted = new Set();
   for (const raw of src) {
     const item = String(raw ?? '').trim();
@@ -863,7 +863,17 @@ export function isSilentChat(chatKey, list = null) {
     wanted.add(item);
     if (/^\d+$/.test(item)) wanted.add(`group:${item}`);
   }
-  return wanted.has(key);
+  if (wanted.has(key)) return 'list';
+  if (!Array.isArray(list)) {
+    const _c = getConfig();
+    if (_c.store?.silentWhenUnassigned === false) return '';
+    if (Array.isArray(_c.personas) && _c.personas.length && !_c.personaByChat?.[key]?.personaId) return 'unassigned';
+  }
+  return '';
+}
+
+export function isSilentChat(chatKey, list = null) {
+  return silentReason(chatKey, list) !== '';
 }
 
 export function storeConfigForChat(chatKey) {

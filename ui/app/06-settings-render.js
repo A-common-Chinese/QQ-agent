@@ -2905,10 +2905,27 @@ function renderTagChip(kind, v) {
 // ── 静默会话被 @ 时的处理（嵌在聊天设置的静默会话字段里）──────────
 function renderSilentAtBlock(c) {
   const sa = c.silentAt || {};
+  // 「未分配人格 = 静默」这条规则容易让人困惑：名单里删了却还是不说话。
+  // 所以这里显式给开关 + 列出当前因它而静默的会话。
+  const whenUnassigned = (c.store?.silentWhenUnassigned !== false);
+  const assigned = c.personaByChat || {};
+  const unassigned = (typeof state !== 'undefined' ? (state.chats || []) : [])
+    .map((x) => String(x.key || ''))
+    .filter((k) => k && !assigned[k]?.personaId);
+  const unassignedBlock = '<div class="checkbox-row" style="margin-top:12px">' +
+      '<input type="checkbox" id="silent-unassigned" data-silent-unassigned="1" ' + (whenUnassigned ? 'checked' : '') + ' />' +
+      '<label for="silent-unassigned">没分配人格卡的会话也保持静默（v0.5 起的默认规则）</label></div>' +
+    '<div class="hint">关掉后：只有「静默会话」名单里的会沉默；没分配人格卡的会话会按默认人设正常说话。' +
+      (unassigned.length
+        ? '<br>当前没分配人格卡的会话：<code>' + unassigned.slice(0, 8).map((k) => esc(k)).join('、') + '</code>' +
+          (unassigned.length > 8 ? ' 等 ' + unassigned.length + ' 个' : '') + '（去「人设」页分配一张卡即可）'
+        : '') +
+    '</div>';
   const on = sa.enabled === true;
   const mode = Number(sa.mode) === 2 ? 2 : 1;
   const reply = String(sa.replyText || '（这个群我暂时不说话，有事私聊我）');
-  return '<div class="checkbox-row" style="margin-top:12px">' +
+  return unassignedBlock +
+    '<div class="checkbox-row" style="margin-top:12px">' +
       '<input type="checkbox" id="silentat-enabled" data-silentat="enabled" ' + (on ? 'checked' : '') + ' />' +
       '<label for="silentat-enabled">静默会话里有人 @ 机器人时，按下面规则处理</label></div>' +
     '<div class="hint">静默会话本来一个字都不回；打开后只在被 @ 时动作：</div>' +

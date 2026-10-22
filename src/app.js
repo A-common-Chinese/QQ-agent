@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { getConfig, updateConfig, ROOT, DATA_DIR } from './config.js';
+import { getConfig, updateConfig, ROOT, DATA_DIR, silentReason } from './config.js';
 import { checkForUpdate as updateCheck, getDownloadState as updateStatus, downloadUpdate as updateDownload } from './updater.js';
 import { OneBotClient, segmentsToText, extractMediaFromSegments, expandForwardNodes } from './onebot.js';
 import { isAtMe } from './prompt.js';
@@ -934,6 +934,19 @@ export function createApp({ log = console.log } = {}) {
     }
     // 逐条触发判定：把刚入库的条目交给编排器（entry 让它能精确标这一条已读）
     orchestrator.onIncoming(`${kind}:${id}`, entry);
+    // 静默会话不回复时留一条可解释的日志（同一会话 10 分钟内只记一次，避免刷屏）
+    try {
+      const _reason = silentReason(`${kind}:${id}`);
+      if (_reason) {
+        if (!globalThis.__silentLogAt) globalThis.__silentLogAt = new Map();
+        const nowTs = Date.now();
+        const lastAt = globalThis.__silentLogAt.get(`${kind}:${id}`) || 0;
+        if (nowTs - lastAt > 10 * 60 * 1000) {
+          globalThis.__silentLogAt.set(`${kind}:${id}`, nowTs);
+          log(`[静默] ${kind}:${id} 收到消息但不回复（原因：${_reason === 'list' ? '在静默名单里' : '没分配人格卡'}）`);
+        }
+      }
+    } catch { /* ignore */ }
     // 静默会话里被 @：按配置回固定话术，或调一次最小 API 判断是否要求转发
     maybeSilentAt({ chatKey: `${kind}:${id}`, entry, orchestrator, log }).catch(() => {});
 

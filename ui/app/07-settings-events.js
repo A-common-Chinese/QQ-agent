@@ -1190,6 +1190,17 @@ function tagWrite(kind, vals) {
   tagRenderChips(kind);
   // 复用既有自动保存：对整个设置表单生效的 input 监听会读到这个新值
   h.dispatchEvent(new Event('input', { bubbles: true }));
+  // 额外显式落盘一次：通用自动保存是防抖 + 读 DOM 的整包流程，标签块这种
+  // "点了就该立即生效"的操作不能只靠它（2026-10-22 实测：删掉静默会话后配置没变，
+  // 群依然是静默）。这里直接写对应字段，成功后再刷新一次配置。
+  try {
+    const body = kind === 'silent'
+      ? { store: { silentChats: vals.slice() } }
+      : { allow: { [kind === 'groups' ? 'groups' : 'private']: vals.slice() } };
+    api('/api/config', { method: 'POST', body: JSON.stringify(body) })
+      .then((r) => { if (r && r.config) state.config = r.config; })
+      .catch((e) => { if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(e?.message || e)); });
+  } catch { /* ignore */ }
 }
 function tagAddVal(kind, raw) {
   let v = String(raw || '').trim();
@@ -1260,4 +1271,17 @@ document.addEventListener('input', (e) => {
   if (!el) return;
   clearTimeout(silentAtSaveTimer);
   silentAtSaveTimer = setTimeout(() => { silentAtSave({ replyText: el.value }); }, 600);
+});
+
+// ── 「未分配人格 = 静默」开关 ────────────────────────────────
+document.addEventListener('change', async (e) => {
+  const el = e.target.closest('#view-settings [data-silent-unassigned]');
+  if (!el) return;
+  try {
+    const r = await api('/api/config', { method: 'POST', body: JSON.stringify({ store: { silentWhenUnassigned: !!el.checked } }) });
+    if (r && r.config) state.config = r.config;
+    if (typeof loadSettings === 'function') await loadSettings();
+  } catch (err) {
+    if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(err?.message || err));
+  }
 });
