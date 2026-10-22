@@ -395,6 +395,15 @@ export const DEFAULT_CONFIG = {
     level: 1,
     customText: ''
   },
+  // ── 静默会话被 @ 时 ──────────────────────────────────────────────
+  //   enabled 打开后：静默会话里有人 @ 机器人时按 mode 处理
+  //   mode 1 = 最小上下文调一次 API 判断是否"要求转发"（是→放行正常流程；否→回固定话术）
+  //   mode 2 = 完全不调 API，一律回固定话术
+  silentAt: {
+    enabled: false,
+    mode: 1,
+    replyText: '（这个群我暂时不说话，有事私聊我）'
+  },
   tools: {
     enabled: true,              // 全局开关：false 时所有工具都禁用
     overrides: {},              // { [toolId]: boolean } 单个工具的启用状态

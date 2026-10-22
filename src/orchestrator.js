@@ -224,7 +224,7 @@ export class Orchestrator {
    * reuseSessionId（原地重试）与 drainBacklogAfterResume（恢复积压）仍走本函数，
    * 但它们是"已确定要跑"的调用，直接排定时器即可。
    */
-  scheduleWake(chatKey, delay = null, { reuseSessionId = null, verified = false } = {}) {
+  scheduleWake(chatKey, delay = null, { reuseSessionId = null, verified = false, bypassSilent = false } = {}) {
     const ms = delay ?? Math.max(0, Number(getConfig().wakeDelayMs) || 2000);
     // 不可重置：已在倒计时中就不动它（唯一例外是原地重试——它进来时
     // pendingWake 一定没有该 chatKey，因为 runningChats 刚释放、旧定时器已到期）。
@@ -281,7 +281,7 @@ export class Orchestrator {
         this.verifiedWakes.delete(chatKey);
         return;
       }
-      this.wake(chatKey, { waitingSessionId: waitingId ?? null, reuseSessionId: reuseSessionId ?? null })
+      this.wake(chatKey, { waitingSessionId: waitingId ?? null, reuseSessionId: reuseSessionId ?? null, bypassSilent })
         .catch((error) => console.error(`[orchestrator] wake ${chatKey} 出错:`, error))
         .finally(() => this.verifiedWakes.delete(chatKey));
     }, ms);
@@ -352,13 +352,14 @@ export class Orchestrator {
 
   // ── 核心循环 ───────────────────────────────────────────────────────────
 
-  async wake(chatKey, { proactive = false, waitingSessionId = null, reuseSessionId = null } = {}) {
+  async wake(chatKey, { proactive = false, waitingSessionId = null, reuseSessionId = null, bypassSilent = false } = {}) {
     if (this.aborted) { if (waitingSessionId) this.#finishWaiting(waitingSessionId, 'aborted'); return; }
     if (this.paused && !proactive) { if (waitingSessionId) this.#finishWaiting(waitingSessionId, 'aborted'); return; }
     if (this.runningChats.has(chatKey)) return;
 
     // 静默会话：不创建会话、不调模型；未读直接标已读（消息仍在存档里，历史不丢）
-    if (isSilentChat(chatKey)) {
+    // bypassSilent：静默会话里被 @ 且判定为「要求转发」时，放行这一轮走正常流程
+    if (isSilentChat(chatKey) && !bypassSilent) {
       this.store.markAllRead(chatKey);
       if (waitingSessionId) this.#finishWaiting(waitingSessionId, 'aborted', '静默会话');
       return;

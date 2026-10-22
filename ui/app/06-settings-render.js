@@ -1945,7 +1945,8 @@ return `
 
     <div class="field" style="margin-top:14px">
       <label>静默会话（只存档 / 只转发，不回复、不消耗 token）</label>
-      <input type="text" id="cfg-silentchats" value="${esc((c.store?.silentChats || []).join(', '))}" placeholder="例：group:759694210, 941199011（裸号按群算）" />
+      ${renderTagInput('silent', c.store?.silentChats || [])}
+      ${renderSilentAtBlock(c)}
       <div class="hint">
         命中的会话<b>永不调用模型</b>：消息照常进存档（历史与记忆素材不丢），链接转发、
         <code>/dsh</code> 命令等确定性功能照常生效，但不会产生任何回复、也不烧 token。
@@ -2861,16 +2862,21 @@ function renderSafeModeSection(c) {
 
 // ── 白名单标签输入（底层仍然是逗号串：hidden input 的 value 就是原来那个串）──
 function renderTagInput(kind, list) {
-  const hiddenId = kind === 'groups' ? 'cfg-allowgroups' : 'cfg-allowprivate';
+  const hiddenId = kind === 'groups' ? 'cfg-allowgroups' : (kind === 'private' ? 'cfg-allowprivate' : 'cfg-silentchats');
   const vals = (Array.isArray(list) ? list : []).map((x) => String(x).trim()).filter(Boolean);
   const chips = vals.map((v) => renderTagChip(kind, v)).join('');
-  const prefix = kind === 'groups' ? 'group:' : 'private:';
+  const prefix = kind === 'groups' ? 'group:' : (kind === 'private' ? 'private:' : '');
   const opts = (typeof state !== 'undefined' ? (state.chats || []) : [])
-    .filter((x) => String(x.key || '').startsWith(prefix))
+    .filter((x) => !prefix || String(x.key || '').startsWith(prefix))
     .map((x) => {
-      const id = String(x.key).split(':')[1] || '';
+      const key = String(x.key || '');
+      const id = key.split(':')[1] || '';
+      if (!id) return '';
       const name = String(x.chatName || '').trim();
-      return id ? '<option value="' + esc(id) + '">' + esc(id + (name ? ' · ' + name : '')) + '</option>' : '';
+      // 白名单两栏存裸号；静默会话存完整 key（group:x / private:x；裸号按群算但显式更安全）
+      const value = prefix ? id : key;
+      const label = prefix ? (id + (name ? ' · ' + name : '')) : (key + (name ? ' · ' + name : ''));
+      return '<option value="' + esc(value) + '">' + esc(label) + '</option>';
     }).join('');
   return '<div class="tag-input" data-tag="' + kind + '">' +
       '<div class="tag-list" data-tag-list="' + kind + '">' + chips + '</div>' +
@@ -2882,4 +2888,26 @@ function renderTagInput(kind, list) {
 function renderTagChip(kind, v) {
   return '<span class="tag" data-tag-chip="' + kind + '"><span>' + esc(v) + '</span>' +
     '<b class="tag-x" data-tag-del="' + kind + '" data-tag-val="' + esc(v) + '" title="删除">✕</b></span>';
+}
+
+// ── 静默会话被 @ 时的处理（嵌在聊天设置的静默会话字段里）──────────
+function renderSilentAtBlock(c) {
+  const sa = c.silentAt || {};
+  const on = sa.enabled === true;
+  const mode = Number(sa.mode) === 2 ? 2 : 1;
+  const reply = String(sa.replyText || '（这个群我暂时不说话，有事私聊我）');
+  return '<div class="checkbox-row" style="margin-top:12px">' +
+      '<input type="checkbox" id="silentat-enabled" data-silentat="enabled" ' + (on ? 'checked' : '') + ' />' +
+      '<label for="silentat-enabled">静默会话里有人 @ 机器人时，按下面规则处理</label></div>' +
+    '<div class="hint">静默会话本来一个字都不回；打开后只在被 @ 时动作：</div>' +
+    '<div style="display:flex;flex-direction:column;gap:6px;margin:8px 0">' +
+      '<label><input type="radio" name="silentat-mode" data-silentat="mode" value="1" ' + (mode === 1 ? 'checked' : '') + '/> ' +
+        '档 1：调一次 API 判断是不是「要求转发」—— 是就放行这一轮正常处理（可转发、走转发白名单），' +
+        '不是就回固定话术。只带这一条消息，不带人设 / 历史 / 记忆</label>' +
+      '<label><input type="radio" name="silentat-mode" data-silentat="mode" value="2" ' + (mode === 2 ? 'checked' : '') + '/> ' +
+        '档 2：完全不调 API，任何 @ 都回固定话术</label>' +
+    '</div>' +
+    '<div class="field"><label>固定回复词</label>' +
+      '<input type="text" id="silentat-reply" data-silentat="replyText" value="' + esc(reply) + '" />' +
+      '<div class="hint">档 1 判定为「不是转发请求」时、以及档 2 始终，都回这句话。</div></div>';
 }

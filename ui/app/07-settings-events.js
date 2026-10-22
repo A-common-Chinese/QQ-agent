@@ -1166,7 +1166,9 @@ document.addEventListener('input', (e) => {
 });
 
 // ── 白名单标签块：增 / 删 / 下拉选择 ──────────────────────────────
-function tagHiddenEl(kind) { return document.getElementById(kind === 'groups' ? 'cfg-allowgroups' : 'cfg-allowprivate'); }
+function tagHiddenEl(kind) {
+  return document.getElementById(kind === 'groups' ? 'cfg-allowgroups' : (kind === 'private' ? 'cfg-allowprivate' : 'cfg-silentchats'));
+}
 function tagValsOf(kind) {
   const h = tagHiddenEl(kind);
   if (!h) return [];
@@ -1190,8 +1192,18 @@ function tagWrite(kind, vals) {
   h.dispatchEvent(new Event('input', { bubbles: true }));
 }
 function tagAddVal(kind, raw) {
-  const v = String(raw || '').replace(/[^0-9]/g, '');
-  if (!v) return false;
+  let v = String(raw || '').trim();
+  if (kind === 'silent') {
+    // 静默会话：group:123 / private:456 / 裸号（裸号按群算，统一补成 group:）
+    const bare = /^(\d{4,})$/.exec(v);
+    const pref = /^(group|private):(\d{4,})$/i.exec(v);
+    if (bare) v = 'group:' + bare[1];
+    else if (pref) v = pref[1].toLowerCase() + ':' + pref[2];
+    else return false;
+  } else {
+    v = v.replace(/[^0-9]/g, '');
+    if (!v) return false;
+  }
   const cur = tagValsOf(kind);
   if (cur.includes(v)) return false;
   tagWrite(kind, [...cur, v]);
@@ -1222,4 +1234,30 @@ document.addEventListener('input', (e) => {
   const id = e.target && e.target.id;
   if (id === 'cfg-allowgroups') tagRenderChips('groups');
   else if (id === 'cfg-allowprivate') tagRenderChips('private');
+  else if (id === 'cfg-silentchats') tagRenderChips('silent');
+});
+
+// ── 静默会话被 @ 时的处理：开关 / 档位 / 固定回复词 ──────────────
+let silentAtSaveTimer = null;
+async function silentAtSave(patch) {
+  try {
+    const r = await api('/api/config', { method: 'POST', body: JSON.stringify({ silentAt: patch }) });
+    if (r && r.config) state.config = r.config;
+    else if (state.config) state.config.silentAt = Object.assign({}, state.config.silentAt || {}, patch);
+  } catch (e) {
+    if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(e?.message || e));
+  }
+}
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('#view-settings [data-silentat]');
+  if (!el) return;
+  const field = el.dataset.silentat;
+  if (field === 'enabled') { silentAtSave({ enabled: !!el.checked }); return; }
+  if (field === 'mode') { silentAtSave({ mode: Number(el.value) === 2 ? 2 : 1 }); return; }
+});
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('#view-settings [data-silentat="replyText"]');
+  if (!el) return;
+  clearTimeout(silentAtSaveTimer);
+  silentAtSaveTimer = setTimeout(() => { silentAtSave({ replyText: el.value }); }, 600);
 });

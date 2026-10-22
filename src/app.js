@@ -17,6 +17,7 @@ import { SendQueue } from './sender.js';
 import { createDshBridge } from './dsh-bridge.js';
 import { SessionRegistry } from './sessions.js';
 import { Orchestrator } from './orchestrator.js';
+import { maybeSilentAt } from './silent-at.js';
 import { ReminderStore } from './reminders.js';
 import { VideoReader } from './video-reader.js';
 import { cacheHitRate } from './llm.js';
@@ -933,6 +934,8 @@ export function createApp({ log = console.log } = {}) {
     }
     // 逐条触发判定：把刚入库的条目交给编排器（entry 让它能精确标这一条已读）
     orchestrator.onIncoming(`${kind}:${id}`, entry);
+    // 静默会话里被 @：按配置回固定话术，或调一次最小 API 判断是否要求转发
+    maybeSilentAt({ chatKey: `${kind}:${id}`, entry, orchestrator, log }).catch(() => {});
 
     // 链接媒体转发（确定性）：刻意不 await —— 百兆级下载/上传不能卡住 ingest 热路径。
     // 内部已把错误全部收口（含 provider 抛错），这里再挂一次 catch 只为防漏网。
@@ -1053,6 +1056,8 @@ export function createApp({ log = console.log } = {}) {
     });
     emit('chat-update', `${isGroup ? 'group' : 'private'}:${id}`);
     orchestrator.onIncoming(`${isGroup ? 'group' : 'private'}:${id}`, entry);
+    // 静默会话里被 @：按配置回固定话术，或调一次最小 API 判断是否要求转发
+    maybeSilentAt({ chatKey: `${isGroup ? 'group' : 'private'}:${id}`, entry, orchestrator, log }).catch(() => {});
   }
 
   async function handleOneBotEvent(event) {
