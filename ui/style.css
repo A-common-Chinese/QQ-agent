@@ -1855,3 +1855,10 @@ details.collapsible.coll-shut > summary::after { transform: rotate(0deg); }
 /* ── 指令禁言：生效列表行 ─────────────────────────────────── */
 .cmd-mute-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--bd); border-radius: 9px; padding: 7px 10px; margin-top: 6px; font-size: 13px; background: var(--bg1); }
 .cmd-mute-row:hover { border-color: var(--bd2); }
+
+
+/* ── 禁言口令行 ───────────────────────────────────────────── */
+.cm-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cm-row .cm-cmd { flex: 1 1 160px; }
+.cm-row .cm-dur { width: 96px; }
+.cm-row .cm-unit { font-size: 12px; color: var(--tx3); white-space: nowrap; }

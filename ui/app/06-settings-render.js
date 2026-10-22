@@ -1774,11 +1774,23 @@ return `
         <b>作用</b>：群里太吵、或不想让它接话时，用一条消息把机器人「半静音」——
         它<b>只回 @ 它的消息</b>，不再按关键词接话、也不会看心情插嘴。
       </div>
-      <div class="field-row">
-        <div class="field"><label>触发指令（必须和 @机器人 在同一条消息里）</label>
-          <input type="text" id="ac-cmdmute-command" value="${esc(c.commandMute?.command || '/安静')}" placeholder="如 /安静" /></div>
-        <div class="field"><label>持续时长（分钟；填 0 = 一直生效，直到手动解除）</label>
-          <input type="number" id="ac-cmdmute-duration" min="0" value="${esc(Number(c.commandMute?.durationMin ?? 30))}" /></div>
+      <div class="field">
+        <label>禁言口令（可配多个，各自不同时长；<b>时长填 0 = 永久</b>，需发解除指令或控制台解除）</label>
+        <div id="cm-rows">${(() => {
+          const cmx = c.commandMute || {};
+          let list = Array.isArray(cmx.commands) ? cmx.commands.filter((x) => x && String(x.command || '').trim()) : [];
+          if (!list.length && String(cmx.command || '').trim()) list = [{ command: cmx.command, durationMin: cmx.durationMin }];
+          if (!list.length) list = [{ command: '/睡觉', durationMin: 30 }];
+          return list.map((x, i) =>
+            '<div class="cm-row" data-cm-row="' + i + '">' +
+              '<input class="cm-cmd" data-cm-cmd="' + i + '" data-cm-id="' + esc(String(x.id || ('cm' + i))) + '" value="' + esc(String(x.command || '')) + '" placeholder="/睡觉" />' +
+              '<input class="cm-dur" type="number" min="0" data-cm-dur="' + i + '" value="' + esc(String(Math.max(0, Number(x.durationMin) || 0))) + '" title="分钟；0 = 永久" />' +
+              '<span class="cm-unit">分钟</span>' +
+              '<button class="btn btn-small btn-danger" data-cm-del="' + i + '">删除</button>' +
+            '</div>').join('') || '<div class="hint">（还没有口令，点下面添加）</div>';
+        })()}</div>
+        <button class="btn btn-small" data-cm-add="1" style="margin-top:8px">＋ 添加口令</button>
+        <div class="hint">多个口令按长度优先匹配（<code>/睡觉一小时</code> 不会被 <code>/睡觉</code> 抢走）。</div>
       </div>
       <div class="checkbox-row"><input type="checkbox" id="ac-cmdmute-enabled" ${c.commandMute?.enabled !== false ? 'checked' : ''} />
         <label for="ac-cmdmute-enabled">启用禁言指令</label></div>

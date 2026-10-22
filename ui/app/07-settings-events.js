@@ -1324,3 +1324,52 @@ document.addEventListener('input', (e) => {
   if (!el) return;
   saveCmdMuteCfg({ releaseCommand: el.value.trim() });
 });
+
+// ── 禁言口令列表：增 / 删 / 改（整份 commands 数组落盘）──────────
+function cmCollect() {
+  const rows = [...document.querySelectorAll('#cm-rows .cm-row')];
+  return rows.map((row) => {
+    const cmdEl = row.querySelector('[data-cm-cmd]');
+    const durEl = row.querySelector('[data-cm-dur]');
+    const id = String(cmdEl?.dataset.cmId || ('cm_' + Math.random().toString(36).slice(2, 7)));
+    return {
+      id,
+      command: String(cmdEl?.value || '').trim(),
+      durationMin: Math.max(0, Number(durEl?.value) || 0)
+    };
+  }).filter((x) => x.command);
+}
+let cmListTimer = null;
+function cmSaveList(list, reload = false) {
+  clearTimeout(cmListTimer);
+  cmListTimer = setTimeout(async () => {
+    try {
+      const r = await api('/api/config', { method: 'POST', body: JSON.stringify({ commandMute: { commands: list } }) });
+      if (r && r.config) state.config = r.config;
+      if (reload && typeof loadSettings === 'function') await loadSettings();
+    } catch (e) {
+      if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(e?.message || e));
+    }
+  }, reload ? 0 : 500);
+}
+document.addEventListener('click', (e) => {
+  const add = e.target.closest('#view-settings [data-cm-add]');
+  if (add) {
+    e.preventDefault();
+    const list = cmCollect();
+    list.push({ id: 'cm_' + Date.now().toString(36), command: '/新口令', durationMin: 30 });
+    cmSaveList(list, true);
+    return;
+  }
+  const del = e.target.closest('#view-settings [data-cm-del]');
+  if (del) {
+    e.preventDefault();
+    const list = cmCollect();
+    list.splice(Number(del.dataset.cmDel), 1);
+    cmSaveList(list, true);
+  }
+});
+document.addEventListener('input', (e) => {
+  if (!e.target.closest('#view-settings #cm-rows')) return;
+  cmSaveList(cmCollect(), false);
+});

@@ -991,6 +991,23 @@ export function createApp({ log = console.log } = {}) {
     log('[指令禁言] 已启用，当前生效：' + parts.join('、'));
   }
 
+  /** 取「口令 → 时长」列表：优先 commands 数组，回退老的单个 command */
+  function commandMuteList(cm) {
+    const arr = Array.isArray(cm?.commands)
+      ? cm.commands.filter((x) => x && String(x.command || '').trim())
+      : [];
+    if (arr.length) {
+      return arr.map((x, i) => ({
+        id: String(x.id || ('cm' + i)),
+        command: String(x.command).trim(),
+        durationMin: Math.max(0, Number(x.durationMin) || 0)
+      }));
+    }
+    const legacy = String(cm?.command || '').trim();
+    if (legacy) return [{ id: 'legacy', command: legacy, durationMin: Math.max(0, Number(cm?.durationMin) || 0) }];
+    return [];
+  }
+
   /**
    * 指令禁言：检测"@机器人 + 指定指令"，命中则把该群响应档位暂时固定为 1 档。
    * 禁言状态写入 config.commandMute.active[群号] = 到期时间戳（0 = 直到手动解除）。
@@ -998,8 +1015,8 @@ export function createApp({ log = console.log } = {}) {
   function maybeTriggerCommandMute(groupId, text, event, atMeMark = null) {
     const cm = getConfig().commandMute;
     if (!cm || cm.enabled !== true) return;
-    const command = String(cm.command || '').trim();
-    if (!command) return;
+    const muteList = commandMuteList(cm);
+    if (!muteList.length) return;
     // 必须同条消息里既 @机器人 又含指令。
     // 2026-09-26：有 @ 段标记时以标记为准（QQ 号判定，能区分同名）——
     // 文本包含匹配会把"@" 与机器人重名的另一个人"误判成召唤，进而误禁言。
@@ -1034,15 +1051,20 @@ export function createApp({ log = console.log } = {}) {
       }
       return;
     }
-    if (!text.includes(command)) return;
-    // 设置禁言：durationMin>0 则到期时间戳，否则 0（直到手动解除）
-    const durationMs = Math.max(0, Number(cm.durationMin) || 0) * 60000;
+    // 多口令：按口令长度从长到短匹配，避免「/睡觉」抢走「/睡觉一小时」
+    const hitCmd = muteList
+      .slice()
+      .sort((a, b) => b.command.length - a.command.length)
+      .find((x) => text.includes(x.command));
+    if (!hitCmd) return;
+    // 设置禁言：durationMin>0 则到期时间戳，否则 0（永久，需手动解除）
+    const durationMs = Math.max(0, Number(hitCmd.durationMin) || 0) * 60000;
     const until = durationMs > 0 ? Date.now() + durationMs : 0;
     const active = { ...(getConfig().commandMute?.active || {}) };
     active[String(groupId)] = until;
     updateConfig({ commandMute: { active: { __replace__: active } } });
     const untilStr = until ? new Date(until).toLocaleTimeString('zh-CN', { hour12: false }) : '直到手动解除';
-    log(`[指令禁言] 群 ${groupId} 触发「${command}」：该群响应档位固定为 1 档（只回 @），${untilStr}自动恢复`);
+    log(`[指令禁言] 群 ${groupId} 触发「${hitCmd.command}」（${hitCmd.durationMin > 0 ? hitCmd.durationMin + ' 分钟' : '永久'}）：该群响应档位固定为 1 档（只回 @），${untilStr}${until ? '自动恢复' : '（永久，需发解除指令或控制台解除）'}`);
     emit('chat-update', `group:${groupId}`);
   }
 

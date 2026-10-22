@@ -361,6 +361,9 @@ export const DEFAULT_CONFIG = {
     enabled: true,              // 总开关
     command: '/安静',            // 触发指令（需与 @机器人 同条消息）
     durationMin: 30,            // 禁言时长（分钟），0 = 直到手动解除
+    // 多口令：每个口令可以设不同时长（分钟，0 = 永久，需手动解除）
+    // [{ id, command: '/睡觉', durationMin: 30 }]；为空时回退到上面的单个 command/durationMin（兼容老配置）
+    commands: [],
     releaseCommand: '/起床',     // 解除指令（同样需要与 @机器人 同条消息）
     releaseAdminOnly: false,      // true = 只有管理员能解除；false = 群里任何人都能解除
     // 运行态（不在 UI 编辑）：{ [群号]: 禁言到期时间戳 }
