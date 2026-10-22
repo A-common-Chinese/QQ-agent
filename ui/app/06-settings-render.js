@@ -1554,6 +1554,7 @@ function renderAllowSection(c) {
       <div class="field"><label>允许的群号</label>${renderTagInput('groups', c.allow.groups || [])}</div>
       <div class="field"><label>允许的 QQ</label>${renderTagInput('private', c.allow.private || [])}</div>
     </div>
+      ${renderForwardRulesSection(c)}
     <div class="checkbox-row"><input type="checkbox" id="cfg-allowallwhenempty" ${c.allowAllWhenEmpty === true ? 'checked' : ''} />
       <label for="cfg-allowallwhenempty">白名单留空时允许所有会话</label></div>
     <div class="hint">说明：勾选后，若上方两个列表都为空，机器人会在<b>所有</b>群聊和私聊中运行；只要填了任意一项，就只按名单过滤。</div>
