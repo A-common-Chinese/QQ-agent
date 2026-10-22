@@ -102,6 +102,7 @@ function bindSetcardFolds(root) {
       const card = h.closest('.setcard');
       if (!card) return;
       card.classList.toggle('open');
+      setcardRemember(card.id || '', card.classList.contains('open'));
     });
   });
   scope.querySelectorAll('.setcard-head .switch, .setcard-head button, .setcard-head .badge, .setcard-head label').forEach((el) => {
@@ -114,6 +115,21 @@ function bindSetcardFolds(root) {
 /* 把一段 HTML 包成折叠设置卡。
    extra：卡头内 sc-tt（标题块）与 sc-val（右上角摘要）之间的自定义插槽
    （如「活跃设置」头部的"每个群聊单独设置"开关）。 */
+// 折叠卡展开状态：跨重渲染 + 跨刷新都记住（设置保存后不再把卡片收回去）
+function setcardOpenMap() {
+  if (!window.__setcardOpenMap) {
+    try { window.__setcardOpenMap = JSON.parse(sessionStorage.getItem('qqagent:setcardOpen') || '{}'); }
+    catch (e) { window.__setcardOpenMap = {}; }
+  }
+  return window.__setcardOpenMap;
+}
+function setcardRemember(id, open) {
+  if (!id) return;
+  const m = setcardOpenMap();
+  m[id] = !!open;
+  try { sessionStorage.setItem('qqagent:setcardOpen', JSON.stringify(m)); } catch (e) { /* 忽略 */ }
+}
+
 function setCard(opts) {
   const {
     id = '',
@@ -127,8 +143,10 @@ function setCard(opts) {
     open = false
   } = opts || {};
   const fid = id ? ` id="${id}"` : '';
+  const remembered = id ? setcardOpenMap()[id] : undefined;
+  const isOpen = remembered === undefined ? open : !!remembered;
   return `
-    <div class="setcard fold${open ? ' open' : ''}"${fid}>
+    <div class="setcard fold${isOpen ? ' open' : ''}"${fid}>
       <div class="setcard-head fold-head${extra ? ' has-extra' : ''}">
         <div class="sc-ico${gray ? ' gray' : ''}">${icon}</div>
         <div class="sc-tt"><h4>${title}</h4>${sub ? `<div class="sc-sub">${sub}</div>` : ''}</div>

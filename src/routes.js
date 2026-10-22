@@ -31,6 +31,7 @@ import { logger } from './logger.js';
 import { skillManager } from './skills/manager.js';
 import { parseLegacyCard } from './persona-import.js';
 import { runBackup, listBackups } from './backup.js';
+import { installUpdate, cleanUpdateTemp } from './updater.js';
 import { redactText, getSafeModeConfig } from './safe-mode.js';
 import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral } from './memory-cards.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
@@ -1715,6 +1716,18 @@ export function createRoutes(deps) {
     },
     {
       // 期 1：只下载安装包，绝不自动安装
+      method: 'POST', pattern: '/api/update/install',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const r = await installUpdate({ force: body?.force === true });
+        return json(res, 200, r);
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/update/clean-temp',
+      handler: async ({ res, json }) => json(res, 200, cleanUpdateTemp())
+    },
+    {
       method: 'POST', pattern: '/api/update/download',
       handler: async ({ res, json }) => {
         try {

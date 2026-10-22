@@ -2002,9 +2002,10 @@ function renderDesktopSection(c) {
       <div class="hint" id="update-notes" style="white-space:pre-wrap;max-height:140px;overflow:auto;margin:6px 0"></div>
       <div style="display:flex;gap:10px;align-items:center">
         <button class="btn btn-primary" id="download-update-btn">下载安装包</button>
+        <button class="btn" id="install-update-btn" style="display:none">安装并重启</button>
         <span class="hint" id="update-progress" style="margin:0"></span>
       </div>
-      <div class="hint" style="margin-top:6px">⚠️ 阶段 1 只下载、不自动安装。下载完在 <code>data/updates/</code> 里，手动双击安装；升级前建议备份 <code>plugins/</code>、<code>skills/</code>、<code>snowluma/</code>。</div>
+      <div class="hint" style="margin-top:6px">⚠️ 安装前会自动把 plugins / skills / snowluma 备份到临时目录，装完自动拷回并重启；空间不足会先问你。升级前建议备份 <code>plugins/</code>、<code>skills/</code>、<code>snowluma/</code>。</div>
     </div>
     <div class="checkbox-row"><input type="checkbox" id="cfg-update-auto" ${c.update?.autoDownload ? 'checked' : ''} />
       <label for="cfg-update-auto">发现新版本时自动下载安装包（不自动安装）</label></div>
@@ -2795,9 +2796,17 @@ function renderForwardRulesSection(c) {
     ...(c.allow?.private || []).map((x) => 'private:' + String(x).trim())
   ].filter(Boolean);
   const total = (fr.free || []).length + (fr.limited || []).length + (fr.adminOnly || []).length;
+  // 悬停提示用：group:123 → 「群名」；private:123 → 「私聊昵称」
+  const chatLabelOf = (key) => {
+    const list = (typeof state !== 'undefined' ? (state.chats || []) : []);
+    const hit = list.find((x) => x.key === key);
+    const name = String(hit?.chatName || '').trim();
+    if (name) return name;
+    return String(key || '').startsWith('private:') ? '私聊 ' + String(key).split(':')[1] : '群 ' + String(key).split(':')[1];
+  };
   const tier = (id, title, desc) => {
     const sel = new Set((fr[id] || []).map(String));
-    const chips = all.map((k) => '<span class="fwd-chip' + (sel.has(k) ? ' on' : '') + '" data-fwd="' + id + '" data-key="' + esc(k) + '">' + esc(k) + '</span>').join('')
+    const chips = all.map((k) => '<span class="fwd-chip' + (sel.has(k) ? ' on' : '') + '" data-fwd="' + id + '" data-key="' + esc(k) + '" title="' + esc(chatLabelOf(k) + ' · ' + k) + '">' + esc(k) + '</span>').join('')
       || '<span class="muted" style="font-size:12px">（白名单为空，先去「聊天白名单」加群号/QQ）</span>';
     return '<div class="field"><label>' + title + ' <span style="font-weight:400;color:var(--tx3)">· ' + desc + '</span></label>' +
       '<div class="fwd-row">' + chips + '</div></div>';

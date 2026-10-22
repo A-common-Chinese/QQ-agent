@@ -967,6 +967,8 @@ function bindSettingsEvents(c) {
         if (hint) hint.textContent = '下载中 ' + (st.percent || 0) + '%（' + got + ' / ' + all + '）';
       } else if (st.state === 'done') {
         if (hint) hint.innerHTML = '下载完成 ✓ <code>' + esc(st.path || '') + '</code><br>sha256: <code>' + esc(st.sha256 || '') + '</code>';
+        const instBtnShow = $('#install-update-btn');
+        if (instBtnShow) instBtnShow.style.display = '';
         if (btn) btn.disabled = false;
         return;
       } else if (st.state === 'error') {
@@ -1006,6 +1008,41 @@ function bindSettingsEvents(c) {
     }
     await pollUpdateDownload();
   });
+  // ── 安装更新：自动备份 → 空间不足先问 → 强制安装二次确认 ──
+  const instUpdateBtn = $('#install-update-btn');
+  if (instUpdateBtn) instUpdateBtn.addEventListener('click', async () => {
+    const hint = $('#update-progress');
+    const mb = (n) => Math.round((Number(n) || 0) / 1048576) + ' MB';
+    instUpdateBtn.disabled = true;
+    if (hint) hint.textContent = '正在备份 plugins / skills / snowluma 到临时目录…';
+    const r = await api('/api/update/install', { method: 'POST', body: JSON.stringify({ force: false }) })
+      .catch((e) => ({ ok: false, error: e?.message || String(e) }));
+    if (r && r.ok) {
+      if (hint) hint.innerHTML = '已备份到 <code>' + esc(r.backupDir || '') + '</code>，应用即将退出并安装，装完自动还原并重启 ✅';
+      return;
+    }
+    if (r && r.needSpace) {
+      const go = await uiConfirm('临时目录空间不足！\n需要约 ' + mb(r.needBytes) + '，当前可用 ' + mb(r.freeBytes) + '。\n\n【确定】= 强制安装（会再确认一次）\n【取消】= 取消安装并清理临时文件');
+      if (!go) {
+        const cb = await api('/api/update/clean-temp', { method: 'POST' }).catch(() => null);
+        if (hint) hint.textContent = '已取消安装' + (cb?.removed ? '，清理了 ' + cb.removed + ' 个临时备份目录' : '，没有可清理的临时备份');
+        instUpdateBtn.disabled = false;
+        return;
+      }
+      const sure = await uiConfirm('⚠️ 强制安装：磁盘空间不足时继续，可能导致安装失败或系统变慢。\n\n确定要继续吗？');
+      if (!sure) { instUpdateBtn.disabled = false; if (hint) hint.textContent = '已取消（未做任何改动）'; return; }
+      if (hint) hint.textContent = '正在强制安装（已备份）…';
+      const r2 = await api('/api/update/install', { method: 'POST', body: JSON.stringify({ force: true }) })
+        .catch((e) => ({ ok: false, error: e?.message || String(e) }));
+      if (r2 && r2.ok) { if (hint) hint.textContent = '已开始强制安装，应用即将退出…'; return; }
+      if (hint) hint.textContent = '安装失败：' + (r2?.error || '未知错误');
+      instUpdateBtn.disabled = false;
+      return;
+    }
+    if (hint) hint.textContent = '安装失败：' + (r?.error || '未知错误');
+    instUpdateBtn.disabled = false;
+  });
+
   // 打开设置页时若有已知新版本，直接把详情填好（走缓存，不额外打网络）
   if (typeof updateAvailable !== 'undefined' && updateAvailable) {
     api('/api/update-check').then((d) => { if (d?.ok) { state.updateInfo = d; } if (d?.ok && d.hasUpdate) showUpdateDetail(d); }).catch(() => {});

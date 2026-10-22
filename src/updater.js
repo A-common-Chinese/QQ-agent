@@ -14,6 +14,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
+import { spawn } from 'node:child_process';
 import { DATA_DIR, getConfig, ROOT } from './config.js';
 
 const STATE_FILE = path.join(DATA_DIR, 'update-check.json');
@@ -298,6 +300,121 @@ export async function downloadUpdate(assetInfo, version) {
 }
 
 // ── 启动后检查（供 app.js 调用）────────────────────────────────────
+/** 目录占用字节数（不存在返回 0） */
+function dirBytes(dir) {
+  let total = 0;
+  const walk = (d) => {
+    let list = [];
+    try { list = fs.readdirSync(d); } catch { return; }
+    for (const name of list) {
+      const p = path.join(d, name);
+      let st;
+      try { st = fs.statSync(p); } catch { continue; }
+      if (st.isDirectory()) walk(p);
+      else total += st.size;
+    }
+  };
+  walk(dir);
+  return total;
+}
+
+/** 某个目录所在盘的可用字节 */
+function freeBytesOf(dir) {
+  try {
+    const st = fs.statfsSync(dir);
+    return Number(st.bavail) * Number(st.bsize);
+  } catch { return 0; }
+}
+
+const USER_DIRS = ['plugins', 'skills', 'snowluma'];   // 安装包会覆盖 resources/app，这三样必须备份
+
+/**
+ * 安装更新：
+ *  1) plugins / skills / snowluma 备份到临时目录
+ *  2) 检查临时盘空间（备份 + 安装包 + 200MB 余量），不够且没 force → 返回 needSpace 交给界面询问
+ *  3) 写还原脚本并脱离进程拉起：等应用退出 → 静默安装 → 拷回三样 → 启动应用
+ */
+export async function installUpdate({ force = false, dryRun = false, log = () => {} } = {}) {
+  const st = getDownloadState();
+  if (!st || st.state !== 'done' || !st.path || !fs.existsSync(st.path)) {
+    return { ok: false, error: '还没有下载完成的安装包' };
+  }
+  const version = String(st.version || 'latest');
+  const appDir = ROOT;
+  const installDir = path.resolve(ROOT, '..', '..');
+  const appExe = path.join(installDir, 'QQ Agent.exe');
+  const backupDir = path.join(os.tmpdir(), 'qq-agent-update-' + version);
+
+  const backupBytes = USER_DIRS.reduce((sum, d) => sum + dirBytes(path.join(appDir, d)), 0);
+  const installBytes = Number(st.total) || 0;
+  const free = freeBytesOf(os.tmpdir());
+  const need = backupBytes + installBytes + 200 * 1024 * 1024;
+  const info = { freeBytes: free, needBytes: need, backupBytes, installBytes, backupDir, installDir };
+
+  if (free > 0 && free < need && !force) {
+    log('[update] 空间不足：需要 ' + (need / 1048576).toFixed(0) + ' MB，可用 ' + (free / 1048576).toFixed(0) + ' MB');
+    return { ok: false, needSpace: true, ...info };
+  }
+  if (dryRun) return { ok: true, dryRun: true, ...info };
+
+  fs.mkdirSync(backupDir, { recursive: true });
+  const copied = [];
+  for (const d of USER_DIRS) {
+    const src = path.join(appDir, d);
+    if (!fs.existsSync(src)) continue;
+    try {
+      fs.cpSync(src, path.join(backupDir, d), { recursive: true, force: true });
+      copied.push(d);
+    } catch (error) { log('[update] 备份 ' + d + ' 失败：' + (error?.message ?? error)); }
+  }
+  fs.writeFileSync(path.join(backupDir, 'manifest.json'), JSON.stringify({
+    at: new Date().toISOString(), version, installer: st.path, dirs: copied, appDir, installDir
+  }, null, 1), 'utf8');
+
+  const nl = String.fromCharCode(13, 10);
+  const ps = [
+    '$ErrorActionPreference = "SilentlyContinue"',
+    'Start-Sleep -Seconds 2',
+    'taskkill /IM "QQ Agent.exe" /T /F | Out-Null',
+    'Start-Sleep -Seconds 3',
+    '$installer = ' + JSON.stringify(st.path),
+    'if (Test-Path $installer) { Start-Process -FilePath $installer -ArgumentList "/S" -Wait }',
+    'Start-Sleep -Seconds 6',
+    '$backup = ' + JSON.stringify(backupDir),
+    '$appDir = ' + JSON.stringify(appDir),
+    'foreach ($d in @("plugins","skills","snowluma")) {',
+    '  $src = Join-Path $backup $d',
+    '  if (Test-Path $src) { Copy-Item -Path $src -Destination (Join-Path $appDir $d) -Recurse -Force }',
+    '}',
+    'Start-Sleep -Seconds 1',
+    '$exe = ' + JSON.stringify(appExe),
+    'if (Test-Path $exe) { Start-Process -FilePath $exe }',
+    ''
+  ].join(nl);
+  const restoreScript = path.join(backupDir, 'restore.ps1');
+  fs.writeFileSync(restoreScript, ps, 'utf8');
+
+  const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', restoreScript], {
+    detached: true, stdio: 'ignore', windowsHide: true
+  });
+  child.unref();
+  log('[update] 开始安装：备份在 ' + backupDir);
+  return { ok: true, backupDir, restoreScript, dirs: copied, ...info };
+}
+
+/** 清理临时备份（用户选择取消安装时调用） */
+export function cleanUpdateTemp() {
+  const base = os.tmpdir();
+  let removed = 0;
+  try {
+    for (const name of fs.readdirSync(base)) {
+      if (!name.startsWith('qq-agent-update-')) continue;
+      try { fs.rmSync(path.join(base, name), { recursive: true, force: true }); removed += 1; } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+  return { ok: true, removed };
+}
+
 export async function checkOnStartup(current, { onFound } = {}) {
   const cfg = updateCfg();
   if (!cfg.enabled || !cfg.checkOnStartup) return null;
