@@ -1502,6 +1502,91 @@ export function createRoutes(deps) {
       }
     },
     {
+      method: 'GET', pattern: '/api/persona-shared',
+      handler: async ({ res, json }) => {
+        const box = ensureSharedPresets();
+        return json(res, 200, { ok: true, shared: getConfig().personaShared || {}, presets: box });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/persona-shared/presets',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const box = ensureSharedPresets();
+        const id = 'sh_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5);
+        const item = {
+          id,
+          name: String(body.name || '共用段').slice(0, 40),
+          core: typeof body.core === 'string' ? body.core : '',
+          voice: typeof body.voice === 'string' ? body.voice : '',
+          updatedAt: new Date().toISOString()
+        };
+        const items = [...box.items, item];
+        const activate = body.activate !== false;
+        const activeId = activate ? id : box.activeId;
+        const patch = { personaSharedPresets: { activeId, items } };
+        if (activate) patch.personaShared = { ...(getConfig().personaShared || {}), core: item.core, voice: item.voice };
+        updateConfig(patch);
+        return json(res, 200, { ok: true, item, presets: ensureSharedPresets() });
+      }
+    },
+    {
+      method: 'PUT', pattern: /^\/api\/persona-shared\/presets\/([\w-]+)$/,
+      handler: async ({ res, json, req, match }) => {
+        const id = decodeURIComponent(match[1]);
+        const body = await readBody(req).catch(() => ({}));
+        const box = ensureSharedPresets();
+        const hit = box.items.find((x) => x.id === id);
+        if (!hit) return json(res, 404, { ok: false, error: '没有这份共用段' });
+        const next = {
+          ...hit,
+          ...(typeof body.name === 'string' && body.name.trim() ? { name: body.name.trim().slice(0, 40) } : {}),
+          ...(typeof body.core === 'string' ? { core: body.core } : {}),
+          ...(typeof body.voice === 'string' ? { voice: body.voice } : {}),
+          updatedAt: new Date().toISOString()
+        };
+        const items = box.items.map((x) => (x.id === id ? next : x));
+        const patch = { personaSharedPresets: { activeId: box.activeId, items } };
+        if (box.activeId === id) patch.personaShared = { ...(getConfig().personaShared || {}), core: next.core, voice: next.voice };
+        updateConfig(patch);
+        return json(res, 200, { ok: true, item: next, presets: ensureSharedPresets() });
+      }
+    },
+    {
+      method: 'DELETE', pattern: /^\/api\/persona-shared\/presets\/([\w-]+)$/,
+      handler: async ({ res, json, match }) => {
+        const id = decodeURIComponent(match[1]);
+        const box = ensureSharedPresets();
+        const hit = box.items.find((x) => x.id === id);
+        if (!hit) return json(res, 404, { ok: false, error: '没有这份共用段' });
+        const items = box.items.filter((x) => x.id !== id);
+        let patch = { personaSharedPresets: { activeId: box.activeId, items } };
+        if (box.activeId === id) {
+          const fallback = items[0] || null;
+          patch = {
+            personaSharedPresets: { activeId: fallback ? fallback.id : '', items },
+            personaShared: fallback ? { ...(getConfig().personaShared || {}), core: fallback.core || '', voice: fallback.voice || '' } : { core: '', voice: '' }
+          };
+        }
+        updateConfig(patch);
+        return json(res, 200, { ok: true, presets: ensureSharedPresets() });
+      }
+    },
+    {
+      method: 'POST', pattern: /^\/api\/persona-shared\/presets\/([\w-]+)\/activate$/,
+      handler: async ({ res, json, match }) => {
+        const id = decodeURIComponent(match[1]);
+        const box = ensureSharedPresets();
+        const hit = box.items.find((x) => x.id === id);
+        if (!hit) return json(res, 404, { ok: false, error: '没有这份共用段' });
+        updateConfig({
+          personaSharedPresets: { activeId: id, items: box.items },
+          personaShared: { ...(getConfig().personaShared || {}), core: hit.core || '', voice: hit.voice || '' }
+        });
+        return json(res, 200, { ok: true, presets: ensureSharedPresets() });
+      }
+    },
+    {
       method: 'PUT', pattern: '/api/persona-shared',
       handler: async ({ res, json, req }) => {
         const body = await readBody(req).catch(() => ({}));
@@ -1511,8 +1596,16 @@ export function createRoutes(deps) {
           ...(typeof body.core === 'string' ? { core: body.core } : {}),
           ...(typeof body.voice === 'string' ? { voice: body.voice } : {})
         };
-        updateConfig({ personaShared: next });
-        return json(res, 200, { ok: true, shared: next });
+        const box = ensureSharedPresets();
+        if (box.activeId) {
+          const items = box.items.map((x) => (x.id === box.activeId
+            ? { ...x, core: next.core || '', voice: next.voice || '', updatedAt: new Date().toISOString() }
+            : x));
+          updateConfig({ personaShared: next, personaSharedPresets: { activeId: box.activeId, items } });
+        } else {
+          updateConfig({ personaShared: next });
+        }
+        return json(res, 200, { ok: true, shared: next, presets: ensureSharedPresets() });
       }
     },
     {
@@ -2227,4 +2320,28 @@ export function createRoutes(deps) {
       }
     },
   ];
+}
+
+// 共用段预设：读出来 + 首次自动迁移（老的单份 personaShared → 一份预设）
+function ensureSharedPresets() {
+  const cfg = getConfig() || {};
+  const box = cfg.personaSharedPresets && typeof cfg.personaSharedPresets === 'object' ? cfg.personaSharedPresets : {};
+  let items = Array.isArray(box.items) ? box.items.filter((x) => x && x.id) : [];
+  let activeId = String(box.activeId || '');
+  const shared = cfg.personaShared || {};
+  const hasText = String(shared.core || '').trim() || String(shared.voice || '').trim();
+  if (!items.length && hasText) {
+    const item = {
+      id: 'sh_default',
+      name: '默认共用段',
+      core: String(shared.core || ''),
+      voice: String(shared.voice || ''),
+      updatedAt: new Date().toISOString()
+    };
+    items = [item];
+    activeId = item.id;
+    try { updateConfig({ personaSharedPresets: { activeId, items } }); } catch { /* ignore */ }
+  }
+  if (activeId && !items.some((x) => x.id === activeId)) activeId = items[0] ? items[0].id : '';
+  return { activeId, items };
 }

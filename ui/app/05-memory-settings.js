@@ -5,6 +5,12 @@ async function loadMemoryViewLegacy() {
   try {
     const [cfg, chats] = await Promise.all([api('/api/config'), api('/api/chats')]);
     state.config = cfg;
+  // 共用段预设（人设页 ④ 用）
+  try {
+    const sh = await api('/api/persona-shared');
+    state.personaShared = sh.shared || {};
+    state.personaSharedPresets = sh.presets || { activeId: '', items: [] };
+  } catch (e) { /* 老后端没有这个接口时静默 */ }
     const files = await api('/api/memory-files');
     state.memoryFiles = files.files || [];
     state.chats = chats.chats || [];

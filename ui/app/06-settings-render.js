@@ -1178,12 +1178,37 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       </div>
       ${cardRows || '<div class="muted">（还没有卡片）</div>'}
       <h3>④ 共用部分（useShared 的卡共享）</h3>
-      <div class="field"><label>core（身份/性格/定位）· ${String(c.personaShared?.core || '').length} 字</label>
-        <textarea id="pv2-shared-core" class="persona-role-text" style="min-height:150px">${esc(c.personaShared?.core || '')}</textarea></div>
-      <div class="field"><label>voice（说话铁律/方式/节奏/工具）· ${String(c.personaShared?.voice || '').length} 字</label>
-        <textarea id="pv2-shared-voice" class="persona-role-text" style="min-height:220px">${esc(c.personaShared?.voice || '')}</textarea></div>
-      <button class="btn btn-small btn-primary" data-pv2="save-shared">保存共用部分</button>
-      <span class="hint" id="pv2-shared-hint"></span>
+      <div class="hint">可以保存多份共用段，选一份作为「当前使用」；改完内容点保存会写回选中的那份。</div>
+      ${(() => {
+        const box = (typeof state !== 'undefined' && state.personaSharedPresets) || { activeId: '', items: [] };
+        const items = Array.isArray(box.items) ? box.items : [];
+        const activeId = String(box.activeId || '');
+        const pickId = String((typeof state !== 'undefined' && state.pv2SharedPick) || '') || activeId;
+        const shown = items.find((x) => x.id === pickId) || items.find((x) => x.id === activeId) || null;
+        const coreText = shown ? String(shown.core || '') : String(c0.personaShared?.core || '');
+        const voiceText = shown ? String(shown.voice || '') : String(c0.personaShared?.voice || '');
+        const nameText = shown ? String(shown.name || '') : '';
+        const cards = items.map((x) => {
+          const isActive = x.id === activeId;
+          return '<div class="preset-card' + (x.id === pickId ? ' sel' : '') + '" data-pv2="pick-shared" data-id="' + esc(x.id) + '">' +
+            '<div class="preset-card-title">' + esc(x.name || x.id) + (isActive ? ' <span class="preset-badge">当前使用</span>' : '') + '</div>' +
+            '<div class="preset-card-sub">core ' + String(x.core || '').length + ' 字 · voice ' + String(x.voice || '').length + ' 字</div>' +
+          '</div>';
+        }).join('') || '<div class="muted" style="font-size:12px">（还没有共用段，写好内容后点「另存为新预设」）</div>';
+        return '<div class="preset-row">' + cards + '</div>' +
+          '<div class="field"><label>这份共用段的名称</label><input type="text" id="pv2-shared-name" value="' + esc(nameText) + '" placeholder="例如：小鲸鱼基础版" /></div>' +
+          '<div class="field"><label>core（身份/性格/定位）· ' + coreText.length + ' 字</label>' +
+            '<textarea id="pv2-shared-core" class="persona-role-text" style="min-height:150px">' + esc(coreText) + '</textarea></div>' +
+          '<div class="field"><label>voice（说话铁律/方式/节奏/工具）· ' + voiceText.length + ' 字</label>' +
+            '<textarea id="pv2-shared-voice" class="persona-role-text" style="min-height:220px">' + esc(voiceText) + '</textarea></div>' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+            '<button class="btn btn-small btn-primary" data-pv2="save-shared">保存（覆盖选中）</button>' +
+            '<button class="btn btn-small" data-pv2="new-shared">另存为新预设</button>' +
+            (pickId ? '<button class="btn btn-small" data-pv2="use-shared">设为当前使用</button>' : '') +
+            (pickId && items.length > 1 ? '<button class="btn btn-small btn-danger" data-pv2="del-shared">删除选中</button>' : '') +
+            '<span class="hint" id="pv2-shared-hint"></span>' +
+          '</div>';
+      })()}
       <h3>⑤ AI 味黑名单</h3>
       <div class="hint">模式：<b>写进提示词</b>=模型自觉避免（自然，可能漏）；<b>出站过滤器</b>=生成后自动删（确定，可能句子变短）。</div>
       <div style="display:flex;gap:16px;margin:8px 0">
@@ -1212,6 +1237,11 @@ if (!window.__pv2Delegated) {
     e.preventDefault();
     if (act === 'pick-all') return pv2PickAll(el.dataset.on === '1');
     if (act === 'batch') return pv2Batch(el.dataset.clear === '1');
+    if (act === 'pick-shared') return pv2PickShared(el.dataset.id);
+    if (act === 'new-shared') return pv2NewShared();
+    if (act === 'use-shared') return pv2UseShared();
+    if (act === 'del-shared') return pv2DelShared();
+    if (act === 'save-shared') return pv2SaveSharedNew();
     if (act === 'save-default') return pv2SaveDefault();
     if (act === 'save-shared') return pv2SaveShared();
     if (act === 'save-policy') return pv2SavePolicy();
@@ -2689,3 +2719,67 @@ async function refreshPromptPreview(overrides = null) {
     pre.textContent = renderPromptPreviewText();
   });
 }
+
+  // ── 共用段预设（多份：选中 / 保存覆盖 / 另存为 / 设为当前 / 删除）──
+  function pv2SharedPickId() {
+    const box = (typeof state !== 'undefined' && state.personaSharedPresets) || { activeId: '', items: [] };
+    return String((typeof state !== 'undefined' && state.pv2SharedPick) || '') || String(box.activeId || '');
+  }
+  function pv2SharedFields() {
+    return {
+      name: String((document.getElementById('pv2-shared-name') || {}).value || '').trim(),
+      core: String((document.getElementById('pv2-shared-core') || {}).value || ''),
+      voice: String((document.getElementById('pv2-shared-voice') || {}).value || '')
+    };
+  }
+  async function pv2PickShared(id) {
+    if (typeof state !== 'undefined') state.pv2SharedPick = String(id || '');
+    await pv2Reload();
+  }
+  async function pv2SaveSharedNew() {
+    const pick = pv2SharedPickId();
+    const { name, core, voice } = pv2SharedFields();
+    try {
+      if (pick) {
+        await pv2Api('PUT', '/api/persona-shared/presets/' + encodeURIComponent(pick), { name, core, voice });
+        pv2Hint('pv2-shared-hint', '已保存到「' + (name || pick) + '」（core ' + core.length + ' / voice ' + voice.length + ' 字）✅', 'var(--green)');
+      } else {
+        await pv2Api('POST', '/api/persona-shared/presets', { name: name || '默认共用段', core, voice, activate: true });
+        pv2Hint('pv2-shared-hint', '已新建并设为当前使用 ✅', 'var(--green)');
+      }
+      await pv2Reload();
+    } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
+  }
+  async function pv2NewShared() {
+    const { name, core, voice } = pv2SharedFields();
+    if (!core.trim() && !voice.trim()) { pv2Hint('pv2-shared-hint', '内容是空的，先写点东西', 'var(--orange)'); return; }
+    try {
+      const r = await pv2Api('POST', '/api/persona-shared/presets', { name: name || ('共用段 ' + new Date().toLocaleString('zh-CN')), core, voice, activate: true });
+      if (typeof state !== 'undefined') state.pv2SharedPick = r?.item?.id || '';
+      pv2Hint('pv2-shared-hint', '已另存为新预设并设为当前使用 ✅', 'var(--green)');
+      await pv2Reload();
+    } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
+  }
+  async function pv2UseShared() {
+    const pick = pv2SharedPickId();
+    if (!pick) { pv2Hint('pv2-shared-hint', '先选一份共用段', 'var(--orange)'); return; }
+    try {
+      await pv2Api('POST', '/api/persona-shared/presets/' + encodeURIComponent(pick) + '/activate', {});
+      pv2Hint('pv2-shared-hint', '已设为当前使用 ✅', 'var(--green)');
+      await pv2Reload();
+    } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
+  }
+  async function pv2DelShared() {
+    const pick = pv2SharedPickId();
+    if (!pick) return;
+    const okDel = (typeof uiConfirm === 'function')
+      ? await uiConfirm('删除这份共用段？用到它的卡会改用剩下的当前使用那份。')
+      : true;
+    if (!okDel) return;
+    try {
+      await pv2Api('DELETE', '/api/persona-shared/presets/' + encodeURIComponent(pick), {});
+      if (typeof state !== 'undefined') state.pv2SharedPick = '';
+      pv2Hint('pv2-shared-hint', '已删除 ✅', 'var(--green)');
+      await pv2Reload();
+    } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
+  }
