@@ -1865,3 +1865,7 @@ details.collapsible.coll-shut > summary::after { transform: rotate(0deg); }
 
 .cm-row .cm-admin-lbl { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--tx3); white-space: nowrap; cursor: pointer; }
 .cm-row .cm-admin-lbl:hover { color: var(--tx2); }
+
+
+/* ── 插件兼容性警告 ───────────────────────────────────────── */
+.mcard-warn { margin-top: 6px; padding: 6px 8px; border: 1px solid rgba(226, 160, 60, .45); border-radius: 8px; background: rgba(226, 160, 60, .10); color: #d9a13a; font-size: 11.5px; line-height: 1.5; }

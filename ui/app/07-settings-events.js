@@ -1378,3 +1378,15 @@ document.addEventListener('change', (e) => {
   if (!e.target.closest('#view-settings #cm-rows')) return;
   cmSaveList(cmCollect(), false);
 });
+
+// ── 指令消息在上下文里怎么显示 ──────────────────────────────
+document.addEventListener('change', async (e) => {
+  const el = e.target.closest('#view-settings [data-cmdctx]');
+  if (!el) return;
+  try {
+    const r = await api('/api/config', { method: 'POST', body: JSON.stringify({ commandContext: { mode: el.dataset.cmdctx } }) });
+    if (r && r.config) state.config = r.config;
+  } catch (err) {
+    if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(err?.message || err));
+  }
+});

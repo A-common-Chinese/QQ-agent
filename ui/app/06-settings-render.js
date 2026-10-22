@@ -1834,6 +1834,27 @@ return `
     })}
 
     ${fold({
+      id: 'card-command-context',
+      icon: '⌨️',
+      title: '指令消息在上下文里怎么显示',
+      sub: '像 /睡觉 这类指令，是原样发给模型、还是隐藏、还是换成一句功能说明',
+      open: false,
+      body: `
+      <div class="hint" style="margin-top:0">
+        群里发的指令（禁言口令 / 解除指令 / <code>/dsh</code>）本身没有对话价值，
+        原样塞进上下文既占字数、也可能让模型"学舌"重复执行。
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin:10px 0">
+        ${[['raw', '原文照常（默认）', '指令原文进入上下文，模型能看到有人发了什么'], ['hide', '完全不进上下文', '这条消息直接不出现在【已读信息】/【未读信息】里'], ['describe', '换成功能说明', '显示成「用户发来了 /睡觉 指令，功能是：让机器人进入禁言状态（30 分钟）」']].map(([v, title, desc]) => {
+          const cur = String(c.commandContext?.mode || 'raw');
+          return '<label style="display:block"><input type="radio" name="cmdctx-mode" data-cmdctx="' + v + '" ' + (cur === v ? 'checked' : '') + ' /> <b>' + title + '</b>' +
+            '<span class="hint" style="display:block;margin-left:22px">' + desc + '</span></label>';
+        }).join('')}
+      </div>
+      <div class="hint">只影响送进模型的那份文本；存档、归档页、导出仍然是原文，不受影响。</div>`
+    })}
+
+    ${fold({
       id: 'card-proactive',
       icon: '💬',
       title: '主动开话题',
@@ -2446,6 +2467,9 @@ function renderModulePage(kind) {
         <div class="mcard-name">${esc(s.name)} <span class="skill-card__ver">v${esc(s.version)}</span></div>
         ${(s.toolIds || []).length ? `<div class="mcard-tools" title="本技能注册的工具 id">${(s.toolIds || []).map((id) => `<code class="mcard-tool-id">${esc(id)}</code>`).join('')}</div>` : ''}
         <div class="mcard-desc">${esc(s.description || '（没有写介绍）')}</div>
+        ${(s.compat && Array.isArray(s.compat.warnings) && s.compat.warnings.length)
+          ? '<div class="mcard-warn">' + s.compat.warnings.map((w) => esc(w)).join('<br>') + '</div>'
+          : ''}
         ${errLine ? `<div class="mcard-err">${esc(errLine)}</div>` : ''}
       </div>
       <div class="mcard-acts">${uploadBtn}${settingsBtn}${delBtn}</div>

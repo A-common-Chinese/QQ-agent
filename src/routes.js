@@ -32,6 +32,7 @@ import { skillManager } from './skills/manager.js';
 import { parseLegacyCard } from './persona-import.js';
 import { runBackup, listBackups } from './backup.js';
 import { installUpdate, cleanUpdateTemp } from './updater.js';
+import { analyzeExtension } from './plugin-compat.js';
 import { redactText, getSafeModeConfig } from './safe-mode.js';
 import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral } from './memory-cards.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
@@ -924,8 +925,21 @@ export function createRoutes(deps) {
               hasSettings: Object.keys(c).some((k) => k !== 'enabled')
             };
           });
+        // 兼容性预检：把"在我们这个 fork 里可能跑不起来"的点随列表带出去，UI 直接显示
+        const listed = skillManager.list(context).map((s) => {
+          try {
+            const kind = String(s.kind || (s.dir && /plugins/.test(String(s.dir)) ? 'plugin' : 'skill'));
+            // s.dir 是相对路径（如 plugins/xxx），必须基于 ROOT 解析，否则 existsSync 永远失败
+            const rel = String(s.dir || '');
+            const dir = rel
+              ? (path.isAbsolute(rel) ? rel : path.resolve(ROOT, rel))
+              : path.join(ROOT, kind === 'plugin' ? 'plugins' : 'skills', String(s.id));
+            const r = analyzeExtension(dir, kind);
+            return { ...s, compat: { ok: r.ok, warnings: r.warnings, info: r.info } };
+          } catch { return { ...s, compat: { ok: true, warnings: [], info: {} } }; }
+        });
         return json(res, 200, {
-          skills: skillManager.list(context),
+          skills: listed,
           summary: skillManager.summary(context),
           capabilities: skillManager.capabilities.list().sort(),
           uninstalled

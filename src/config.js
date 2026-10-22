@@ -411,6 +411,13 @@ export const DEFAULT_CONFIG = {
     mode: 1,
     replyText: '（这个群我暂时不说话，有事私聊我）'
   },
+  // ── 指令消息在上下文里怎么显示 ────────────────────────────────
+  //   raw      = 原文照常（默认）
+  //   hide     = 完全不进上下文
+  //   describe = 换成「用户发来了 /xxx 指令，功能是：…」
+  commandContext: {
+    mode: 'raw'
+  },
   tools: {
     enabled: true,              // 全局开关：false 时所有工具都禁用
     overrides: {},              // { [toolId]: boolean } 单个工具的启用状态

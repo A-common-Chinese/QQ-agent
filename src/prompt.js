@@ -11,6 +11,7 @@
 // 沉睡/唤醒/等待机制（由编排器的"已读/未读驱动"取代）。
 
 import { getConfig, personaForChat, personaCardForChat, matchPersonaScenarios } from './config.js';
+import { commandDisplay } from './command-context.js';
 import { buildMemoryCardsBlock, buildMemoryCardsParts } from './memory-cards-prompt.js';
 // 滑条换算放在独立模块（零依赖），避免 config.js ↔ prompt.js 循环依赖。
 // 这里 re-export 是为了让已经从 prompt.js 引用的代码不受影响。
@@ -340,6 +341,12 @@ export function formatEntry(m, { withId = true } = {}) {
   const shownText = cap > 0 && rawText.length > cap
     ? `${rawText.slice(0, cap)}…[本条共 ${rawText.length} 字，已截断 ${rawText.length - cap} 字]`
     : rawText;
+  // 指令消息：按配置隐藏 / 换成功能说明（用户可选；只影响送进模型的文本，存档不变）
+  try {
+    const disp = commandDisplay(rawText);
+    if (disp && disp.hide) return null;
+    if (disp && disp.replace) return `[${formatShortTime(m.ts)}] ${idPrefix}${who}：${disp.replace}`;
+  } catch { /* 过滤失败就当没配置 */ }
   return `[${formatShortTime(m.ts)}] ${idPrefix}${who}：${replyPrefix}${shownText}`;
 }
 
@@ -547,7 +554,7 @@ export function buildPastState(store, chatKey, { excludeIds = [], limit = null }
     if (blocked.size) messages = messages.filter((m) => m.self || !blocked.has(String(m.senderId)));
   }
   messages = messages.slice(-maxLimit);
-  const lines = messages.map((m) => formatEntry(m, { withId: (m.media || []).length > 0 }));
+  const lines = messages.map((m) => formatEntry(m, { withId: (m.media || []).length > 0 })).filter(Boolean);
   // 一并把选中的消息返回：调用方要用它判定"记忆该带哪些群友"，
   // 避免模型看到历史里根本没出现的群友印象（那样显得莫名其妙）。
   return { text: lines.join('\n'), count: lines.length, messages };
@@ -583,7 +590,8 @@ export function buildTriggerBlock(triggerEntries, ctx) {
   for (const m of triggerEntries) {
     const labels = triggerLabels(m, ctx);
     const labelStr = labels.length ? `（${labels.join('/')}）` : '';
-    lines.push(`${formatEntry(m)}${labelStr}`);
+    const line = formatEntry(m);
+    if (line) lines.push(`${line}${labelStr}`);
   }
   return lines.join('\n');
 }
@@ -872,8 +880,8 @@ export function buildUserPrompt(ctx) {
 
   // 已读信息（锚定模式 = 锚点条目；标准模式 = 全部条目）
   const readHeaderText = anchored
-    ? readAnchorMessages.map((m) => formatEntry(m, { withId: (m.media || []).length > 0 })).join('\n')
-    : (readExtraMessages || []).map((m) => formatEntry(m, { withId: (m.media || []).length > 0 })).join('\n');
+    ? readAnchorMessages.map((m) => formatEntry(m, { withId: (m.media || []).length > 0 })).filter(Boolean).join('\n')
+    : (readExtraMessages || []).map((m) => formatEntry(m, { withId: (m.media || []).length > 0 })).filter(Boolean).join('\n');
   if (anchored) {
     if (readHeaderText) {
       parts.push(`【已读信息】以下是这个会话最近的聊天记录（按时间排序，你的发言标为"我"；这些都已经看过；带图的消息前有 #消息id，看图/收藏表情工具要用它）：\n${readHeaderText}`);
@@ -882,7 +890,7 @@ export function buildUserPrompt(ctx) {
     }
     // 新已读信息：锚定窗口之后新沉淀的已读条目（时间在锚点之后、未读之前）
     if (readExtraMessages.length) {
-      const extraText = readExtraMessages.map((m) => formatEntry(m, { withId: (m.media || []).length > 0 })).join('\n');
+      const extraText = readExtraMessages.map((m) => formatEntry(m, { withId: (m.media || []).length > 0 })).filter(Boolean).join('\n');
       parts.push(`【新已读信息】以下是锚定窗口之后、这轮新沉淀的已读消息（你上一轮还没看过它们；带图的消息前有 #消息id）：\n${extraText}`);
     }
   } else if (readHeaderText) {
