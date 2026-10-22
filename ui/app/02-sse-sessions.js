@@ -130,14 +130,39 @@ function connectSSE() {
   });
   es.addEventListener('status', (ev) => {
   refreshStatus();
-  // 后端改了配置（人设/记忆卡/通用卡/插件开关等）→ 设置页自动重载，不用手动刷新
+  // 后端改了配置（人设/记忆卡/通用卡/插件开关等）→ 设置页自动重载。
+  // ⚠️ 三重闸门（2026-10-22 修「输入时 UI 自己跳」）：
+  //   ① 自己刚保存过 → state.config 已是最新，重载纯属多余（最常见的触发源就是它：
+  //      打字 → 防抖自动保存 → 后端广播 → 重渲染 → 焦点/光标/滚动全跳）；
+  //   ② 用户正在输入框里 → 推迟到失焦后再刷；
+  //   ③ 3 秒内最多刷一次。
   try {
     const d = JSON.parse(ev?.data || '{}');
-    if (d && d.configUpdated && state.tab === 'settings' && typeof loadSettings === 'function') {
-      loadSettings();
+    if (!d || !d.configUpdated) return;
+    if (state.tab !== 'settings' || typeof loadSettings !== 'function') return;
+    if (Date.now() - (window.__selfConfigWriteAt || 0) < 3000) return;
+    const ae = document.activeElement;
+    if (ae && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName)) {
+      window.__pendingSettingsReload = true;
+      return;
     }
+    if (Date.now() - (window.__lastSettingsReload || 0) < 3000) return;
+    window.__lastSettingsReload = Date.now();
+    loadSettings();
   } catch (e) { /* ignore */ }
 });
+
+  // 失焦后补一次被推迟的刷新（等用户停止输入再刷，不再打断）
+  document.addEventListener('focusout', () => {
+    if (!window.__pendingSettingsReload) return;
+    setTimeout(() => {
+      const ae = document.activeElement;
+      if (ae && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName)) return;
+      window.__pendingSettingsReload = false;
+      window.__lastSettingsReload = Date.now();
+      if (state.tab === 'settings' && typeof loadSettings === 'function') loadSettings();
+    }, 500);
+  });
   es.addEventListener('snowluma-status', () => { refreshStatus(); if (state.tab === 'snowluma') scheduleSnowlumaReload(); });
   es.addEventListener('qq-portable-status', () => { refreshStatus(); if (state.tab === 'snowluma') scheduleSnowlumaReload(); });
   // 日志事件只刷日志文本，不整页重建（曾经每条日志都 innerHTML 重绘整页）

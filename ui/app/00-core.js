@@ -801,3 +801,25 @@ function switchTab(name) {
   if (name === 'snowluma') loadSnowlumaPage();
   if (name === 'settings') loadSettings();
 }
+
+
+// ── 记录"本窗口自己写配置"的时间 ────────────────────────────────────
+// 用途：SSE 收到 configUpdated 时据此跳过「自己保存 → 自己重渲染」的回路。
+// 不这么做的话：在输入框打字 → 防抖自动保存 → 后端广播 → 前端 loadSettings()
+// 整页重渲染 → 焦点/光标/滚动全跳（2026-10-22 用户实测「输入时 UI 突然跳」）。
+try {
+  if (!window.__fetchWrappedForConfigWrite) {
+    window.__fetchWrappedForConfigWrite = true;
+    const __origFetch = window.fetch.bind(window);
+    window.fetch = function (...args) {
+      try {
+        const input = args[0];
+        const url = typeof input === 'string' ? input : String((input && input.url) || '');
+        const opts = args[1] || (typeof input === 'object' ? input : {}) || {};
+        const method = String(opts.method || 'GET').toUpperCase();
+        if (method !== 'GET' && url.includes('/api/config')) window.__selfConfigWriteAt = Date.now();
+      } catch { /* ignore */ }
+      return __origFetch(...args);
+    };
+  }
+} catch { /* ignore */ }
