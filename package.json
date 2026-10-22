@@ -1,6 +1,6 @@
 {
   "name": "qq-agent",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "private": false,
   "description": "QQ 群 AI 机器人（桌面版）：事件驱动的无状态 Agent，接 OpenAI 兼容 API，带会话式控制台。",
   "type": "module",

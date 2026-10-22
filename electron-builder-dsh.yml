@@ -13,7 +13,8 @@
 
 appId: cn.kondius.qq-agent.dsh
 productName: QQ Agent DSH
-artifactName: QQ-Agent-DSH-Setup.exe
+# 带版本号，方便用户分辨下载的是哪一版（更新器按 /Setup.*\.exe$/ 选资产，不受影响）
+artifactName: QQ-Agent-DSH-Setup-${version}.exe
 
 # 与上游一致：不打包进 asar，安装目录里就是可读可改的源码
 asar: false
@@ -42,6 +43,13 @@ files:
   - '!pnpm-lock.yaml'
   - '!pnpm-workspace.yaml'
   - '!启动控制台.bat'
+  # ── 开发/仓库专用文件，不该出现在用户安装目录里（2026-10-22 清理）──
+  - '!.github/**'
+  - '!.zcodeignore'
+  - '!package-lock.json'
+  - '!BUILD-DSH.md'
+  - '!dsh-model-overlay.yml'
+  - '!electron-builder-dsh.yml'
 
 # 提示词里写的是 <安装目录>\doc\extend_development\（在 app 目录之外），
 # 所以除了打包进 resources/app/doc，再往安装根目录放一份，两个路径都能读到。
