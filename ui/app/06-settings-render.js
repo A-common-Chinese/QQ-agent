@@ -1786,11 +1786,17 @@ return `
               '<input class="cm-cmd" data-cm-cmd="' + i + '" data-cm-id="' + esc(String(x.id || ('cm' + i))) + '" value="' + esc(String(x.command || '')) + '" placeholder="/睡觉" />' +
               '<input class="cm-dur" type="number" min="0" data-cm-dur="' + i + '" value="' + esc(String(Math.max(0, Number(x.durationMin) || 0))) + '" title="分钟；0 = 永久" />' +
               '<span class="cm-unit">分钟</span>' +
+              '<label class="cm-admin-lbl" title="勾选后：只有管理员发这个口令才生效">' +
+                '<input type="checkbox" data-cm-admin="' + i + '" ' + (x.adminOnly === true ? 'checked' : '') + ' /> 仅管理员' +
+              '</label>' +
               '<button class="btn btn-small btn-danger" data-cm-del="' + i + '">删除</button>' +
             '</div>').join('') || '<div class="hint">（还没有口令，点下面添加）</div>';
         })()}</div>
         <button class="btn btn-small" data-cm-add="1" style="margin-top:8px">＋ 添加口令</button>
-        <div class="hint">多个口令按长度优先匹配（<code>/睡觉一小时</code> 不会被 <code>/睡觉</code> 抢走）。</div>
+        <div class="hint">
+          多个口令按长度优先匹配（<code>/睡觉一小时</code> 不会被 <code>/睡觉</code> 抢走）。
+          <b>仅管理员</b>只对勾选的那条生效：普通群友发它会被直接忽略并记日志。
+        </div>
       </div>
       <div class="checkbox-row"><input type="checkbox" id="ac-cmdmute-enabled" ${c.commandMute?.enabled !== false ? 'checked' : ''} />
         <label for="ac-cmdmute-enabled">启用禁言指令</label></div>

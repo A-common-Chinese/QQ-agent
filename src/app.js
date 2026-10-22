@@ -1000,11 +1000,12 @@ export function createApp({ log = console.log } = {}) {
       return arr.map((x, i) => ({
         id: String(x.id || ('cm' + i)),
         command: String(x.command).trim(),
-        durationMin: Math.max(0, Number(x.durationMin) || 0)
+        durationMin: Math.max(0, Number(x.durationMin) || 0),
+        adminOnly: x.adminOnly === true
       }));
     }
     const legacy = String(cm?.command || '').trim();
-    if (legacy) return [{ id: 'legacy', command: legacy, durationMin: Math.max(0, Number(cm?.durationMin) || 0) }];
+    if (legacy) return [{ id: 'legacy', command: legacy, durationMin: Math.max(0, Number(cm?.durationMin) || 0), adminOnly: cm?.adminOnly === true }];
     return [];
   }
 
@@ -1057,6 +1058,15 @@ export function createApp({ log = console.log } = {}) {
       .sort((a, b) => b.command.length - a.command.length)
       .find((x) => text.includes(x.command));
     if (!hitCmd) return;
+    // 口令级权限：仅管理员可用的口令，普通群友发出来直接忽略
+    if (hitCmd.adminOnly === true) {
+      const ownerQQ = String(getConfig().forwardRules?.adminQQ || '85946573');
+      const speaker = String(event?.user_id ?? '');
+      if (speaker !== ownerQQ) {
+        log(`[指令禁言] 群 ${groupId} 收到管理员专属口令「${hitCmd.command}」，说话人 ${speaker || '未知'} 不是管理员，忽略`);
+        return;
+      }
+    }
     // 设置禁言：durationMin>0 则到期时间戳，否则 0（永久，需手动解除）
     const durationMs = Math.max(0, Number(hitCmd.durationMin) || 0) * 60000;
     const until = durationMs > 0 ? Date.now() + durationMs : 0;

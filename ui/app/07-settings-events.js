@@ -1335,7 +1335,8 @@ function cmCollect() {
     return {
       id,
       command: String(cmdEl?.value || '').trim(),
-      durationMin: Math.max(0, Number(durEl?.value) || 0)
+      durationMin: Math.max(0, Number(durEl?.value) || 0),
+      adminOnly: !!row.querySelector('[data-cm-admin]')?.checked
     };
   }).filter((x) => x.command);
 }
@@ -1370,6 +1371,10 @@ document.addEventListener('click', (e) => {
   }
 });
 document.addEventListener('input', (e) => {
+  if (!e.target.closest('#view-settings #cm-rows')) return;
+  cmSaveList(cmCollect(), false);
+});
+document.addEventListener('change', (e) => {
   if (!e.target.closest('#view-settings #cm-rows')) return;
   cmSaveList(cmCollect(), false);
 });
