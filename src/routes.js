@@ -35,7 +35,7 @@ import { installUpdate, cleanUpdateTemp } from './updater.js';
 import { analyzeExtension } from './plugin-compat.js';
 import { exportToFile, previewImport, applyImport } from './memory-bundle.js';
 import { redactText, getSafeModeConfig } from './safe-mode.js';
-import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral } from './memory-cards.js';
+import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral, listTopics, getTopic, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
 import { availabilityOf, listTools, CATEGORY_META } from './tool-registry.js';
 import { safeFetchBinary, browseLockState } from './safe-fetch.js';
@@ -1433,6 +1433,64 @@ export function createRoutes(deps) {
       handler: async ({ res, json, match }) => {
         const r = deletePerson(match[1]);
         if (!r.ok) return json(res, 404, { ok: false, error: '没有这个人的卡' });
+        return json(res, 200, r);
+      }
+    },
+    // ── 话题卡（控制台「记忆 → 本会话」子页签）────────────────────────
+    // 文件名 ↔ id 的映射只在 memory-cards.js 内部处理（不是简单 sanitize），
+    // 界面/调用方只传 chatKey + id，绝不自己拼文件名 —— 否则会写出重复文件。
+    {
+      method: 'GET', pattern: '/api/memory-cards/topics',
+      handler: async ({ res, url, json }) => {
+        const chatKey = String(url?.searchParams?.get('chatKey') || '').trim();
+        if (!chatKey) return json(res, 400, { ok: false, error: '缺少 chatKey' });
+        return json(res, 200, { ok: true, chatKey, topics: listTopics(chatKey) });
+      }
+    },
+    {
+      method: 'GET', pattern: /^\/api\/memory-cards\/topics\/(.+)$/,
+      handler: async ({ res, url, json, match }) => {
+        const chatKey = String(url?.searchParams?.get('chatKey') || '').trim();
+        if (!chatKey) return json(res, 400, { ok: false, error: '缺少 chatKey' });
+        const card = getTopic(chatKey, decodeURIComponent(match[1]));
+        if (!card) return json(res, 404, { ok: false, error: '没有这张话题卡' });
+        return json(res, 200, { ok: true, card });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/memory-cards/topics',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        const chatKey = String(body?.chatKey || '').trim();
+        if (!chatKey) return json(res, 400, { ok: false, error: '缺少 chatKey' });
+        const r = createTopic(chatKey, body || {});
+        if (!r.ok) {
+          return json(res, 400, {
+            ok: false,
+            error: r.error === 'exists' ? '同 id 的话题卡已存在' : '会话标识不合法（应为 group:123 / private:456）'
+          });
+        }
+        return json(res, 200, r);
+      }
+    },
+    {
+      method: 'PUT', pattern: /^\/api\/memory-cards\/topics\/(.+)$/,
+      handler: async ({ req, res, url, json, match }) => {
+        const body = await bodyOf(req);
+        const chatKey = String(body?.chatKey || url?.searchParams?.get('chatKey') || '').trim();
+        if (!chatKey) return json(res, 400, { ok: false, error: '缺少 chatKey' });
+        const r = updateTopic(chatKey, decodeURIComponent(match[1]), body || {});
+        if (!r.ok) return json(res, 404, { ok: false, error: '没有这张话题卡' });
+        return json(res, 200, r);
+      }
+    },
+    {
+      method: 'DELETE', pattern: /^\/api\/memory-cards\/topics\/(.+)$/,
+      handler: async ({ res, url, json, match }) => {
+        const chatKey = String(url?.searchParams?.get('chatKey') || '').trim();
+        if (!chatKey) return json(res, 400, { ok: false, error: '缺少 chatKey' });
+        const r = deleteTopic(chatKey, decodeURIComponent(match[1]));
+        if (!r.ok) return json(res, 404, { ok: false, error: '没有这张话题卡' });
         return json(res, 200, r);
       }
     },

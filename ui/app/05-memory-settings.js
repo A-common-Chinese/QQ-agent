@@ -797,6 +797,207 @@ function renderHealthCard() {
 // 人设模板数据：state.personaTemplates（由 loadSettings 从后端填充）
 
 
+  // ── 话题卡（「记忆 → 本会话」子页签内）────────────────────────────────
+  // 话题卡只属于某个会话（chatKey），落盘在 data/memory-cards/<chatKey>/topic_*.json。
+  // 注入侧读 title / body / summary / keywords[]（见 src/memory-cards-prompt.js:122-143）。
+  // 控件一律 data-topic + document 级委托（控制台 CSP 禁内联 onclick）；
+  // 委托选择器登记在 test/coverage-wiring.mjs 的 DELEGATED_SELECTOR。
+  const memTopicState = window.__memTopicState || (window.__memTopicState = {
+    chatKey: '', loaded: false, loading: false, error: '', cards: [], editing: ''
+  });
+
+  async function memTopicFetch(chatKey) {
+    let cards = [];
+    let error = '';
+    try {
+      const r = await api('/api/memory-cards/topics?chatKey=' + encodeURIComponent(chatKey));
+      cards = Array.isArray(r && r.topics) ? r.topics : [];
+    } catch (e) {
+      error = String((e && e.message) || e);
+    }
+    // 期间用户切了会话：丢弃这次结果，别把别的会话的话题卡画到当前会话下
+    if (memTopicState.chatKey !== chatKey) return;
+    memTopicState.cards = cards;
+    memTopicState.error = error;
+    memTopicState.loaded = !error;
+    memTopicState.loading = false;
+  }
+
+  /** 进入「本会话」时确保已拉过该会话的话题卡；未加载 → 拉完再渲染一次 */
+  function memTopicEnsure(chatKey) {
+    if (!chatKey) return;
+    if (memTopicState.chatKey !== chatKey) {
+      memTopicState.chatKey = chatKey;
+      memTopicState.loaded = false;
+      memTopicState.loading = false;
+      memTopicState.error = '';
+      memTopicState.cards = [];
+      memTopicState.editing = '';
+    }
+    if (memTopicState.loaded || memTopicState.loading) return;
+    memTopicState.loading = true;
+    memTopicFetch(chatKey).then(() => { if (state.tab === 'memory') loadMemoryView(); });
+  }
+
+  /** 重新拉当前会话的话题卡并重绘（保存/删除后调用） */
+  async function memTopicReload() {
+    const chatKey = memTopicState.chatKey;
+    if (!chatKey) return;
+    memTopicState.loading = true;
+    await memTopicFetch(chatKey);
+    if (state.tab === 'memory') await loadMemoryView();
+  }
+
+  function memTopicChipsHtml(keywords) {
+    const kws = (Array.isArray(keywords) ? keywords : []).filter(Boolean).slice(0, 12);
+    if (!kws.length) return '<span class="muted" style="font-size:11px">（没有关键词：只会出现在标题索引里）</span>';
+    return kws.map((k) => '<span class="mem-topic-kw" style="display:inline-block;padding:1px 7px;margin:2px 4px 2px 0;border-radius:99px;border:1px solid var(--line);font-size:11px">' + esc(k) + '</span>').join('');
+  }
+
+  function memTopicEditorHtml(card) {
+    const isNew = !card;
+    return '<div class="mem-topic-editor" style="margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:6px">' +
+      '<div class="field"><label>标题</label><input type="text" id="memt-title" value="' + esc(card ? card.title || '' : '') + '" placeholder="如：周末爬山计划" /></div>' +
+      '<div class="field"><label>摘要（一句话；随机闪回时注入）</label><input type="text" id="memt-summary" value="' + esc(card ? card.summary || '' : '') + '" /></div>' +
+      '<div class="field"><label>关键词（逗号或空格分隔；命中就把正文注入提示词）</label><input type="text" id="memt-keywords" value="' + esc(card && Array.isArray(card.keywords) ? card.keywords.join('，') : '') + '" /></div>' +
+      '<div class="field"><label>正文</label><textarea id="memt-body" style="min-height:96px">' + esc(card ? card.body || '' : '') + '</textarea></div>' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        '<button class="btn btn-small btn-primary" data-topic="save" data-id="' + esc(isNew ? '' : String(card.id || '')) + '">保存</button>' +
+        '<button class="btn btn-small" data-topic="cancel">取消</button>' +
+        '<span class="hint" id="memt-hint"></span>' +
+      '</div></div>';
+  }
+
+  function memTopicCardHtml(t) {
+    const id = String(t.id || '');
+    const editing = memTopicState.editing === id;
+    const summary = String(t.summary || '').trim();
+    const body = String(t.body || '').trim();
+    const bodyPreview = body && body !== summary
+      ? '<div class="mem-topic-body muted" style="font-size:12px;margin-top:2px">' + esc(body.slice(0, 160)) + (body.length > 160 ? '…' : '') + '</div>'
+      : '';
+    const when = t.updatedAt ? '<span class="muted" style="font-size:11px">更新于 ' + esc(fmtTime(Date.parse(t.updatedAt) || 0)) + '</span>' : '';
+    return '<div class="mem-topic-card' + (editing ? ' editing' : '') + '" data-topic-id="' + esc(id) + '" style="padding:8px 0;border-bottom:1px solid var(--line)">' +
+      '<div style="display:flex;gap:8px;align-items:flex-start">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div class="mem-topic-title" style="font-weight:600">' + esc(t.title || '未命名话题') + '</div>' +
+          (summary ? '<div class="mem-topic-summary muted" style="font-size:12px;margin-top:2px">' + esc(summary) + '</div>' : '') +
+          bodyPreview +
+          '<div class="mem-topic-kws" style="margin-top:4px">' + memTopicChipsHtml(t.keywords) + '</div>' +
+        '</div>' +
+        '<div class="mem-topic-actions" style="display:flex;gap:6px;flex-shrink:0">' +
+          '<button class="btn btn-small" data-topic="edit" data-id="' + esc(id) + '">编辑</button>' +
+          '<button class="btn btn-small btn-danger" data-topic="del" data-id="' + esc(id) + '">删除</button>' +
+        '</div>' +
+      '</div>' +
+      '<div style="margin-top:2px">' + when + '</div>' +
+      (editing ? memTopicEditorHtml(t) : '') +
+    '</div>';
+  }
+
+  function memTopicSectionHtml(chatKey) {
+    const st = memTopicState;
+    const cards = st.cards || [];
+    const head = '<div class="mem-topics-head" style="display:flex;align-items:center;gap:8px;margin-bottom:2px">' +
+        '<span class="mem-topics-title" style="font-weight:600">话题卡</span>' +
+        '<span class="mem-count muted" style="font-size:12px">' + cards.length + '</span>' +
+        '<span style="flex:1"></span>' +
+        '<button class="btn btn-small" data-topic="new">＋ 新建话题</button>' +
+      '</div>' +
+      '<div class="hint" style="font-size:12px;margin:4px 0 6px">关键词命中时整段注入提示词；未命中只出现在标题索引里。</div>';
+    let inner;
+    if (st.loading && !st.loaded) {
+      inner = '<div class="muted" style="padding:8px">话题卡加载中…</div>';
+    } else if (st.error) {
+      inner = '<div class="muted" style="padding:8px">加载失败：' + esc(st.error) +
+        ' <button class="btn btn-small" data-topic="reload">重试</button></div>';
+    } else {
+      const editingNew = st.editing === '__new__';
+      const list = cards.map(memTopicCardHtml).join('');
+      inner = (editingNew ? memTopicEditorHtml(null) : '') +
+        (list ? '<div class="mem-topic-list">' + list + '</div>'
+          : (editingNew ? '' : '<div class="muted" style="padding:8px">还没有话题卡。点「＋ 新建话题」记一条。</div>'));
+    }
+    return '<div class="mem-topics" data-topic-chat="' + esc(chatKey) + '" style="margin-top:18px;padding-top:12px;border-top:1px solid var(--line)">' +
+      head + inner + '</div>';
+  }
+
+  /** 「编辑 / 新建 / 保存 / 删除 / 取消 / 重试」统一走 document 级委托 */
+  if (!window.__memTopicsDelegated) {
+    window.__memTopicsDelegated = true;
+    document.addEventListener('click', (e) => {
+      if (state.tab !== 'memory') return;
+      const el = e.target.closest('#view-memory [data-topic]');
+      if (!el) return;
+      e.preventDefault();
+      const act = el.dataset.topic;
+      const chatKey = memTopicState.chatKey;
+      if (act === 'new') {
+        memTopicState.editing = '__new__';
+        loadMemoryView();
+        return;
+      }
+      if (act === 'cancel') {
+        memTopicState.editing = '';
+        loadMemoryView();
+        return;
+      }
+      if (act === 'reload') {
+        memTopicReload();
+        return;
+      }
+      const id = String(el.dataset.id || '');
+      if (act === 'edit') {
+        memTopicState.editing = id;
+        loadMemoryView();
+        return;
+      }
+      if (!chatKey) return;
+      // 编辑框是"批量读取式"：点保存时一次性把四个输入框读走
+      const val = (domId) => {
+        const box = document.getElementById(domId);
+        return box ? String(box.value == null ? '' : box.value) : '';
+      };
+      if (act === 'save') {
+        (async () => {
+          if (!document.getElementById('memt-title')) return;   // 编辑器不在当前 DOM
+          const payload = {
+            chatKey,
+            title: val('memt-title'),
+            summary: val('memt-summary'),
+            keywords: val('memt-keywords').split(/[,，、\s]+/).map((x) => x.trim()).filter(Boolean),
+            body: val('memt-body')
+          };
+          if (!payload.title.trim()) { alert('话题卡标题不能为空'); return; }
+          try {
+            if (id) await api('/api/memory-cards/topics/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(payload) });
+            else await api('/api/memory-cards/topics', { method: 'POST', body: JSON.stringify(payload) });
+            memTopicState.editing = '';
+            await memTopicReload();
+          } catch (err) {
+            const hint = document.getElementById('memt-hint');
+            if (hint) { hint.textContent = '保存失败：' + ((err && err.message) || err); hint.style.color = 'var(--red)'; }
+            else alert('保存话题卡失败：' + ((err && err.message) || err));
+          }
+        })();
+        return;
+      }
+      if (act === 'del') {
+        (async () => {
+          const card = (memTopicState.cards || []).find((t) => String(t.id) === id);
+          if (!(await uiConfirm('删除话题卡「' + ((card && card.title) || id) + '」？\n会重命名为 .deleted 备份，可手工恢复。'))) return;
+          try {
+            await api('/api/memory-cards/topics/' + encodeURIComponent(id) + '?chatKey=' + encodeURIComponent(chatKey), { method: 'DELETE' });
+            if (memTopicState.editing === id) memTopicState.editing = '';
+            await memTopicReload();
+          } catch (err) { alert('删除话题卡失败：' + ((err && err.message) || err)); }
+        })();
+        return;
+      }
+    });
+  }
+
+
   // 【记忆栏目 V2】顶部「记忆」tab 的三分区卡片视图（覆盖上面的旧 loadMemoryView）
   async function loadMemoryView() {
     const itemsBox = document.getElementById('memory-items');
@@ -864,6 +1065,13 @@ function renderHealthCard() {
     let body = '';
     if (activeSub === 'groups') {
       body = (typeof memDetailHtml === 'function') ? memDetailHtml() : '<div class="muted" style="padding:20px">从左侧选一个会话</div>';
+      // 话题卡只属于具体会话：挂在「本会话」页签下半区。
+      // 首次进入时先异步拉取，数据回来后会再渲染一次（memTopicEnsure 内部处理）。
+      const topicChatKey = st.chatSel && st.chatSel.chatKey;
+      if (topicChatKey) {
+        memTopicEnsure(topicChatKey);
+        body += memTopicSectionHtml(topicChatKey);
+      }
     } else if (activeSub === 'persons') {
       const persons = (st.list.persons || []).filter((p) => hit(p.name || '') || hit(p.qq) || hit(p.summary || ''));
       const cards = persons.slice(0, 300).map((p) => {

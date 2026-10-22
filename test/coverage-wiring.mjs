@@ -91,6 +91,7 @@ function wired(el) {
     // 新增委托控件时把它的 data-* 属性加进 DELEGATED_SELECTOR。
     const DELEGATED_SELECTOR = [
       '[data-pv2]', '[data-mem]',                       // 人设页 / 记忆栏目
+      '[data-topic]',                                    // 记忆栏目「本会话」话题卡编辑（新增/编辑/保存/删除）
       '[data-fwd]',                                     // 转发白名单 chip
       '[data-safe]', '[data-silentat]', '[data-silent-unassigned]',  // 安全模式 / 静默@
       '[data-cm-add]', '[data-cm-del]', '[data-cm-cmd]', '[data-cm-dur]',  // 禁言口令列表
