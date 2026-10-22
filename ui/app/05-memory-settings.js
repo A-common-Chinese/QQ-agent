@@ -794,58 +794,100 @@ function renderHealthCard() {
     if (!itemsBox || !detailBox) return;
     const st = (typeof memState === 'function') ? memState() : null;
     if (!st) return;
+    if (!st.sub) st.sub = 'groups';
     // 首次加载列表
     if (!st.list) {
-      itemsBox.innerHTML = '<div class="list-head muted">加载记忆卡…</div>';
+      itemsBox.innerHTML = '<div class="mem-side"><div class="mem-side-head">加载记忆卡…</div></div>';
       try {
         st.list = await api('/api/memory-cards');
         try { st.generals = (await api('/api/memory-cards/generals')).generals || []; } catch (e) { st.generals = []; }
       } catch (e) {
-        itemsBox.innerHTML = '<div class="list-head muted">加载失败：' + esc(String(e?.message || e)) + '</div>';
+        itemsBox.innerHTML = '<div class="mem-side"><div class="mem-side-head">加载失败：' + esc(String(e?.message || e)) + '</div></div>';
         return;
       }
-      if (st.list.groups?.length || st.list.persons?.length) {
-        if (st.tab === 'groups' && st.list.groups[0]) st.sel = { tab: 'groups', chatKey: st.list.groups[0].chatKey };
-        else if (st.tab === 'persons' && st.list.persons[0]) st.sel = { tab: 'persons', qq: st.list.persons[0].qq };
+      const groups0 = st.list.groups || [];
+      if (groups0[0]) {
+        st.chatSel = { chatKey: groups0[0].chatKey, name: groups0[0].name || groups0[0].chatKey, kind: groups0[0].kind || '' };
+        st.sel = { tab: 'groups', chatKey: st.chatSel.chatKey, name: st.chatSel.name };
+        st.tab = 'groups';
+        await memLoadDetail();
       }
-      await memLoadDetail();
     }
-    // 左栏：分区 + 搜索 + 列表
-    const tabs = [{ id: 'groups', label: '群聊/私聊' }, { id: 'persons', label: '个人' }, { id: 'general', label: '基本事实' }];
+    const groups = st.list.groups || [];
+    if (!st.chatSel && groups[0]) {
+      st.chatSel = { chatKey: groups[0].chatKey, name: groups[0].name || groups[0].chatKey, kind: groups[0].kind || '' };
+    }
     const q = String(st.q || '').trim().toLowerCase();
-    let items = [];
-    if (st.tab === 'groups') items = (st.list.groups || []).map((g) => ({ key: 'g:' + g.chatKey, label: g.name || g.chatKey, sub: g.summary || '', sel: st.sel && st.sel.tab === 'groups' && st.sel.chatKey === g.chatKey, data: { tab: 'groups', chatKey: g.chatKey } }));
-    else if (st.tab === 'persons') items = (st.list.persons || []).map((p) => ({ key: 'p:' + p.qq, label: (p.name || '') + ' (' + p.qq + ')', sub: (p.summary || '') + ' · 群' + (p.groups || 0), sel: st.sel && st.sel.tab === 'persons' && st.sel.qq === p.qq, data: { tab: 'persons', qq: p.qq } }));
-    else {
+    const hit = (s) => !q || String(s || '').toLowerCase().includes(q);
+
+    // ── 侧栏：只列 群聊 / 私聊 卡片 ──
+    const chatCards = groups
+      .filter((g) => hit(g.name || g.chatKey) || hit(g.chatKey))
+      .map((g) => {
+        const sel = st.chatSel && st.chatSel.chatKey === g.chatKey;
+        const kind = g.kind || (String(g.chatKey || '').startsWith('private') ? 'private' : 'group');
+        const nMember = Array.isArray(g.members) ? g.members.length : (g.memberCount || 0);
+        const sub = (kind === 'private' ? '私聊' : '群') + ' · ' + nMember + ' 人 · ' + (g.msgs || 0) + ' 条';
+        const payload = JSON.stringify({ chatKey: g.chatKey, name: g.name || g.chatKey, kind });
+        return '<div class="mem-card' + (sel ? ' sel' : '') + '" data-mem="chat" data-json=\'' + esc(payload) + '\'>' +
+          '<div class="mem-card-title">' + esc(g.name || g.chatKey) + '</div>' +
+          '<div class="mem-card-sub">' + esc(sub) + '</div></div>';
+      }).join('') || '<div class="mem-empty">（没有匹配的会话）</div>';
+
+    itemsBox.innerHTML =
+      '<div class="mem-side">' +
+        '<div class="mem-side-head"><span>群聊 / 私聊</span><span class="mem-count">' + groups.length + '</span></div>' +
+        '<input type="text" data-mem="search" id="memv-q" class="mem-search" placeholder="搜索会话名…" value="' + esc(st.q || '') + '" />' +
+        '<div class="mem-cards">' + chatCards + '</div>' +
+      '</div>';
+
+    // ── 右栏：子页签 + 内容（点进会话后才显示） ──
+    const subs = [
+      { id: 'groups', label: '本会话' },
+      { id: 'persons', label: '个人卡' },
+      { id: 'general', label: '基本事实' }
+    ];
+    let activeSub = 'groups';
+    if (st.tab === 'persons') activeSub = 'persons';
+    else if (st.tab === 'general') activeSub = 'general';
+
+    let body = '';
+    if (activeSub === 'groups') {
+      body = (typeof memDetailHtml === 'function') ? memDetailHtml() : '<div class="muted" style="padding:20px">从左侧选一个会话</div>';
+    } else if (activeSub === 'persons') {
+      const persons = (st.list.persons || []).filter((p) => hit(p.name || '') || hit(p.qq) || hit(p.summary || ''));
+      const cards = persons.slice(0, 300).map((p) => {
+        const sel = st.detail && String(st.detail.qq) === String(p.qq);
+        const payload = JSON.stringify({ tab: 'persons', qq: p.qq });
+        return '<div class="mem-card' + (sel ? ' sel' : '') + '" data-mem="sel" data-json=\'' + esc(payload) + '\'>' +
+          '<div class="mem-card-title">' + esc(p.name || ('QQ' + p.qq)) + '</div>' +
+          '<div class="mem-card-sub">QQ ' + esc(String(p.qq || '')) + (p.summary ? ' · ' + esc(String(p.summary).slice(0, 22)) : '') + '</div></div>';
+      }).join('') || '<div class="mem-empty">（没有匹配的人）</div>';
+      body = '<div class="mem-grid">' + cards + '</div>' +
+        (st.detail && String(st.detail.qq || '') !== '' ? '<div class="mem-detail-sub">' + memDetailHtml() + '</div>' : '');
+    } else {
       const gens = (st.generals && st.generals.length) ? st.generals : (st.list.general ? [st.list.general] : []);
       if (!st.genId && gens[0]) st.genId = gens[0].id;
-      items = gens.map((g) => ({ key: 'gen:' + g.id, label: (g.scope === 'global' ? '★ ' : '') + (g.name || g.id), sub: g.summary || '', sel: st.genId === g.id, data: { tab: 'general', genId: g.id } }));
+      const cards = gens.map((g) => {
+        const sel = st.genId === g.id;
+        const sub = (g.scope === 'global' ? '★ 全局默认 · ' : '') + String(g.summary || '').slice(0, 30);
+        return '<div class="mem-card' + (sel ? ' sel' : '') + '" data-mem="gen-pick" data-gid="' + esc(g.id) + '">' +
+          '<div class="mem-card-title">' + esc(g.name || g.id) + '</div>' +
+          '<div class="mem-card-sub">' + esc(sub) + '</div></div>';
+      }).join('') || '<div class="mem-empty">（还没有通用卡）</div>';
+      body = '<div class="mem-grid">' + cards + '</div>' +
+        '<div class="mem-detail-sub">' + (typeof memGeneralDetailHtml === 'function' ? memGeneralDetailHtml() : '') + '</div>';
     }
-    if (q) items = items.filter((x) => (x.label + ' ' + x.sub).toLowerCase().includes(q));
-    const listHtml = items.map((x) => `<div class="memv-item${x.sel ? ' memv-sel' : ''}" data-mem="sel" data-json='${esc(JSON.stringify(x.data))}'>
-        <div style="font-weight:600">${esc(x.label)}</div>
-        <div class="muted" style="font-size:12px">${esc(String(x.sub).slice(0, 60))}</div>
-      </div>`).join('') || '<div class="list-head muted">（没有匹配项）</div>';
-    itemsBox.innerHTML = `
-      <div style="padding:8px">
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-          ${tabs.map((t) => `<button class="btn btn-small ${st.tab === t.id ? 'btn-primary' : ''}" data-mem="tab" data-tab="${t.id}">${t.label}</button>`).join('')}
-        </div>
-        <input type="text" data-mem="search" id="memv-q" placeholder="搜索名字/QQ…" value="${esc(st.q || '')}" style="width:100%;margin-bottom:6px" />
-        <div class="muted" style="font-size:12px;margin-bottom:6px">群 ${(st.list.groups || []).length} · 个人 ${(st.list.persons || []).length}</div>
-        <div>${listHtml}</div>
-      </div>`;
-    // 右栏：详情
-    if (st.tab === 'general' && typeof memGeneralDetailHtml === 'function') {
-      detailBox.innerHTML = memGeneralDetailHtml();
-    } else if (typeof memDetailHtml === 'function') {
-      detailBox.innerHTML = memDetailHtml();
-    } else {
-      detailBox.innerHTML = '<div class="muted">（无详情）</div>';
-    }
-    // 记忆 tab 的点击/输入也要绑定（#memory-items 是动态生成的）
+
+    detailBox.innerHTML = '<div class="mem-main">' +
+      '<div class="mem-subtabs">' + subs.map((t) =>
+        '<button class="mem-subtab' + (activeSub === t.id ? ' act' : '') + '" data-mem="subtab" data-sub="' + t.id + '">' + t.label + '</button>'
+      ).join('') + '</div>' +
+      '<div class="mem-sub-body">' + body + '</div>' +
+    '</div>';
     if (typeof bindMemoryTabEvents === 'function') bindMemoryTabEvents();
   }
+
 
   // 记忆 tab 的事件（因为 #memory-items 每次重建，绑在容器上做一次委托就够）
   if (!window.__memTabDelegated) {
@@ -858,6 +900,35 @@ function renderHealthCard() {
       const st = (typeof memState === 'function') ? memState() : null;
       if (!st) return;
       const act = el.dataset.mem;
+      if (act === 'chat') {
+        try { st.chatSel = JSON.parse(el.dataset.json); } catch { return; }
+        st.sub = 'groups';
+        st.tab = 'groups';
+        st.sel = { tab: 'groups', chatKey: st.chatSel.chatKey, name: st.chatSel.name };
+        st.detail = null;
+        memLoadDetail().then(async () => { if (state.tab === 'memory') await loadMemoryView(); });
+        return;
+      }
+      if (act === 'subtab') {
+        const sub = el.dataset.sub;
+        st.sub = sub;
+        if (sub === 'groups') {
+          st.tab = 'groups';
+          st.sel = st.chatSel ? { tab: 'groups', chatKey: st.chatSel.chatKey, name: st.chatSel.name } : null;
+        } else if (sub === 'persons') {
+          st.tab = 'persons';
+          const keep = st.sel && st.sel.tab === 'persons' ? st.sel : null;
+          const first = (st.list && (st.list.persons || [])[0]) || null;
+          st.sel = keep || (first ? { tab: 'persons', qq: first.qq } : null);
+        } else {
+          st.tab = 'general';
+          st.sel = { tab: 'general' };
+        }
+        st.detail = null;
+        memLoadDetail().then(async () => { if (state.tab === 'memory') await loadMemoryView(); });
+        return;
+      }
+      if (act === 'gen-pick') { st.genId = el.dataset.gid; loadMemoryView(); return; }
       if (act === 'tab') {
         st.tab = el.dataset.tab; st.sel = null; st.detail = null; st.q = '';
         loadMemoryView();
