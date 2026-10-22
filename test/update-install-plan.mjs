@@ -19,7 +19,11 @@ import { execFileSync } from 'node:child_process';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-update-test-'));
 process.env.QQ_AGENT_DATA_DIR = path.join(TMP, 'data');   // 必须是 import updater 之前
-const { findRunnableExe, buildInstallScript, copyTree, writeInstallScript } = await import('../src/updater.js');
+const {
+  findRunnableExe, buildInstallScript, copyTree, writeInstallScript,
+  buildLauncherFiles, DATA_SKIP
+} = await import('../src/updater.js');
+const ROOT_SRC = path.resolve(import.meta.dirname, '..', 'src');
 
 const pass = [];
 const fail = [];
@@ -124,6 +128,46 @@ await check('copyTree：备份 data 时跳过 updates 与 electron-user-data', (
   assert.ok(exists(path.join(dst, 'sessions', 'a.json')), 'sessions 必须备份');
   assert.ok(!exists(path.join(dst, 'updates')), 'updates 不该备份（几十 MB×N 个版本）');
   assert.ok(!exists(path.join(dst, 'electron-user-data')), 'Chromium 缓存不该备份');
+});
+
+// copyTree 自己实现递归：fs.cp 的 filter 在 Node 20（Electron 33）与 Node 24 上行为不一致，
+// 实测备份因此把 updates/ 与 electron-user-data/ 全拷了。这里断言"只跳过顶层、深层同名不误伤"。
+await check('copyTree：只跳顶层 updates/electron-user-data，深层同名目录不误伤', () => {
+  const src = path.join(TMP, 'order-src');
+  write(path.join(src, 'updates', 'a.txt'), 'x');
+  write(path.join(src, 'electron-user-data', 'b.txt'), 'x');
+  write(path.join(src, 'sessions', 'updates', 'c.txt'), 'deep');   // 深层同名，必须保留
+  write(path.join(src, 'sessions', 'd.json'), 'x');
+  const dst = path.join(TMP, 'order-dst');
+  copyTree(src, dst);
+  assert.equal(exists(path.join(dst, 'updates')), false, '顶层 updates 应跳过');
+  assert.equal(exists(path.join(dst, 'electron-user-data')), false, '顶层 electron-user-data 应跳过');
+  assert.ok(exists(path.join(dst, 'sessions', 'updates', 'c.txt')), '深层 sessions/updates 不该被误伤');
+  assert.ok(exists(path.join(dst, 'sessions', 'd.json')), '普通文件必须复制');
+});
+
+// ── 3.5) 启动器：隐藏 VBS + WMI 拉起（spawn 在本机什么都不执行，已实测）──
+await check('buildLauncherFiles：生成隐藏 VBS 与 WMI 启动器（带 BOM）', () => {
+  const dir = path.join(TMP, 'launch-files');
+  const restore = path.join(dir, 'restore.ps1');
+  write(restore, '# fake');
+  const { vbs, launchPs } = buildLauncherFiles({ restoreScript: restore, backupDir: dir });
+  const vbsText = read(vbs);
+  assert.match(vbsText, /WScript\.Shell/, 'VBS 应使用 WScript.Shell');
+  assert.match(vbsText, /, 0, False/, 'VBS 应隐藏窗口且不等待');
+  const psText = read(launchPs);
+  assert.match(psText, /Invoke-CimMethod/, '必须用 WMI 创建（父进程变 WmiPrvSE，躲开 taskkill /T）');
+  assert.match(psText, /Win32_Process/, '必须走 Win32_Process.Create');
+  assert.ok(read(path.join(dir, 'restore.vbs')).includes(restore), 'VBS 里要带还原脚本的绝对路径');
+  const head = fs.readFileSync(launchPs);
+  assert.equal(head[0], 0xEF, 'launch.ps1 需要 UTF-8 BOM（PS 5.1 否则按 ANSI 解乱）');
+});
+
+await check('installUpdate 源码：启动助手后必须确认 install.log 出现，起不来就不装', () => {
+  const code = read(path.join(ROOT_SRC, 'updater.js'));
+  assert.match(code, /install\.log 未生成/, '缺少"助手没启动"的失败分支');
+  assert.match(code, /fs\.rmSync\(logPath/, '启动前要清掉旧日志，否则会误判');
+  assert.match(code, /buildLauncherFiles\(/, '必须用可验证的启动器');
 });
 
 // ── 4) 端到端编排：假安装器 + 真跑 PowerShell ──────────────────────

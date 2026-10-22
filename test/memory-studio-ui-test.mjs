@@ -61,7 +61,9 @@ check(!/on(?:click|change|input|submit|keydown)\s*=/i.test(COMPRESS_SRC), '压�
 for (const sel of ['[data-studio]', '[data-studio-opt]', '[data-studio-input]']) {
   check(COVERAGE.includes("'" + sel + "'"), `coverage-wiring.mjs 的 DELEGATED_SELECTOR 登记了 ${sel}`);
 }
-check(/05-memory-settings\.js\?v=20261022p/.test(INDEX_HTML), 'ui/index.html 里 05 段的 ?v= 已升位（20261022p）');
+// 断言"有缓存戳且不是话题卡那版（n）"，而不是钉死某个字母 —— 之后每次改 05 都要升位
+check(/05-memory-settings\.js\?v=2026\d{4}[a-z]+/.test(INDEX_HTML) && !/05-memory-settings\.js\?v=20261022n/.test(INDEX_HTML),
+  'ui/index.html 里 05 段的 ?v= 有缓存戳且已升位（不是话题卡那版的 n）');
 
 // 关键文案 / 引导：用户明确要求的 UX 点都在源码里
 const COPY = [
