@@ -64,10 +64,15 @@ export async function isForwardRequest(text, log = () => {}) {
   }
 }
 
-async function sendFixedReply(orchestrator, chatKey, text) {
+async function sendFixedReply(orchestrator, chatKey, text, entry = null) {
   const msg = String(text || '').trim();
   if (!msg) return;
   await orchestrator.sender.sendTextBatch(chatKey, [msg], {});
+  // 回完固定话术就收尾：这条消息标已读，避免未读在静默会话里越积越多
+  try {
+    if (entry && entry.id != null) orchestrator.store.markEntryRead(chatKey, entry.id);
+    else orchestrator.store.markAllRead(chatKey);
+  } catch { /* ignore */ }
 }
 
 /**
@@ -85,7 +90,7 @@ export async function maybeSilentAt({ chatKey, entry, orchestrator, log = consol
 
     // 档 2：完全不调 API
     if (sa.mode === 2) {
-      await sendFixedReply(orchestrator, chatKey, sa.replyText);
+      await sendFixedReply(orchestrator, chatKey, sa.replyText, entry);
       log('[silent-at] 静默会话被 @（档2）→ 已回固定话术');
       return { ok: true, mode: 2, replied: true };
     }
@@ -94,11 +99,12 @@ export async function maybeSilentAt({ chatKey, entry, orchestrator, log = consol
     const yes = await isForwardRequest(entry?.text || '', log);
     if (yes) {
       // 允许这一轮突破静默：走正常流程（模型可用 send_to，转发白名单照样校验）
-      orchestrator.scheduleWake(chatKey, 0, { bypassSilent: true });
+      // verified: true —— 这条消息已经判定过"要处理"，别再让 wake 当成机械批重新判定
+      orchestrator.scheduleWake(chatKey, 0, { bypassSilent: true, verified: true });
       log('[silent-at] 静默会话被 @（档1）→ 判定为转发请求，放行本轮');
       return { ok: true, mode: 1, forward: true };
     }
-    await sendFixedReply(orchestrator, chatKey, sa.replyText);
+    await sendFixedReply(orchestrator, chatKey, sa.replyText, entry);
     log('[silent-at] 静默会话被 @（档1）→ 不是转发请求，已回固定话术');
     return { ok: true, mode: 1, replied: true };
   } catch (error) {

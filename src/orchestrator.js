@@ -167,6 +167,12 @@ export class Orchestrator {
 
   // 静默会话：只存档、不调模型（0 token）。确定性功能（链接转发、/dsh）不走这里，照常生效。
   if (isSilentChat(chatKey)) {
+    // ⚠️ 开了「静默会话被 @」处理且这条正是 @：**先不标已读**。
+    // 否则 maybeSilentAt 判定为「要求转发」→ scheduleWake 后 wake 里 peekUnread 拿到 0 条，
+    // 会话会以 aborted / 0 token 直接结束（2026-10-22 实测：转发永远不生效）。
+    // 收尾交给 silent-at：回固定话术的那条自己标已读；放行的那条由 wake 消费。
+    const _sa = getConfig().silentAt || {};
+    if (_sa.enabled === true && entry && entry.atMe === true) return;
     if (entry?.id != null) this.store.markEntryRead(chatKey, entry.id);
     else this.store.markAllRead(chatKey);
     return;
