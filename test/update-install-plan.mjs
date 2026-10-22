@@ -93,6 +93,11 @@ await check('生成的脚本：还原 plugins / skills / snowluma 与安装根�
   assert.ok(plan.script.includes('(Join-Path $backup "data")'), '漏了 data/');
 });
 
+await check('生成的脚本：还原安装根目录的 tools（用户放的工具，如记忆解释器）', () => {
+  assert.match(plan.script, /@\("tools"\)/, '还原清单里没有 tools');
+  assert.ok(plan.script.includes('(Join-Path $installDir $d)'), 'tools 没还原到安装根目录');
+});
+
 await check('生成的脚本：等新版本落位、装完启动、日志落在备份目录', () => {
   assert.ok(plan.script.includes(`$want = '9.9.9'`), '没有校验目标版本');
   assert.ok(plan.script.includes('Start-Process -FilePath $run'), '装完没有启动应用');
@@ -131,6 +136,10 @@ await check('端到端：备份 → 杀进程 → 静默安装 → 还原数据 
   write(path.join(DATA, 'config.json'), '{"k":1}');
   write(path.join(DATA, 'sessions', 'chat.json'), '{"m":1}');
   write(path.join(DATA, 'updates', '0.5.2', 'setup.exe'), 'BIG');
+  // 用户自己装在安装根目录的工具（这里模拟记忆解释器 + 它自己的配置）
+  const TOOLS = path.join(INST, 'tools');
+  write(path.join(TOOLS, 'memory-studio', 'server.mjs'), '// interpreter');
+  write(path.join(TOOLS, 'memory-studio', 'data', 'config.json'), '{"apiKey":"k"}');
   write(RUN_EXE, 'stub');
   fileExecutable(RUN_EXE);
 
@@ -139,7 +148,9 @@ await check('端到端：备份 → 杀进程 → 静默安装 → 还原数据 
   copyTree(path.join(APP, 'plugins'), path.join(BACKUP, 'plugins'));
   copyTree(path.join(APP, 'snowluma'), path.join(BACKUP, 'snowluma'));
   copyTree(DATA, path.join(BACKUP, 'data'));
+  copyTree(TOOLS, path.join(BACKUP, 'tools'));
   assert.ok(exists(path.join(BACKUP, 'data', 'sessions', 'chat.json')), '前置：data 备份应存在');
+  assert.ok(exists(path.join(BACKUP, 'tools', 'memory-studio', 'server.mjs')), '前置：tools 备份应存在');
 
   // 假安装器：记录收到的参数 → 模拟旧卸载器删目录 → 铺入 9.9.9
   const argsFile = path.join(TMP, 'installer-args.txt');
@@ -151,6 +162,7 @@ await check('端到端：备份 → 杀进程 → 静默安装 → 还原数据 
     `echo %* > "${argsFile}"`,
     `rmdir /s /q "${APP}" 2>nul`,
     `rmdir /s /q "${DATA}" 2>nul`,
+    `rmdir /s /q "${INST}\\tools" 2>nul`,
     `mkdir "${APP}" 2>nul`,
     `copy /y "${newPkg}" "${APP}\\package.json" >nul`,
     'exit /b 0',
@@ -182,6 +194,8 @@ await check('端到端：备份 → 杀进程 → 静默安装 → 还原数据 
   assert.ok(exists(path.join(APP, 'plugins', 'p1.js')), 'plugins 没还原');
   assert.ok(exists(path.join(DATA, 'sessions', 'chat.json')), 'data 会话没还原（聊天记录/记忆）');
   assert.ok(!exists(path.join(DATA, 'updates')), 'updates 不在备份口径里，不该被还原');
+  assert.ok(exists(path.join(TOOLS, 'memory-studio', 'server.mjs')), 'tools/ 里的工具没还原（记忆解释器会被升级删掉）');
+  assert.ok(exists(path.join(TOOLS, 'memory-studio', 'data', 'config.json')), 'tools/ 里的配置没还原（解释器的 LLM key 会丢）');
   // 启动是异步的（脚本 Start-Process 后立刻退出），给它最多 10 秒落地
   const deadline = Date.now() + 10000;
   while (!exists(launched) && Date.now() < deadline) {

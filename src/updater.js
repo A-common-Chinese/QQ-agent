@@ -329,6 +329,10 @@ function freeBytesOf(dir) {
 const USER_DIRS = ['plugins', 'skills', 'snowluma'];   // 安装包会覆盖 resources/app，这三样必须备份
 // data/ 下不参与备份的：updates（各版本安装包本体，一个几十 MB）、electron-user-data（Chromium 缓存）
 const DATA_SKIP = new Set(['updates', 'electron-user-data']);
+// 安装根目录下同样要跟着升级走的目录：tools/ 放的是用户自己装的东西
+// （典型是「记忆解释器」<安装目录>\tools\memory-studio，里面还有它的 data/config.json）。
+// 不备份的话，一次升级就会把它连配置一起删掉。
+const ROOT_KEEP_DIRS = ['tools'];
 
 /**
  * 找安装目录里"能启动"的 exe。
@@ -410,12 +414,13 @@ export function writeInstallScript(file, script) {
 /**
  * 生成还原脚本（纯函数，便于离线自测）：
  *   等应用退出（按 **真实** exe 名） → 静默安装到 **原目录**（NSIS /D）→ 等新版本落位
- *   → 还原 resources/app 下的 plugins/skills/snowluma + 安装根目录的 data/
+ *   → 还原 resources/app 下的 plugins/skills/snowluma + 安装根目录的 data/ 与 tools/
  *   → 启动应用（安装失败也要把旧版拉起来，不能让机器人就这么没了）
  * @returns {{script:string, logPath:string}}
  */
 export function buildInstallScript({
-  installerPath, version, installDir, appDir, dataDir, runExe, backupDir, stamp = Date.now()
+  installerPath, version, installDir, appDir, dataDir, runExe, backupDir,
+  rootDirs = ROOT_KEEP_DIRS, stamp = Date.now()
 }) {
   const nl = '\r\n';
   const logPath = path.join(backupDir, 'install.log');
@@ -469,9 +474,10 @@ export function buildInstallScript({
     '}',
     'if (-not $landed) { L ("⚠ 90 秒内没等到 v" + $want + "，当前 package.json 版本: " + $v + "（继续还原并重启旧版）") }',
     '',
-    '# ④ 还原用户目录（安装器可能整目录删过，包括 data/）',
+    '# ④ 还原用户目录（安装器可能整目录删过，包括 data/ 与 tools/）',
     '$appDir = ' + psStr(appDir),
     '$dataDir = ' + psStr(dataDir),
+    '$installDir = ' + psStr(installDir),
     '$backup = ' + psStr(backupDir),
     '$robolog = { param($src, $dst)',
     '  if (-not (Test-Path -LiteralPath $src)) { return }',
@@ -481,6 +487,7 @@ export function buildInstallScript({
     '}',
     'foreach ($d in @("plugins","skills","snowluma")) { & $robolog (Join-Path $backup $d) (Join-Path $appDir $d) }',
     '& $robolog (Join-Path $backup "data") $dataDir',
+    'foreach ($d in @(' + rootDirs.map((d) => '"' + String(d).replace(/"/g, '') + '"').join(',') + ')) { & $robolog (Join-Path $backup $d) (Join-Path $installDir $d) }',
     '',
     '# ⑤ 启动应用：优先原来的 exe；它若被新版替换掉就扫目录里最新的 QQ Agent*.exe',
     '$run = ' + psStr(runExe),
@@ -523,13 +530,14 @@ export async function installUpdate({ force = false, dryRun = false, log = () =>
   const backupDir = path.join(os.tmpdir(), 'qq-agent-update-' + version);
 
   const userBytes = USER_DIRS.reduce((sum, d) => sum + dirBytesSkip(path.join(appDir, d), null), 0);
-  const backupBytes = userBytes + dirBytesSkip(dataDir, DATA_SKIP);
+  const rootBytes = ROOT_KEEP_DIRS.reduce((sum, d) => sum + dirBytesSkip(path.join(installDir, d), null), 0);
+  const backupBytes = userBytes + rootBytes + dirBytesSkip(dataDir, DATA_SKIP);
   const installBytes = Number(st.total) || 0;
   const free = freeBytesOf(os.tmpdir());
   const need = backupBytes + installBytes + 200 * 1024 * 1024;
   const info = {
     freeBytes: free, needBytes: need, backupBytes, installBytes, backupDir,
-    installDir, appDir, dataDir, runExe
+    installDir, appDir, dataDir, runExe, rootDirs: ROOT_KEEP_DIRS
   };
 
   if (free > 0 && free < need && !force) {
@@ -556,7 +564,7 @@ export async function installUpdate({ force = false, dryRun = false, log = () =>
     return { ok: false, error: '复制安装包失败：' + (error?.message ?? error) };
   }
 
-  // 备份：resources/app 下的用户目录 + 安装根目录的 data/
+  // 备份：resources/app 下的用户目录 + 安装根目录的 data/ 与 tools/
   const copied = [];
   for (const d of USER_DIRS) {
     const src = path.join(appDir, d);
@@ -570,9 +578,18 @@ export async function installUpdate({ force = false, dryRun = false, log = () =>
   try {
     if (fs.existsSync(dataDir)) { copyTree(dataDir, path.join(backupDir, 'data')); dataCopied = true; }
   } catch (error) { log('[update] 备份 data 失败：' + (error?.message ?? error)); }
+  const rootCopied = [];
+  for (const d of ROOT_KEEP_DIRS) {
+    const src = path.join(installDir, d);
+    if (!fs.existsSync(src)) continue;
+    try {
+      copyTree(src, path.join(backupDir, d));
+      rootCopied.push(d);
+    } catch (error) { log('[update] 备份 ' + d + ' 失败：' + (error?.message ?? error)); }
+  }
   fs.writeFileSync(path.join(backupDir, 'manifest.json'), JSON.stringify({
     at: new Date().toISOString(), version, installer: st.path, installerCopy,
-    dirs: copied, dataCopied, appDir, installDir, dataDir, runExe, logPath
+    dirs: copied, rootDirs: rootCopied, dataCopied, appDir, installDir, dataDir, runExe, logPath
   }, null, 1), 'utf8');
 
   const child = spawn('powershell.exe', [
@@ -581,7 +598,7 @@ export async function installUpdate({ force = false, dryRun = false, log = () =>
   child.unref();
   log('[update] 开始安装：备份在 ' + backupDir + '，日志 ' + logPath);
   return {
-    ok: true, backupDir, restoreScript, dirs: copied, dataCopied, logPath, version,
+    ok: true, backupDir, restoreScript, dirs: copied, rootDirs: rootCopied, dataCopied, logPath, version,
     installer: st.path, installerCopy, installDir, appDir, dataDir, runExe
   };
 }
