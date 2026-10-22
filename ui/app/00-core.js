@@ -621,6 +621,22 @@ function fmtTime(ts) {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/**
+ * a 是否比 b 新（语义版本，忽略 v 前缀与 . + - 之后的部分）。
+ * 前端兜底：后端 update-check 曾把**缓存里按旧版本算的** hasUpdate 原样返回，
+ * 导致已经升到最新仍显示"有新版本 0.5.7"。展示前再过一遍，宁可少提示也不误提示。
+ */
+function isNewerVersion(a, b) {
+  const norm = (v) => String(v || '').trim().replace(/^v/i, '').split(/[.+-]/).map((x) => Number(x) || 0);
+  const x = norm(a);
+  const y = norm(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d !== 0) return d > 0;
+  }
+  return false;
+}
+
 function fmtClock(ts) {
   const d = new Date(ts);
   const p = (n) => String(n).padStart(2, '0');

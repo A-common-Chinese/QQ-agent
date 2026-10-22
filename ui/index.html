@@ -157,19 +157,19 @@
   </main>
 
   <!-- M9 拆分：ESM 桥（vendor 模块 → window）先执行；其后 12 段普通脚本按 defer 顺序执行，
-       module 与 defer 共享同一条按文档顺序的延迟队列，保证桥先于 00-core.js?v=20261022m。 -->
+       module 与 defer 共享同一条按文档顺序的延迟队列，保证桥先于 00-core.js?v=20261022u。 -->
   <script type="module" src="/app.js"></script>
-  <script defer src="/app/00-core.js?v=20261022m"></script>
+  <script defer src="/app/00-core.js?v=20261022u"></script>
   <script defer src="/app/01-boot.js"></script>
   <script defer src="/app/02-sse-sessions.js?v=20261022m"></script>
   <script defer src="/app/03-snowluma.js"></script>
   <script defer src="/app/04-archive-usage.js"></script>
   <script defer src="/app/05-memory-settings.js?v=20261022q"></script>
-  <script defer src="/app/06-settings-render.js?v=20261022t"></script>
-  <script defer src="/app/07-settings-events.js?v=20261022t"></script>
+  <script defer src="/app/06-settings-render.js?v=20261022u"></script>
+  <script defer src="/app/07-settings-events.js?v=20261022u"></script>
   <script defer src="/app/08-modals.js"></script>
   <script defer src="/app/09-community.js"></script>
-  <script defer src="/app/10-feedback.js"></script>
+  <script defer src="/app/10-feedback.js?v=20261022u"></script>
   <script defer src="/app/12-concept2-ui.js?v=20261022g"></script>
   <script defer src="/app/11-init.js"></script>
 

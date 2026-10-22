@@ -225,7 +225,8 @@ function renderSettings() {
   try {
     if (typeof showUpdateDetail === 'function' && state.webUpdateInfo !== false) {
       const info = state.updateInfo;
-      if (info && info.hasUpdate) {
+      // 只有真的"更新"才回填（后端缓存里的 hasUpdate 可能按旧版本算过，别把"已是最新"显示成有新版）
+      if (info && info.hasUpdate && (typeof isNewerVersion !== 'function' || isNewerVersion(info.latest, info.current))) {
         setTimeout(() => {
           if (state.tab === 'settings') {
             const box = document.getElementById('update-detail');

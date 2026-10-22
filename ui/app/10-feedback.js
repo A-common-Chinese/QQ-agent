@@ -684,7 +684,8 @@ async function runUpdateCheck({ manual = false } = {}) {
     const data = await api('/api/update-check');
     if (!data?.ok) return data;   // 网络/服务器错误原样返回，手动检查要显示原因
     updateLatest = data;
-    updateAvailable = !!data.hasUpdate;
+    // 只认"真的更新"：后端缓存命中时返回的 hasUpdate 可能按旧版本算过（升级完仍提示同版本）
+    updateAvailable = !!(data.hasUpdate && isNewerVersion(data.latest, data.current));
     renderUpdateDot();
     // 自动检查弹浮窗；本次启动内被用户关过就不再弹（手动点「检查更新」除外）
     if (updateAvailable && (!updateToastDismissed || manual)) {

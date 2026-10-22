@@ -102,7 +102,12 @@ export async function checkForUpdate(opts = {}) {
   if (!opts.force && cached && cached.ok && cached.latest) {
     const ageMin = (Date.now() - (Number(cached.checkedAt) || 0)) / 60000;
     if (ageMin < cfg.intervalHours * 60) {
-      return { ...cached, current, cached: true };
+      // ⚠️ 不能直接 { ...cached }：缓存里的 hasUpdate 是按**当时**的 current 算出来的。
+      // 用户升级完（current 追平 latest）后，缓存里还留着 hasUpdate=true，
+      // 结果 0.5.7 仍提示"有新版本 0.5.7"（2026-10-22 实测）。
+      // 所以缓存命中也要按当前版本重算；current 未知时才退回缓存值。
+      const hasUpdate = current ? compareSemver(cached.latest, current) > 0 : !!cached.hasUpdate;
+      return { ...cached, current, hasUpdate, cached: true };
     }
   }
 
