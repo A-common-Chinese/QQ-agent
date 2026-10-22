@@ -96,7 +96,9 @@ function wired(el) {
       '[data-cm-add]', '[data-cm-del]', '[data-cm-cmd]', '[data-cm-dur]',  // 禁言口令列表
       '[data-cmdmute-release]',                         // 解除禁言按钮
       '[data-tag-box]', '[data-tag-del]',               // 白名单/静默会话标签块
-      '[data-tag-input]'
+      '[data-tag-input]',
+      '[data-membundle]', '[data-membundle-section]',   // 记忆导出/导入
+      '#membundle-since', '#membundle-until', '#membundle-redact', '#membundle-file'
     ].join(', ');
     try { if (el.closest && el.closest(DELEGATED_SELECTOR)) return true; } catch { /* ignore */ }
   const tag = el.tagName.toLowerCase();

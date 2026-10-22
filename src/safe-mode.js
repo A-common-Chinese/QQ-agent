@@ -53,10 +53,12 @@ export function getSafeModeConfig() {
  * 脱敏一段文本。
  * @returns {{text:string, hits:string[], enabled:boolean, level:number}}
  */
-export function redactText(text) {
+export function redactText(text, { force = false } = {}) {
   const raw = String(text ?? '');
   const sm = getSafeModeConfig();
-  if (!sm.enabled || !raw) return { text: raw, hits: [], enabled: sm.enabled, level: sm.level };
+  // force：导出记忆包时用户主动要求脱敏，即使安全模式是关的也执行
+  if (!raw) return { text: raw, hits: [], enabled: sm.enabled, level: sm.level };
+  if (!sm.enabled && !force) return { text: raw, hits: [], enabled: sm.enabled, level: sm.level };
   const hits = [];
   let out = raw;
   const rules = sm.level === 2

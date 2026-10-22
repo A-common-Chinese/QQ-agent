@@ -33,6 +33,7 @@ import { parseLegacyCard } from './persona-import.js';
 import { runBackup, listBackups } from './backup.js';
 import { installUpdate, cleanUpdateTemp } from './updater.js';
 import { analyzeExtension } from './plugin-compat.js';
+import { exportToFile, previewImport, applyImport } from './memory-bundle.js';
 import { redactText, getSafeModeConfig } from './safe-mode.js';
 import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral } from './memory-cards.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
@@ -1730,6 +1731,50 @@ export function createRoutes(deps) {
     },
     {
       // 期 1：只下载安装包，绝不自动安装
+      // 导出：GET 用默认；POST 可带 { sections, since, until, redact }
+      method: '*', pattern: '/api/memory-bundle/export',
+      handler: async ({ req, res, json }) => {
+        let body = {};
+        try { if (req.method === 'POST') body = (await bodyOf(req)) || {}; } catch { body = {}; }
+        try {
+          const r = exportToFile({
+            appVersion: localVersion(),
+            botName: getConfig()?.persona?.botName || '',
+            sections: body?.sections ?? null,
+            since: body?.since || null,
+            until: body?.until || null,
+            redact: body?.redact === true
+          });
+          return json(res, 200, r);
+        } catch (error) {
+          return json(res, 200, { ok: false, error: String(error?.message ?? error) });
+        }
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/memory-bundle/preview',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        let obj = body?.bundle;
+        if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { return json(res, 200, { ok: false, errors: ['JSON 解析失败'] }); } }
+        const opts = { sections: body?.sections ?? null, since: body?.since || null, until: body?.until || null };
+        try { return json(res, 200, previewImport(obj, opts)); }
+        catch (error) { return json(res, 200, { ok: false, errors: [String(error?.message ?? error)] }); }
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/memory-bundle/import',
+      handler: async ({ res, json, req }) => {
+        const body = await readBody(req).catch(() => ({}));
+        let obj = body?.bundle;
+        if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch { return json(res, 200, { ok: false, errors: ['JSON 解析失败'] }); } }
+        const mode = body?.mode === 'replace' ? 'replace' : 'merge';
+        const opts = { mode, sections: body?.sections ?? null, since: body?.since || null, until: body?.until || null };
+        try { return json(res, 200, applyImport(obj, opts)); }
+        catch (error) { return json(res, 200, { ok: false, errors: [String(error?.message ?? error)] }); }
+      }
+    },
+    {
       method: 'GET', pattern: '/api/command-mute',
       handler: async ({ res, json }) => {
         const cm = getConfig().commandMute || {};

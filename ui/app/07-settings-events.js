@@ -1390,3 +1390,123 @@ document.addEventListener('change', async (e) => {
     if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(err?.message || err));
   }
 });
+
+// ── 记忆导出 / 导入 ─────────────────────────────────────────────────
+let pendingBundleText = null;
+
+/** 收集导出/导入选项：栏目 + 时间范围 + 是否脱敏 */
+function membundleOptions() {
+  const sections = {};
+  for (const el of document.querySelectorAll('#view-settings [data-membundle-section]')) {
+    sections[el.dataset.membundleSection] = !!el.checked;
+  }
+  const dayStart = (v) => (v ? new Date(v + 'T00:00:00').toISOString() : null);
+  const dayEnd = (v) => (v ? new Date(v + 'T23:59:59.999').toISOString() : null);
+  const sinceEl = document.getElementById('membundle-since');
+  const untilEl = document.getElementById('membundle-until');
+  const redactEl = document.getElementById('membundle-redact');
+  return {
+    sections,
+    since: dayStart(sinceEl?.value || ''),
+    until: dayEnd(untilEl?.value || ''),
+    redact: !!redactEl?.checked
+  };
+}
+function memBundleHint(text, color) {
+  const el = document.getElementById('membundle-hint');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.color = color || '';
+}
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('#view-settings [data-membundle]');
+  if (!btn) return;
+  e.preventDefault();
+  const act = btn.dataset.membundle;
+  if (act === 'export') {
+    memBundleHint('正在导出…');
+    try {
+      const opt = membundleOptions();
+      const r = await api('/api/memory-bundle/export', { method: 'POST', body: JSON.stringify(opt) });
+      if (!r || r.ok === false) { memBundleHint('导出失败：' + (r?.error || '未知错误'), 'var(--red)'); return; }
+      const blob = new Blob([r.text], { type: 'application/json;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = r.name || 'memories.qqmem.json';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      const c = r.counts || {};
+      memBundleHint('已导出：通用 ' + (c.generals || 0) + ' / 群 ' + (c.groups || 0) + ' / 个人 ' + (c.persons || 0) + ' / 话题 ' + (c.topics || 0) + '，另存于 data/exports/', 'var(--green)');
+    } catch (err) {
+      memBundleHint('导出失败：' + (err?.message || err), 'var(--red)');
+    }
+    return;
+  }
+  if (act === 'pick') {
+    const f = document.getElementById('membundle-file');
+    if (f) f.click();
+    return;
+  }
+  if (act === 'import') {
+    if (!pendingBundleText) { memBundleHint('先选择文件', 'var(--orange)'); return; }
+    const mode = btn.dataset.mode === 'replace' ? 'replace' : 'merge';
+    btn.disabled = true;
+    memBundleHint('正在导入（' + (mode === 'replace' ? '覆盖' : '合并') + '）…');
+    try {
+      const opt = membundleOptions();
+      const r = await api('/api/memory-bundle/import', { method: 'POST', body: JSON.stringify({ bundle: pendingBundleText, mode, ...opt }) });
+      if (!r || r.ok === false) {
+        memBundleHint('导入失败：' + ((r?.errors || []).join('；') || '未知错误'), 'var(--red)');
+      } else {
+        const w = r.written || {}, s2 = r.skipped || {};
+        memBundleHint('导入完成：写入 通用' + (w.generals || 0) + '/群' + (w.groups || 0) + '/个人' + (w.persons || 0) + '/话题' + (w.topics || 0) +
+          '，跳过 ' + ((s2.generals || 0) + (s2.groups || 0) + (s2.persons || 0) + (s2.topics || 0)) + ' 条（已更新）', 'var(--green)');
+        if (typeof loadSettings === 'function') await loadSettings();
+      }
+    } catch (err) {
+      memBundleHint('导入失败：' + (err?.message || err), 'var(--red)');
+    }
+    btn.disabled = false;
+    return;
+  }
+});
+document.addEventListener('change', async (e) => {
+  const f = e.target.closest('#view-settings #membundle-file');
+  if (!f || !f.files || !f.files[0]) return;
+  const file = f.files[0];
+  const box = document.getElementById('membundle-preview');
+  try {
+    pendingBundleText = await file.text();
+    memBundleHint('正在解析 ' + file.name + ' …');
+    const opt = membundleOptions();
+    const r = await api('/api/memory-bundle/preview', { method: 'POST', body: JSON.stringify({ bundle: pendingBundleText, ...opt }) });
+    if (!r || r.ok === false) {
+      pendingBundleText = null;
+      if (box) { box.style.display = ''; box.innerHTML = '<span style="color:var(--red)">无法导入：' + ((r?.errors || []).join('；') || '未知错误') + '</span>'; }
+      memBundleHint('');
+      return;
+    }
+    const p = r.plan || {};
+    const rows = ['generals', 'groups', 'persons', 'topics'].map((k) => {
+      const x = p[k] || {};
+      const label = { generals: '通用卡', groups: '群/私聊卡', persons: '个人卡', topics: '话题卡' }[k];
+      return label + '：新增 ' + (x.add || 0) + ' · 更新 ' + (x.update || 0) + ' · 相同 ' + (x.same || 0) + ' · 较旧 ' + (x.older || 0);
+    }).join('<br>');
+    const gen = r.generator ? ((r.generator.app || '') + ' v' + (r.generator.version || '?') + ' · ' + (r.generator.exportedAt || '')) : '未知来源';
+    if (box) {
+      box.style.display = '';
+      box.innerHTML = '<div style="border:1px solid var(--bd);border-radius:9px;padding:10px;background:var(--bg1)">' +
+        '<div><b>' + (file.name) + '</b> <span class="muted">（' + gen + '）</span></div>' +
+        '<div class="hint" style="margin:6px 0">' + rows + '</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          '<button class="btn btn-small btn-primary" data-membundle="import" data-mode="merge">合并导入（保留较新）</button>' +
+          '<button class="btn btn-small btn-danger" data-membundle="import" data-mode="replace">覆盖导入</button>' +
+        '</div></div>';
+    }
+    memBundleHint('解析完成，确认下面的差异后再点导入');
+  } catch (err) {
+    pendingBundleText = null;
+    memBundleHint('读取失败：' + (err?.message || err), 'var(--red)');
+  }
+});

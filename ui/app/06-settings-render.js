@@ -470,7 +470,8 @@ function renderSearchSection(c) {
 }
 
   function renderMemorySettingsSection(c) {
-    return renderMemorySettingsSectionInner(c);
+    // 末尾追加「记忆导出 / 导入」卡片
+    return renderMemorySettingsSectionInner(c) + (typeof renderMemoryBundleCard === 'function' ? renderMemoryBundleCard(c) : '');
   }
   function renderMemorySettingsSectionInner(c) {
   const mem = c.memory || {};
@@ -3003,4 +3004,40 @@ function renderSilentAtBlock(c) {
     '<div class="field"><label>固定回复词</label>' +
       '<input type="text" id="silentat-reply" data-silentat="replyText" value="' + esc(reply) + '" />' +
       '<div class="hint">档 1 判定为「不是转发请求」时、以及档 2 始终，都回这句话。</div></div>';
+}
+
+
+// ── 记忆导出 / 导入（自描述 .qqmem 包）────────────────────────────
+function renderMemoryBundleCard(c) {
+  const fold = (typeof setCard === 'function') ? setCard : (o) => '<div class="setcard">' + (o.body || '') + '</div>';
+  const secChip = (id, label) =>
+    '<label class="fwd-chip on" style="cursor:pointer"><input type="checkbox" data-membundle-section="' + id + '" checked style="margin-right:5px" />' + label + '</label>';
+  return fold({
+    id: 'card-memory-bundle',
+    icon: '📦',
+    title: '记忆导出 / 导入',
+    sub: '换号、或上下文爆了时把记忆整包存下来，需要时再导回去（可筛栏目/时间，可脱敏）',
+    open: false,
+    body:
+      '<div class="hint" style="margin-top:0">' +
+        '导出的是<b>自描述记忆包</b>（<code>.qqmem.json</code>）：除了记忆内容，还写了它<b>来自哪</b>、' +
+        '每条的<b>时间</b>与<b>字段含义</b>、以及<b>筛选条件与是否脱敏</b> —— 以后换号或换版本也读得懂。' +
+      '</div>' +
+      '<div class="field" style="margin-top:10px"><label>包含栏目（导出/导入都按它筛）</label>' +
+        '<div class="fwd-row">' + secChip('generals', '通用卡') + secChip('groups', '群/私聊卡') + secChip('persons', '个人卡') + secChip('topics', '话题卡') + '</div></div>' +
+      '<div class="field-row">' +
+        '<div class="field"><label>起始时间（可空）</label><input type="date" id="membundle-since" /></div>' +
+        '<div class="field"><label>截止时间（可空）</label><input type="date" id="membundle-until" /></div>' +
+      '</div>' +
+      '<div class="checkbox-row"><input type="checkbox" id="membundle-redact" />' +
+        '<label for="membundle-redact">导出时自动脱敏（密码 / 电话 / 账号等换成占位符；存档不受影响）</label></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0">' +
+        '<button class="btn btn-small btn-primary" data-membundle="export">📤 导出记忆包</button>' +
+        '<button class="btn btn-small" data-membundle="pick">📥 选择文件导入</button>' +
+        '<input type="file" id="membundle-file" accept=".json,.qqmem,application/json" style="display:none" />' +
+        '<span class="hint" id="membundle-hint" style="margin:0"></span>' +
+      '</div>' +
+      '<div id="membundle-preview" style="display:none;margin:8px 0"></div>' +
+      '<div class="hint">导出同时在 <code>data/exports/</code> 留一份；导入默认「合并」（以 QQ 号 / 会话为键，时间新的覆盖），也可「覆盖」。时间筛选用的是每张卡的 updatedAt / lastActiveAt。</div>'
+  });
 }
