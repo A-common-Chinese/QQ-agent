@@ -426,21 +426,8 @@ function bindSettingsEvents(c) {
   // ── 屏蔽名单 ──
   $('#blocklist-btn')?.addEventListener('click', () => openBlocklistModal());
 
-  // ── 主题选择器（设置页「界面」区）──
-  const themePicker = $('#theme-picker');
-  if (themePicker) {
-    themePicker.querySelectorAll('[data-theme-opt]').forEach((el) => {
-      const pick = () => {
-        applyTheme(el.dataset.themeOpt);
-        themePicker.querySelectorAll('[data-theme-opt]').forEach((x) => x.classList.toggle('on', x === el));
-      };
-      el.addEventListener('click', pick);
-      // 键盘可达：Enter / Space 等价点击
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
-      });
-    });
-  }
+  // 主题选择器已移除：桌面端「界面」里那份主题是重复入口，
+  // 统一由 设置 → 外观 → UI 自定义 管（15-ui-skin.js）。这里不再绑定。
 
   // ── 成本核算：价格卡片随模型/开关变化 ──
   const useOfficialBox = $('#cfg-useofficialprice');

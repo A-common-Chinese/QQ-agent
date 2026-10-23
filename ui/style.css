@@ -2003,11 +2003,12 @@ body.sidebar-collapsed #sidebar-resizer { display: none; }
 .subnav-drop .settings-menu-item:hover { background: var(--bg3); color: var(--tx); }
 .subnav-drop .settings-menu-item.active { background: var(--bg3); color: var(--ac); }
 .subnav-egg {
-  flex: 0 0 auto; height: 26px; padding: 0 10px; border-radius: 13px;
-  border: 1px dashed var(--bd); background: none; color: var(--faint);
-  font-size: 11px; cursor: pointer;
+  flex: 0 0 auto; width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--bd); background: var(--bg2); color: var(--tx2);
+  cursor: pointer;
 }
-.subnav-egg:hover { color: var(--ac); border-color: var(--ac); }
+.subnav-egg:hover { color: var(--ac); border-color: var(--ac); background: var(--bg3); }
 
 /* ── 会话页：按会话视图（群列表 + 返回）──────────────────────────────── */
 .session-group-row {

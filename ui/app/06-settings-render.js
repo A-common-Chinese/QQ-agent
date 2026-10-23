@@ -163,7 +163,17 @@ function renderSettingsSidebar() {
       + '</div></div>';
   }).join('')
     + '<span class="subnav-note">' + note + '</span>'
-    + '<button class="subnav-egg" id="qrcode-egg-btn" title="！？群群？！">！？</button>';
+    // 加群入口：QQ 企鹅图标（原来写「！？」没人看得懂）
+    + '<button class="subnav-egg" id="qrcode-egg-btn" title="加入 QQ 群（扫码进群）" aria-label="加入 QQ 群">'
+    + '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">'
+    + '<ellipse cx="12" cy="13.6" rx="7.9" ry="8.9" fill="currentColor"></ellipse>'
+    + '<ellipse cx="12" cy="15.8" rx="5.1" ry="6" fill="#fff"></ellipse>'
+    + '<circle cx="9.3" cy="10.1" r="1.95" fill="#fff"></circle>'
+    + '<circle cx="14.7" cy="10.1" r="1.95" fill="#fff"></circle>'
+    + '<circle cx="9.75" cy="10.2" r="0.95" fill="currentColor"></circle>'
+    + '<circle cx="14.25" cy="10.2" r="0.95" fill="currentColor"></circle>'
+    + '<path d="M10.5 12.2 h3 L12 14.2 Z" fill="#f5a623"></path>'
+    + '</svg></button>';
 
   box.querySelectorAll('.subnav-group').forEach((btn) => {
     btn.addEventListener('click', (e) => {
