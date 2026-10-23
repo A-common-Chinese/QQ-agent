@@ -49,3 +49,7 @@ release/
 community.key
 
 .goal-baseline/
+
+# 本地临时截图脚本
+shot-*.mjs
+
