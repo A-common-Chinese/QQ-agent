@@ -21,6 +21,8 @@
     menu.hidden = true;
     btn.classList.remove('open');
     btn.setAttribute('aria-expanded', 'false');
+    // 关掉菜单后：鼠标不在右下角就缩回去（否则会一直贴着屏幕露着）
+    try { if (typeof scheduleHide === 'function') scheduleHide(300); } catch { /* 忽略 */ }
   };
 
   // ── 贴边/滑出：默认只露 1/3 圆，鼠标靠近右下角（或按钮本身获得焦点）才滑出 ──
@@ -28,30 +30,39 @@
   const ZONE_X = 132;             // 距右边缘多少像素内算"靠近"
   const ZONE_Y = 150;
   let hideTimer = 0;
+  let keyboardMode = false;
+  const nearCorner = (x, y) => (window.innerWidth - x) <= ZONE_X && (window.innerHeight - y) <= ZONE_Y;
   const reveal = () => {
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0; }
     fab.classList.add('reveal');
   };
-  const scheduleHide = () => {
-    if (!menu.hidden) return;     // 菜单开着不收起
+  // ⚠️ 不把"按钮有焦点"当作保持滑出的理由：点过按钮后焦点一直留在它身上，
+  //    鼠标移开也永远缩不回去（用户实测就是这个现象）。只有键盘操作（Tab）才按焦点保持。
+  const hideNow = () => {
+    hideTimer = 0;
+    if (!menu.hidden) return;                                          // 菜单开着不收起
+    if (keyboardMode && fab.contains(document.activeElement)) return;  // 键盘操作中不收起
+    fab.classList.remove('reveal');
+  };
+  const scheduleHide = (delay = 550) => {
+    if (!menu.hidden) return;
     if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-      hideTimer = 0;
-      if (menu.hidden && !fab.contains(document.activeElement)) fab.classList.remove('reveal');
-    }, 700);
+    hideTimer = setTimeout(hideNow, delay);
   };
   document.addEventListener('mousemove', (e) => {
-    const near = (window.innerWidth - e.clientX) <= ZONE_X && (window.innerHeight - e.clientY) <= ZONE_Y;
-    if (near) reveal(); else scheduleHide();
+    if (nearCorner(e.clientX, e.clientY)) reveal(); else scheduleHide();
   }, { passive: true });
-  // 触屏/无鼠标：点一下按钮即可（贴边状态本身也能点到露出的 1/3）
-  btn.addEventListener('focusin', reveal);
-  fab.addEventListener('focusout', scheduleHide);
+  // 光标移出窗口 / 窗口失焦 / 点到别处：都要缩回去
+  document.addEventListener('mouseleave', () => scheduleHide(200));
+  window.addEventListener('blur', () => scheduleHide(0));
+  document.addEventListener('pointerdown', () => { keyboardMode = false; scheduleHide(0); }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyboardMode = true; }, true);
   fab.addEventListener('pointerenter', reveal);
-  fab.addEventListener('pointerleave', scheduleHide);
-  // 页面初次渲染时如果鼠标停在右下角（比如窗口刚开），也直接滑出
+  fab.addEventListener('pointerleave', () => scheduleHide(350));
+  btn.addEventListener('focus', () => { if (keyboardMode) reveal(); });
+  // 页面初次渲染时如果鼠标已经停在右下角（比如窗口刚开），直接滑出
   document.addEventListener('pointermove', (e) => {
-    if ((window.innerWidth - e.clientX) <= ZONE_X && (window.innerHeight - e.clientY) <= ZONE_Y) reveal();
+    if (nearCorner(e.clientX, e.clientY)) reveal();
   }, { passive: true, once: true });
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
