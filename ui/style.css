@@ -2134,30 +2134,36 @@ body.sidebar-collapsed #sidebar-resizer { display: none; }
 body.skin-bg-on { background: transparent; }
 body.skin-bg-on #app { position: relative; z-index: 1; }
 /* 打开自定义背景时，把"整块铺满"的面板改成半透明，否则背景只会在面板缝隙里露一点 */
+/* 面板/卡片透明度：--skin-alpha 由「UI 自定义」的滑块控制（默认 100% = 不透明） */
 body.skin-bg-on #sidebar,
 body.skin-bg-on #topbar,
-body.skin-bg-on .subnav {
-  background: color-mix(in srgb, var(--bg1) 80%, transparent);
-}
-/* 内容面板：半透（不是全透明）—— 既能看见背景，文字又保持可读。
-   列表/表单这类密集文字用更实的底；详情区基本是空白，可以更透。 */
+body.skin-bg-on .subnav,
 body.skin-bg-on .list-pane,
+body.skin-bg-on .detail-pane,
+body.skin-bg-on .usage-pane,
 body.skin-bg-on .settings-pane,
 body.skin-bg-on .snowluma-pane {
-  background: color-mix(in srgb, var(--bg1) 86%, transparent);
+  background: color-mix(in srgb, var(--bg1) var(--skin-alpha, 100%), transparent);
+  -webkit-backdrop-filter: var(--skin-panel-filter, none);
+  backdrop-filter: var(--skin-panel-filter, none);
 }
-body.skin-bg-on .detail-pane {
-  background: color-mix(in srgb, var(--bg1) 55%, transparent);
-}
-body.skin-bg-on .usage-pane {
-  background: color-mix(in srgb, var(--bg1) 65%, transparent);
+/* 卡片类：同样跟随透明度（背景能透过卡片看到） */
+body.skin-bg-on .usage-card,
+body.skin-bg-on .setcard,
+body.skin-bg-on .mem-card,
+body.skin-bg-on .mcard,
+body.skin-bg-on .session-item,
+body.skin-bg-on .skin-preview {
+  background-color: color-mix(in srgb, var(--bg2) var(--skin-alpha, 100%), transparent);
+  -webkit-backdrop-filter: var(--skin-panel-filter, none);
+  backdrop-filter: var(--skin-panel-filter, none);
 }
 body.skin-bg-on .view { background: transparent; }
 #skin-bg::after {
   content: ''; position: absolute; inset: 0; background: var(--skin-dim, transparent);
 }
-.skin-wrap { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
-.skin-col { flex: 1 1 520px; min-width: 320px; }
+.skin-wrap { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; padding: 16px 18px 18px; }
+.skin-col { flex: 1 1 520px; min-width: 320px; padding-left: 2px; }
 .skin-row { padding: 10px 0; border-bottom: 1px solid var(--bd); }
 .skin-row:last-of-type { border-bottom: none; }
 .skin-lbl { font-size: 12px; font-weight: 700; color: var(--tx2); margin-bottom: 8px; }
@@ -2195,7 +2201,7 @@ body.skin-bg-on .view { background: transparent; }
 .skin-preview .sp-side { width: 78px; border-radius: 8px; background: var(--bg1); padding: 8px; }
 .skin-preview .sp-dot { height: 16px; border-radius: 5px; margin-bottom: 6px; background: var(--bg3); }
 .skin-preview .sp-dot.on { background: var(--ac); }
-.skin-preview .sp-main { flex: 1; border-radius: 8px; background: var(--bg2); border: 1px solid var(--bd); padding: 10px; font-size: 11px; color: var(--tx); }
+.skin-preview .sp-main { flex: 1; border-radius: 8px; background: var(--bg2); border: 1px solid var(--bd); padding: 12px 14px; font-size: 11px; color: var(--tx); }
 .skin-preview .sp-row { display: flex; gap: 10px; }
 .skin-note { font-size: 11px; color: var(--tx3); line-height: 1.7; margin-top: 6px; }
 .skin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
@@ -2206,7 +2212,7 @@ body.skin-bg-on .view { background: transparent; }
 /* 图片参数：滑块 + 数字框 */
 .skin-ranges { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .skin-range { display: flex; align-items: center; gap: 9px; font-size: 12px; color: var(--tx2); }
-.skin-range-lbl { width: 56px; flex: 0 0 auto; white-space: nowrap; }
+.skin-range-lbl { width: 76px; flex: 0 0 auto; white-space: nowrap; }
 .skin-range input[type=range] { width: 150px; accent-color: var(--ac); }
 .skin-range-unit { color: var(--tx3); font-size: 11px; width: 16px; }
 

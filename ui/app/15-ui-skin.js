@@ -23,12 +23,13 @@
     mist: { label: '雾蓝', css: 'linear-gradient(160deg, #e6eefb 0%, #cbdaf0 100%)' },
     night: { label: '墨夜', css: 'linear-gradient(160deg, #0b0f15 0%, #1b2333 100%)' }
   };
-  // 透明方式：直接透明 / 两档毛玻璃 / 磨砂（都是给背景层加 filter，不影响内容）
+  // 透明方式 = 半透明面板本身的效果（backdrop-filter，作用于面板/卡片，不作用于背景图）
+  //   直接透明 = 只是变透；毛玻璃 = 面板后面的背景被模糊（经典 glass 效果）
   const BG_MODES = {
-    none: { label: '直接透明', filter: '' },
-    soft: { label: '轻微模糊', filter: 'blur(4px)' },
-    strong: { label: '强模糊', filter: 'blur(12px)' },
-    frost: { label: '磨砂玻璃', filter: 'blur(8px) saturate(1.15) brightness(1.04)' }
+    none: { label: '直接透明', filter: 'none' },
+    soft: { label: '轻微毛玻璃', filter: 'blur(6px)' },
+    strong: { label: '强毛玻璃', filter: 'blur(14px)' },
+    frost: { label: '磨砂玻璃', filter: 'blur(10px) saturate(1.2)' }
   };
   const SOLIDS = ['#f7f8fa', '#efe7d8', '#e8efe9', '#e9eef7', '#f3ecf4', '#ffffff'];
   const DEFAULTS = {
@@ -130,15 +131,15 @@
       layer.style.backgroundImage = 'none';
       layer.style.backgroundColor = solidColor;
     }
-    // 透明度（0-100）
-    const opacity = bg.opacity === undefined ? 100 : Math.min(100, Math.max(0, Number(bg.opacity)));
-    layer.style.opacity = String(opacity / 100);
-    // 透明方式（模糊档）：与图片自身的"模糊"叠加
+    // 背景层本身永远不透明：透明度调的是"面板/卡片"，否则调低只会露出底色（看着像变黑）
+    layer.style.opacity = '1';
+    layer.style.filter = showImage && Number(bg.blur) > 0 ? 'blur(' + Number(bg.blur) + 'px)' : '';
+    // 卡片/面板透明度（0-100）：越低，背景越透出来
+    const alpha = bg.opacity === undefined ? 100 : Math.min(100, Math.max(0, Number(bg.opacity)));
+    root.style.setProperty('--skin-alpha', alpha + '%');
+    // 透明方式：面板的毛玻璃效果
     const mode = BG_MODES[bg.mode] ? bg.mode : 'none';
-    const filters = [];
-    if (BG_MODES[mode].filter) filters.push(BG_MODES[mode].filter);
-    if (showImage && Number(bg.blur) > 0) filters.push('blur(' + Number(bg.blur) + 'px)');
-    layer.style.filter = filters.length ? filters.join(' ') : '';
+    root.style.setProperty('--skin-panel-filter', BG_MODES[mode].filter);
     const dim = showImage ? Number(bg.dim) || 0 : 0;
     root.style.setProperty('--skin-dim', dim > 0 ? 'rgba(0,0,0,' + Math.min(0.8, dim / 100) + ')' : 'transparent');
   }
@@ -216,10 +217,11 @@
       <div class="skin-col">
         <div class="skin-row"><div class="skin-lbl">背景（纯色）</div>${swatchRow()}</div>
         <div class="skin-row"><div class="skin-lbl">背景（预设 / 图片）</div>${presetRow()}${imageOptionsRow()}</div>
-        <div class="skin-row"><div class="skin-lbl">背景透明度与透明方式</div>
-          <div class="skin-range"><span class="skin-range-lbl">透明度</span>
+        <div class="skin-row"><div class="skin-lbl">卡片透明度与透明方式</div>
+          <div class="skin-note" style="margin:0 0 6px">调低后侧栏 / 列表 / 卡片会变半透明，背景从后面透出来（背景图本身不受影响）</div>
+          <div class="skin-range"><span class="skin-range-lbl">卡片透明度</span>
             <input type="range" id="skin-opacity-range" min="0" max="100" step="5" value="${opacityVal()}">
-            <input class="skin-num" type="number" id="skin-opacity" min="0" max="100" step="5" value="${opacityVal()}">
+            <input class="skin-num" id="skin-opacity" type="number" min="0" max="100" step="5" value="${opacityVal()}">
             <span class="skin-range-unit">%</span></div>
           <div class="skin-line" style="margin-top:8px">
             ${Object.entries(BG_MODES).map(([id, m]) => `<button class="skin-btn${(S.skin.bg.mode || 'none') === id ? ' on' : ''}" data-skin-mode="${id}">${m.label}</button>`).join('')}

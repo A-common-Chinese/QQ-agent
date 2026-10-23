@@ -533,6 +533,7 @@ export const DEFAULT_CONFIG = {
     // 2026-10 新增：UI 自定义（背景/颜色/字体/侧栏宽度）。
     // 图片本体不放这里（太大），只存类型与参数；上传的位图存在本机 localStorage。
     skin: {
+      // opacity = 卡片/面板透明度（100=不透明）; mode = 面板毛玻璃档（none/soft/strong/frost）
       bg: { type: 'solid', color: '', preset: '', blur: 0, dim: 0, fit: 'cover', opacity: 100, mode: 'none' },
       colors: { accent: '', bg: '', card: '', text: '', tx2: '', line: '' },
       font: { family: '', scale: 1 },
