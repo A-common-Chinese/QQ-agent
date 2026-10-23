@@ -72,8 +72,8 @@
       label: '深海海报',
       photo: 'assets/skins/harness.webp',
       base: '#25407e',
-      // 右侧海报：完整显示、左边缘渐隐，内容区不受影响
-      layout: { scale: 76, offsetY: 34, fade: 16, paneAlpha: 50, alpha: false }
+      // 铺满：素材本身是 16:9 白底画布（海报居中），所以 cover 时既铺满、四周也是白的
+      layout: { bleed: true, whiteBg: true, contain: true, scrim: 0.22, paneAlpha: 66, alpha: false }
     },
     point: {
       label: '指认',
@@ -367,7 +367,8 @@
         scrim.id = 'skin-scrim';
         layer.appendChild(scrim);
       }
-      const dark = resolvedTheme() === 'dark';
+      // 白底类预设（whiteBg）在任何主题下都压白：否则深色主题会把白底压成灰黑，看起来又"发黑"了
+      const dark = resolvedTheme() === 'dark' && !L.whiteBg;
       scrim.style.background = dark
         ? 'rgba(0,0,0,' + Math.min(0.8, L.scrim + 0.12) + ')'
         : 'rgba(255,255,255,' + L.scrim + ')';
@@ -375,11 +376,15 @@
       scrim.remove();
     }
     if (L.bleed) {
+      // 整屏铺满：底部刷白（素材已是白底画布，这里兜住加载瞬间与亚像素缝隙）
+      if (L.whiteBg) layer.style.backgroundColor = '#fff';
       // 整屏铺满：顶部对齐裁切
       img.style.left = '0'; img.style.right = '0'; img.style.top = '0'; img.style.bottom = '0';
       img.style.width = '100%'; img.style.height = '100%';
-      img.style.objectFit = 'cover';
-      img.style.objectPosition = 'top center';
+      img.style.maxWidth = 'none';   // CSS 里给靠右站位留的 max-width:62vw 会在这里把画布截窄
+      // contain：白底铺满窗口、海报完整居中（不裁切）；cover：素材自带白边时整屏裁切
+      img.style.objectFit = L.contain ? 'contain' : 'cover';
+      img.style.objectPosition = L.contain ? 'center center' : 'top center';
       img.style.opacity = '1';
       img.style.filter = 'none';
       return;
