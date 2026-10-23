@@ -13,11 +13,11 @@
  */
 (function () {
   const DONE_KEY = 'qqa-boot-played';
-  const IMG_SRC = 'assets/boot/enter.webp?v=20261023g';   // 换素材时改这个版本号，避免浏览器拿旧图
-  const AUD_SRC = 'assets/boot/enter.m4a?v=20261023g';
+  const IMG_SRC = 'assets/boot/enter.webp?v=20261023h';   // 换素材时改这个版本号，避免浏览器拿旧图
+  const AUD_SRC = 'assets/boot/enter.m4a?v=20261023h';
   const T_MOVE = 3300;   // 角色完全起身(约2.9s)后再等 0.4s，然后向左平移
-  const T_END = 4900;    // 平移到位后再停一下才淡出
-  const T_GONE = 5250;   // 彻底移除
+  const T_END = 5600;    // 延长结尾：让配音（约 2.03s）正好放完再淡出
+  const T_GONE = 5950;   // 彻底移除
 
   let timers = [];
   let seq = 0;   // 每次创建动画层都换一个 URL，否则 loop=1 的动图第二次不会重播
@@ -86,13 +86,13 @@
     if (typeof window.addEventListener === 'function') window.addEventListener('keydown', skip, { once: true });
 
     later(() => stage.classList.add('go'), T_MOVE);
+    later(() => word.classList.add('in'), T_MOVE + 180);
+    // 配音比出字早 0.2 秒起（用户要求），出字前正好铺垫一拍
     later(() => {
-      word.classList.add('in');
-      // 出字时起音：正片 0:02 之后的音频（已按 2x 对齐到压缩后的时间线）
       try {
         if (audio) { audio.volume = 0.85; const pr = audio.play(); if (pr && pr.catch) pr.catch(() => {}); }
-      } catch { /* 自动播放被拦就静音播完，别影响动画 */ }
-    }, T_MOVE + 180);
+      } catch { /* 自动播放被拦就静默，不影响动画 */ }
+    }, T_MOVE - 20);
     // 淡出前把音量收一下
     later(() => {
       try {
