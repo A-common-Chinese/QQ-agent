@@ -208,7 +208,7 @@
     return (skin && skin.colors) || {};
   }
 
-  const S = { skin: clone(DEFAULTS), saved: false, dirty: false };
+  const S = { skin: clone(DEFAULTS), saved: false, dirty: false, bootAnim: 'once' };
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
   function mergeSkin(raw) {
@@ -530,6 +530,15 @@
             <span class="skin-note">也可以直接拖主栏右边缘调</span>
           </div>
         </div>
+        <div class="skin-row"><div class="skin-lbl">启动动画</div>
+          <div class="skin-line">
+            <button class="skin-btn skin-boot-btn${S.bootAnim === 'once' ? ' on' : ''}" data-boot-anim="once">仅一次</button>
+            <button class="skin-btn skin-boot-btn${S.bootAnim === 'always' ? ' on' : ''}" data-boot-anim="always">总是</button>
+            <button class="skin-btn skin-boot-btn${S.bootAnim === 'off' ? ' on' : ''}" data-boot-anim="off">关闭</button>
+            <button class="skin-btn" id="skin-boot-preview">预览一次</button>
+          </div>
+          <div class="skin-note" style="margin:6px 0 0">默认「仅一次」：装完 / 更新后第一次启动播一遍角色动画，之后秒进；播放中点击任意处可跳过。</div>
+        </div>
         <div class="skin-actions">
           <button class="skin-btn primary" id="skin-save">保存</button>
           <button class="skin-btn" id="skin-reset">恢复全部默认</button>
@@ -673,6 +682,16 @@
       touch();
       rerender();
     }));
+    // 启动动画：三档 + 预览
+    document.querySelectorAll('[data-boot-anim]').forEach((el) => el.addEventListener('click', () => {
+      S.bootAnim = el.dataset.bootAnim;
+      try { localStorage.setItem('qqa-boot-mode', S.bootAnim); } catch { /* 忽略 */ }
+      api('/api/config', { method: 'POST', body: JSON.stringify({ ui: { bootAnim: S.bootAnim } }) }).catch(() => {});
+      rerender();
+    }));
+    $id('skin-boot-preview')?.addEventListener('click', () => {
+      if (typeof window.__bootPreview === 'function') window.__bootPreview();
+    });
     // 背景一变，自动配色要跟着重算（图片是异步取平均色）
     const recolorIfAuto = () => {
       if (!(S.skin.auto && S.skin.auto.on)) return;
@@ -787,6 +806,9 @@
     try {
       const cfg = await api('/api/config');
       S.skin = mergeSkin(cfg && cfg.ui && cfg.ui.skin);
+      const ba = cfg && cfg.ui && cfg.ui.bootAnim;
+      if (ba === 'off' || ba === 'always' || ba === 'once') S.bootAnim = ba;
+      try { localStorage.setItem('qqa-boot-mode', S.bootAnim); } catch { /* 忽略 */ }
     } catch { /* 用默认 */ }
     const autoSaved = readAuto();
     if (autoSaved) S.skin.auto = autoSaved;   // 自动配色以本机为准（含开启前的颜色）

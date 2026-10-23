@@ -530,6 +530,8 @@ export const DEFAULT_CONFIG = {
     // 主题：'light' | 'dark' | 'auto'（auto = 跟随系统偏好）。
     // 2026-10 改版起默认浅色；前端以 localStorage 为准做到即时生效。
     theme: 'light',
+    // 启动动画：'once'（默认，装完/更新后第一次启动播一次）/ 'always' / 'off'
+    bootAnim: 'once',
     showVision: true,         // 模型目录显示图片输入能力徽标
     refreshMs: 15000,         // 界面轮询间隔
     // 2026-10 新增：UI 自定义（背景/颜色/字体/侧栏宽度）。

@@ -2253,3 +2253,31 @@ body.skin-bg-on .view { background: transparent; }
 
 /* 整屏铺满背景的遮罩层（浅色主题白纱 / 深色主题黑纱，由预设 layout.scrim 决定强度） */
 #skin-scrim { position: absolute; inset: 0; pointer-events: none; }
+
+/* ── 启动动画 ─────────────────────────────────────────────────── */
+#boot-anim {
+  position: fixed; inset: 0; z-index: 9000; overflow: hidden;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: var(--bg0); opacity: 1; transition: opacity .34s ease;
+}
+#boot-anim.out { opacity: 0; pointer-events: none; }
+.boot-stage {
+  position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center;
+  transform-origin: 22% 88%;
+  transition: transform .85s cubic-bezier(.22,.7,.2,1);
+}
+.boot-stage.go { transform: translate(-30vw, -2vh) scale(.52); }
+#boot-char { height: 100vh; width: auto; object-fit: contain; object-position: center bottom; user-select: none; pointer-events: none; }
+.boot-word {
+  position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%) translateY(10px);
+  font-size: clamp(38px, 7vw, 92px); font-weight: 800; letter-spacing: .08em;
+  color: var(--tx); opacity: 0; transition: opacity .7s ease, transform .7s ease;
+  display: flex; gap: .28em; pointer-events: none; white-space: nowrap;
+}
+.boot-word span:first-child { color: var(--ac); }
+.boot-word.in { opacity: 1; transform: translate(-50%, -50%) translateY(0); }
+.boot-skip {
+  position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%);
+  font-size: 12px; color: var(--tx3); letter-spacing: .04em; pointer-events: none;
+}
+.skin-boot-btn.on { border-color: var(--ac); color: var(--ac); }
