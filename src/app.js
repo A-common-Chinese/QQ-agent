@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { getConfig, updateConfig, ROOT, DATA_DIR, silentReason } from './config.js';
+import { getConfig, updateConfig, ROOT, DATA_DIR, silentReason, ensurePersonaAssignment } from './config.js';
 import { checkForUpdate as updateCheck, getDownloadState as updateStatus, downloadUpdate as updateDownload } from './updater.js';
 import { OneBotClient, segmentsToText, extractMediaFromSegments, expandForwardNodes } from './onebot.js';
 import { isAtMe } from './prompt.js';
@@ -936,6 +936,12 @@ export function createApp({ log = console.log } = {}) {
       store.markEntryRead(`${kind}:${id}`, entry.id);
       return;
     }
+    // 新会话（第一次说话的会话）先补默认人格卡：没分配卡的会话会静默，
+    // 表现为"加进白名单也不理人"（2026-10-23 的 bug 反馈）。
+    try {
+      const _autoCard = ensurePersonaAssignment(`${kind}:${id}`);
+      if (_autoCard) log(`[人格] 新会话 ${kind}:${id} 自动分配默认卡：${_autoCard}`);
+    } catch { /* 分配失败不影响主流程 */ }
     // 逐条触发判定：把刚入库的条目交给编排器（entry 让它能精确标这一条已读）
     orchestrator.onIncoming(`${kind}:${id}`, entry);
     // 静默会话不回复时留一条可解释的日志（同一会话 10 分钟内只记一次，避免刷屏）

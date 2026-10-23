@@ -241,6 +241,8 @@ export const DEFAULT_CONFIG = {
   // 统一模式下不读 personaByChat）—— 否则统一开关形同虚设：旧分会话条目会
   // 继续静默覆盖全局人设，而 UI 已把编辑入口藏起来了。
   personaUnified: true,
+  // 新会话（白名单里第一次说话的好友/群）自动分配的人格卡 id；空 = 用内置卡/第一张卡
+  personaDefaultId: '',
   // 接入白名单
   allow: { groups: [], private: [] },
   deny: { groups: [], private: [] },
@@ -898,9 +900,48 @@ export function silentReason(chatKey, list = null) {
   if (!Array.isArray(list)) {
     const _c = getConfig();
     if (_c.store?.silentWhenUnassigned === false) return '';
-    if (Array.isArray(_c.personas) && _c.personas.length && !_c.personaByChat?.[key]?.personaId) return 'unassigned';
+    // 统一人设模式：所有会话共用全局那张卡，本来就不需要逐会话分配 ——
+    // 旧逻辑在这里会让"新加的好友/新进的白名单群"一律静默（0 token），
+    // 看起来像"加进白名单但机器人不理人"（2026-10-23 用户实测的 bug）。
+    if (_c.personaUnified !== false) return '';
+    if (!Array.isArray(_c.personas) || !_c.personas.length) return '';
+    const _cid = String(_c.personaByChat?.[key]?.personaId || '').trim();
+    if (!_cid || !_c.personas.some((p) => p && p.id === _cid)) return 'unassigned';
   }
   return '';
+}
+
+/**
+ * 新会话自动分配默认人格卡。
+ *
+ * 背景：没分配卡的会话会静默（不调模型）。新加的好友 / 新拉进白名单的群
+ * 默认没有分配记录，于是"加了白名单也不理人"。这里在第一次收到消息时补一张默认卡：
+ *   显式默认（config.personaDefaultId）→ 标了 default 的卡 → 内置卡 → 第一张卡
+ * 统一人设模式 / 一张卡都没有时不写（那两种情况本来就用全局人设，不需要会话级分配）。
+ *
+ * @returns {string|null} 实际分配的卡 id（没写则 null）
+ */
+export function ensurePersonaAssignment(chatKey) {
+  const key = String(chatKey || '').trim();
+  if (!key) return null;
+  const cfg = getConfig();
+  if (cfg.personaUnified !== false) return null;
+  const cards = Array.isArray(cfg.personas) ? cfg.personas : [];
+  if (!cards.length) return null;
+  const cur = String(cfg.personaByChat?.[key]?.personaId || '').trim();
+  if (cur && cards.some((p) => p && p.id === cur)) return null;   // 已有有效分配
+  const explicit = String(cfg.personaDefaultId || '').trim();
+  const pick = (explicit && cards.find((p) => p && p.id === explicit))
+    || cards.find((p) => p && p.default)
+    || cards.find((p) => p && p.builtin)
+    || cards[0];
+  const cardId = pick && pick.id ? String(pick.id) : '';
+  if (!cardId) return null;
+  const prev = cfg.personaByChat && typeof cfg.personaByChat === 'object' ? cfg.personaByChat : {};
+  try {
+    updateConfig({ personaByChat: { ...prev, [key]: { ...(prev[key] || {}), personaId: cardId } } });
+  } catch { return null; }
+  return cardId;
 }
 
 export function isSilentChat(chatKey, list = null) {
