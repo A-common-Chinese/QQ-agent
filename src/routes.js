@@ -83,7 +83,9 @@ export function createRoutes(deps) {
     launchSnowluma, stopSnowluma,
     qqPortableStatus, qqPortableLogs, launchPortableQQ, stopPortableQQ,
     // 记忆解释器桥（src/memory-studio.js）：状态 / 启动 / 停止 / 白名单代理
+    // 另：检查更新 / 下载安装（解释器不在安装包里，按需从它自己的 Release 取）
     memoryStudioStatus, memoryStudioStart, memoryStudioStop, memoryStudioCall,
+    memoryStudioCheckUpdate, memoryStudioInstall,
     visionScan,
     buildUsageStats, buildUsageBreakdown,
     reloadSkills
@@ -1911,6 +1913,23 @@ export function createRoutes(deps) {
         const body = await readBody(req).catch(() => ({}));
         const result = await memoryStudioCall({ path: body?.path, method: body?.method, body: body?.body });
         return json(res, 200, result);
+      }
+    },
+    {
+      // 解释器有没有新版本（读它自己仓库的最新 Release）
+      method: 'GET', pattern: '/api/memory-studio/update-check',
+      handler: async ({ res, json }) => json(res, 200, await memoryStudioCheckUpdate())
+    },
+    {
+      // 下载并安装/更新网页版解释器到 <安装根>/tools/memory-studio（不会动它的 data/）
+      method: 'POST', pattern: '/api/memory-studio/install',
+      handler: async ({ res, json }) => {
+        try {
+          const result = await memoryStudioInstall();
+          return json(res, result.ok ? 200 : 200, result);
+        } catch (error) {
+          return json(res, 200, { ok: false, error: String(error?.message ?? error) });
+        }
       }
     },
     {

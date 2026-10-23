@@ -12,10 +12,14 @@
 //       这样路由层永远不会 500（前端只需要看 ok 字段）。
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import { getConfig, ROOT, DATA_DIR } from './config.js';
 import { logger } from './logger.js';
+import { unzipToDirectory } from './zip-install.js';
+import { compareSemver } from './updater.js';
 
 const LOG = 'memory-studio';
 const DEFAULT_PORT = 7788;
@@ -137,7 +141,7 @@ export function resolveStudioDir() {
 }
 
 /** 解释器版本（读它自己的 package.json；读不到给 null）。 */
-function readVersion(dir) {
+export function readVersion(dir) {
   if (!dir) return null;
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
@@ -459,6 +463,145 @@ export async function callStudio({ path: rawPath, method = 'GET', body } = {}) {
     return { ok: true, status: r.status, data: r.data };
   } catch (error) {
     return { ok: false, status: null, data: null, error: `调用失败：${errText(error)}` };
+  }
+}
+
+// ── 下载 / 检查更新（解释器本体不在 QQ Agent 安装包里，按需从它的 Release 取）──
+//
+// 为什么分开分发：
+//   1. 解释器有自己的版本节奏与两种形态（独立 exe / 网页版），塞进 QQ Agent 安装包会让
+//      每次升级都要连带重装 70MB、也说不清谁负责它的更新；
+//   2. 安装包走的是"覆盖 $INSTDIR"，而解释器的配置（含它自己的模型 Key）在
+//      tools/memory-studio/data 里 —— 交给这里的"下载 → 解压 → 只覆盖程序文件"更安全。
+// 安全边界：解压复用 zip-install.js（禁绝对路径/..、限文件数 100 / 解压后 32MB），
+// 可执行类文件（run.cmd 等）跳过不落盘；data/ 永不覆盖。
+
+const DEFAULT_STUDIO_REPO = 'A-common-Chinese/qq-memory-studio';
+const STUDIO_DL_MIRRORS = ['https://gh-proxy.com', 'https://ghfast.top'];
+
+function studioCfg() {
+  try { return getConfig()?.memoryStudio || {}; } catch { return {}; }
+}
+
+/** 安装/更新落点：配置优先，否则 <安装根>/tools/memory-studio（与升级备份口径一致）。 */
+export function studioInstallDir() {
+  const configured = String(studioCfg().dir || '').trim();
+  if (configured) return path.resolve(configured);
+  return path.join(installRoot(), 'tools', 'memory-studio');
+}
+
+/** 从 Release 资产里挑网页版 zip（优先带 web 字样的）。 */
+export function pickWebAsset(assets) {
+  const list = Array.isArray(assets) ? assets : [];
+  const byName = (re) => list.find((a) => re.test(String(a?.name || '')));
+  return byName(/web.*\.zip$/i) || byName(/\.zip$/i) || null;
+}
+
+/** Release JSON → 结构化更新信息（纯函数，便于离线单测）。 */
+export function parseStudioRelease(rel, current = '') {
+  const latest = String(rel?.tag_name || rel?.name || '').trim().replace(/^v/i, '');
+  const asset = pickWebAsset(rel?.assets);
+  return {
+    ok: !!latest,
+    current,
+    latest,
+    hasUpdate: !!latest && compareSemver(latest, current) > 0,
+    url: String(rel?.html_url || ''),
+    notes: String(rel?.body || '').slice(0, 4000),
+    publishedAt: String(rel?.published_at || ''),
+    asset: asset
+      ? {
+          name: String(asset.name || ''),
+          size: Number(asset.size) || 0,
+          digest: String(asset.digest || ''),
+          url: String(asset.browser_download_url || '')
+        }
+      : null
+  };
+}
+
+/**
+ * 检查解释器是否有新版本（读它自己仓库的最新 Release）。
+ * @returns {Promise<{ok:boolean, current:string, latest?:string, hasUpdate?:boolean, asset?:object|null, url?:string, notes?:string, error?:string}>}
+ */
+export async function checkStudioUpdate({ current } = {}) {
+  try {
+    const dir = resolveStudioDir();
+    const cur = current !== undefined ? String(current) : (readVersion(dir) || '');
+    const repo = String(studioCfg().repo || '').trim() || DEFAULT_STUDIO_REPO;
+    const r = await httpJson(`https://api.github.com/repos/${repo}/releases/latest`, {
+      timeoutMs: 12000
+    });
+    if (!r.ok) return { ok: false, current: cur, error: `检查更新失败：${r.error || '网络错误'}` };
+    if (r.status === 404) return { ok: false, current: cur, error: '解释器仓库还没有发布 Release（404）' };
+    if (r.status !== 200) return { ok: false, current: cur, error: `检查更新失败：HTTP ${r.status}` };
+    return { ...parseStudioRelease(r.data, cur), repo };
+  } catch (error) {
+    return { ok: false, current: '', error: `检查更新失败：${errText(error)}` };
+  }
+}
+
+/** 下载并解压网页版到安装位置（不会动 data/）。先下到临时目录、校验、再落地。 */
+export async function installStudio() {
+  const info = await checkStudioUpdate();
+  if (!info.ok) return { ok: false, error: info.error || '检查更新失败' };
+  if (!info.asset?.url) return { ok: false, error: '这个 Release 里没有网页版 zip（应含 *-web.zip）', latest: info.latest };
+  if (!info.hasUpdate) {
+    // 已是最新也允许"重装"（用户可能把文件删了一半）—— 调用方用 force 表达
+    // 这里不拦，交给上面 UI 决定；但要告诉调用方当前已是最新
+  }
+
+  // 下载（镜像优先，直连兜底；小文件，失败就换下一个）
+  let buffer = null;
+  let lastError = '';
+  const candidates = [];
+  for (const m of STUDIO_DL_MIRRORS) {
+    const base = String(m || '').trim().replace(/\/+$/, '');
+    if (base) candidates.push(base + '/' + info.asset.url);
+  }
+  candidates.push(info.asset.url);
+  for (const url of candidates) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(60000), headers: { 'user-agent': 'qq-agent-memory-studio' } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      buffer = Buffer.from(await r.arrayBuffer());
+      lastError = '';
+      break;
+    } catch (error) { lastError = errText(error); }
+  }
+  if (!buffer) return { ok: false, error: `下载解释器失败：${lastError || '未知错误'}`, latest: info.latest };
+
+  // 摘要校验（Release 资产带 sha256 digest）
+  const m = /^sha256:([0-9a-f]{64})$/i.exec(String(info.asset.digest || ''));
+  if (m) {
+    const actual = crypto.createHash('sha256').update(buffer).digest('hex');
+    if (actual.toLowerCase() !== m[1].toLowerCase()) {
+      return { ok: false, error: `下载校验失败（期望 ${m[1].slice(0, 12)}…，实际 ${actual.slice(0, 12)}…）` };
+    }
+  }
+
+  // 解压到临时目录 → 校验结构 → 再覆盖到目标目录
+  const target = studioInstallDir();
+  const staging = path.join(os.tmpdir(), 'qq-agent-studio-' + Date.now());
+  try {
+    fs.mkdirSync(staging, { recursive: true });
+    const { files, skipped } = unzipToDirectory(buffer, staging);
+    if (!isStudioDir(staging)) throw new Error('压缩包结构不对（缺 server.mjs 或 src/merge.mjs）');
+
+    // 覆盖前先停掉本进程拉起的解释器（它的文件正在被读）
+    try { await stopStudio(); } catch { /* ignore */ }
+    fs.mkdirSync(target, { recursive: true });
+    // ⚠️ 只覆盖，不删除：target 下的 data/（解释器的模型 Key）必须原样保留
+    fs.cpSync(staging, target, { recursive: true, force: true });
+    logger.info(LOG, `记忆解释器已安装/更新到 ${target}（${files.length} 个文件，跳过 ${skipped.length} 个）`);
+    return {
+      ok: true, dir: target, version: info.latest, url: info.url,
+      files: files.length, skipped
+    };
+  } catch (error) {
+    return { ok: false, error: `安装解释器失败：${errText(error)}`, latest: info.latest };
+  } finally {
+    try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 }
 

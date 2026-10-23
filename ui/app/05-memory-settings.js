@@ -1340,6 +1340,10 @@ function renderHealthCard() {
     statusError: '',       // 检测/启停失败原文（必须显示，不许静默）
     statusBusy: '',        // '' | 'detect' | 'start' | 'stop'
     statusAt: 0,           // 上次检测时间（挂载时判断要不要自动重检）
+    update: null,          // 解释器更新检查结果（/api/memory-studio/update-check 原样）
+    updateBusy: '',        // '' | 'check' | 'install'
+    updateError: '',       // 检查/下载失败原文
+    updateAt: 0,
     source: null,          // { kind:'live'|'file', name, counts, stats, at }
     bundle: null,          // 载入的完整记忆包（解释器只认它）
     loadBusy: false,
@@ -1470,35 +1474,62 @@ function renderHealthCard() {
       inner =
         '<div style="font-weight:600;color:var(--orange);margin-bottom:4px">⚠ 未找到解释器</div>' +
         '<div style="font-size:12.5px;line-height:1.75">' +
-          '<div>压缩需要本机「记忆解释器」（qq-memory-studio），请把它的源码放到：</div>' +
+          '<div>点下面的<b>「下载并安装解释器」</b>会从它的 GitHub Release 取网页版（约 60 KB），' +
+            '自动解压到：</div>' +
           '<div style="margin:4px 0"><code style="background:var(--bg-3);padding:2px 6px;border-radius:4px">' + esc(MEM_STUDIO_INSTALL_HINT) + '</code></div>' +
-          '<div class="muted" style="font-size:12px">该目录里应有 <code>server.mjs</code> 与 <code>src\\merge.mjs</code>；放好后点「重新检测」。</div>' +
+          '<div class="muted" style="font-size:12px">也可以自己把源码放到该目录（里面要有 <code>server.mjs</code> 与 <code>src\\merge.mjs</code>），放好后点「重新检测」。' +
+            '解释器不随 QQ Agent 安装包分发，单独下载/更新，它自己的 <code>data\\</code> 不会被覆盖。</div>' +
           '<div>仓库地址：<a href="' + esc(MEM_STUDIO_REPO) + '" target="_blank" rel="noreferrer">' + esc(MEM_STUDIO_REPO) + '</a></div>' +
         '</div>';
     } else {
       const ver = s.version ? ' · v' + esc(s.version) : '';
+      const up = st.update;
+      let upLine = '';
+      if (up?.ok) {
+        upLine = up.hasUpdate
+          ? '<div style="font-size:12.5px;color:var(--orange);margin-top:4px">发现解释器新版本 v' + esc(up.latest) + '（当前 v' + esc(up.current || s.version || '?') + '）</div>'
+          : '<div class="muted" style="font-size:12px;margin-top:4px">已是最新版本' + (up.latest ? '（v' + esc(up.latest) + '）' : '') + '</div>';
+      } else if (up && !up.ok) {
+        upLine = '<div style="font-size:12px;color:var(--red);margin-top:4px">检查更新失败：' + esc(up.error || '未知错误') + '</div>';
+      }
       if (s.running) {
         inner =
           '<div style="font-weight:600;color:var(--green)">✅ 解释器运行中 <span class="muted" style="font-weight:400">127.0.0.1:' + esc(s.port || '') + ver + '</span></div>' +
           '<div class="muted" style="font-size:12px;line-height:1.6">' + (s.url ? '地址：' + esc(s.url) + '　' : '') + '目录：' + esc(s.dir || '(未知)') + '</div>' +
-          '<div class="hint" style="font-size:11.5px">「停止」只结束控制台拉起的那一份；如果你另外手动开过解释器窗口，那份不受影响。</div>';
+          '<div class="hint" style="font-size:11.5px">「停止」只结束控制台拉起的那一份；如果你另外手动开过解释器窗口，那份不受影响。</div>' +
+          upLine;
       } else {
         inner =
           '<div style="font-weight:600;color:var(--orange)">⚙ 已找到解释器，但未运行' + ver + '</div>' +
-          '<div class="muted" style="font-size:12px;line-height:1.6">目录：' + esc(s.dir || '(未知)') + '　点「启动解释器」拉起（需要几秒）。</div>';
+          '<div class="muted" style="font-size:12px;line-height:1.6">目录：' + esc(s.dir || '(未知)') + '　点「启动解释器」拉起（需要几秒）。</div>' +
+          upLine;
       }
     }
     let buttons;
     if (!s || st.statusError) {
       buttons = '<button class="btn btn-small" data-studio="redetect"' + dis + '>' + (st.statusBusy === 'detect' ? '检测中…' : '重新检测') + '</button>';
+    } else if (!s.found) {
+      // 没装 → 直接给下载按钮（逻辑与 QQ Agent 自身的"检查更新"一致：查 Release → 下载 → 落地）
+      buttons = '<button class="btn btn-small btn-primary" data-studio="install"' + dis + '>' +
+        (st.updateBusy === 'install' ? '正在下载并安装解释器…' : '下载并安装解释器') + '</button>' +
+        '<button class="btn btn-small" data-studio="redetect"' + dis + '>重新检测</button>';
     } else if (s.found && !s.running) {
       buttons = '<button class="btn btn-small btn-primary" data-studio="start"' + dis + '>' + (st.statusBusy === 'start' ? '正在启动解释器…（最长约 20 秒）' : '启动解释器') + '</button>' +
+        '<button class="btn btn-small" data-studio="check-update"' + dis + '>' + (st.updateBusy === 'check' ? '检查中…' : '检查更新') + '</button>' +
+        (st.update?.ok && st.update.hasUpdate
+          ? '<button class="btn btn-small" data-studio="install"' + dis + '>' + (st.updateBusy === 'install' ? '更新中…' : '更新到 v' + esc(st.update.latest)) + '</button>'
+          : '') +
         '<button class="btn btn-small" data-studio="redetect"' + dis + '>重新检测</button>';
     } else {
       buttons = '<button class="btn btn-small" data-studio="stop"' + dis + '>' + (st.statusBusy === 'stop' ? '停止中…' : '停止') + '</button>' +
+        '<button class="btn btn-small" data-studio="check-update"' + dis + '>' + (st.updateBusy === 'check' ? '检查中…' : '检查更新') + '</button>' +
+        (st.update?.ok && st.update.hasUpdate
+          ? '<button class="btn btn-small" data-studio="install"' + dis + '>' + (st.updateBusy === 'install' ? '更新中…' : '更新到 v' + esc(st.update.latest)) + '</button>'
+          : '') +
         '<button class="btn btn-small" data-studio="redetect"' + dis + '>重新检测</button>';
     }
     if (st.statusError && s) inner += '<div class="mem-studio-err" style="color:var(--red);font-size:12px;margin-top:6px">' + esc(st.statusError) + '</div>';
+    if (st.updateError) inner += '<div class="mem-studio-err" style="color:var(--red);font-size:12px;margin-top:6px">' + esc(st.updateError) + '</div>';
     return '<div class="mem-studio-block" style="' + MEM_STUDIO_BLOCK_STYLE + '">' +
       '<div style="' + MEM_STUDIO_TITLE_STYLE + '">解释器状态</div>' + inner +
       '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">' + buttons + '</div>' +
@@ -1826,6 +1857,53 @@ function renderHealthCard() {
     memStudioRenderStatus();
     memStudioRenderOptions();
     memStudioLoadStatus(true);
+  }
+
+  // ── 检查更新 / 下载安装解释器（解释器不在 QQ Agent 安装包里，单独分发）──
+  async function memStudioCheckUpdate() {
+    const st = memStudioState;
+    if (st.updateBusy) return;
+    st.updateBusy = 'check';
+    st.updateError = '';
+    memStudioRenderStatus();
+    try {
+      const r = await api('/api/memory-studio/update-check');
+      if (!r || r.ok === false) {
+        st.update = r && r.ok === false ? { ...r, ok: false } : null;
+        st.updateError = (r && r.error) || '检查更新失败';
+      } else {
+        st.update = r;
+        st.updateError = '';
+      }
+      st.updateAt = Date.now();
+    } catch (e) {
+      st.updateError = '检查更新失败：' + String((e && e.message) || e);
+    }
+    st.updateBusy = '';
+    memStudioRenderStatus();
+  }
+
+  async function memStudioInstall() {
+    const st = memStudioState;
+    if (st.updateBusy) return;
+    st.updateBusy = 'install';
+    st.updateError = '';
+    memStudioRenderStatus();
+    try {
+      const r = await api('/api/memory-studio/install', { method: 'POST', body: '{}' });
+      if (!r || r.ok === false) throw new Error((r && r.error) || '安装接口返回 ok=false');
+      // 装/更新成功后清掉旧的更新结论，重新检测目录与版本
+      st.update = null;
+      st.status = null;
+      st.statusAt = 0;
+      st.updateError = '';
+    } catch (e) {
+      st.updateError = '下载/安装失败：' + String((e && e.message) || e);
+    }
+    st.updateBusy = '';
+    memStudioRenderStatus();
+    await memStudioLoadStatus(true);
+    memStudioRenderOptions();
   }
 
   // ── 载入记忆 ────────────────────────────────────────────────────────────
@@ -2161,6 +2239,8 @@ function renderHealthCard() {
     if (act === 'redetect') { memStudioLoadStatus(true); return; }
     if (act === 'start') { memStudioStart(); return; }
     if (act === 'stop') { memStudioStop(); return; }
+    if (act === 'check-update') { memStudioCheckUpdate(); return; }
+    if (act === 'install') { memStudioInstall(); return; }
     if (act === 'load-live') { memStudioLoadLive(); return; }
     if (act === 'pick-file') {
       const file = $('#memstudio-file');

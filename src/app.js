@@ -33,7 +33,7 @@ import { createRoutes } from './routes.js';
 import * as instanceLockModule from './instance-lock.js';
 import { logger } from './logger.js';
 import { startCommunitySync, isGloballyBlocked, FIXED_PRICE_FEED_URL } from './community.js';
-import { getStatus as memoryStudioStatus, startStudio as memoryStudioStart, stopStudio as memoryStudioStop, callStudio as memoryStudioCall, disposeStudio as memoryStudioDispose } from './memory-studio.js';
+import { getStatus as memoryStudioStatus, startStudio as memoryStudioStart, stopStudio as memoryStudioStop, callStudio as memoryStudioCall, disposeStudio as memoryStudioDispose, checkStudioUpdate as memoryStudioCheckUpdate, installStudio as memoryStudioInstall } from './memory-studio.js';
 
 // 全局 fetch（undici）默认连接建立超时只有 10 秒，openrouter.ai 这类海外端点
 // 握手慢时会直接报 "Connect Timeout Error ... timeout: 10000ms"（注意这不是
@@ -1432,8 +1432,9 @@ export function createApp({ log = console.log } = {}) {
     snowlumaDir, snowlumaWsPort, snowlumaWebuiUrl, snowlumaWebuiPort, snowlumaStatus, snowlumaLogs,
     launchSnowluma, stopSnowluma,
     qqPortableStatus, qqPortableLogs, launchPortableQQ, stopPortableQQ,
-    // 记忆解释器桥（src/memory-studio.js）：状态 / 启动 / 停止 / 白名单代理
+    // 记忆解释器桥（src/memory-studio.js）：状态 / 启动 / 停止 / 白名单代理 / 检查更新 / 安装
     memoryStudioStatus, memoryStudioStart, memoryStudioStop, memoryStudioCall,
+    memoryStudioCheckUpdate, memoryStudioInstall,
     visionScan, isPortOpen,
     buildUsageStats, buildUsageBreakdown,
     reloadSkills

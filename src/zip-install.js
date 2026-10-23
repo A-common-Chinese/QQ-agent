@@ -76,8 +76,61 @@ export async function unzipToModuleDir(buffer, { root, type, preferId = '' }) {
   return finalName;
 }
 
+/**
+ * 通用解压：把 zip 解到指定目录（剥掉唯一的顶层目录）。
+ *
+ * 与 unzipToModuleDir 的区别：
+ *   · 目标目录由调用方给定（这里不决定 skills/plugins 目录名、也不做 _1/_2 递增）
+ *   · 可执行类文件（.cmd/.vbs/...）**跳过而不是报错** —— 记忆解释器的网页版包里
+ *     带有 run.cmd / 创建桌面快捷方式.cmd（给单独使用的用户），控制台拉起它不需要这些，
+ *     装进 tools/ 也不会被自动执行。其余安全规则不变（禁绝对路径/..、限文件数与总大小）。
+ *
+ * @param {Buffer} buffer
+ * @param {string} destDir 目标目录（不存在会创建）
+ * @param {{ skipExt?: RegExp, stripRoot?: boolean }} [options]
+ * @returns {{ files: string[], skipped: string[] }}
+ */
+export function unzipToDirectory(buffer, destDir, options = {}) {
+  const skipExt = options.skipExt === undefined ? BANNED_EXT : options.skipExt;
+  const stripRoot = options.stripRoot !== false;
+  const entries = parseZip(buffer, { bannedExt: null });   // 安全校验在下面自己做
+  if (!entries.length) throw new Error('安装包是空的');
+  if (entries.length > MAX_FILES) throw new Error(`文件数量过多（${entries.length} > ${MAX_FILES}）`);
+  let total = 0;
+  for (const e of entries) total += e.data.length;
+  if (total > MAX_TOTAL) throw new Error('解压后总大小超过 32MB');
+
+  // 剥统一根目录（zip 里通常是 `QQ-Memory-Studio-<版本>-web/...`）
+  let stripLen = 0;
+  if (stripRoot) {
+    const firstSeg = entries[0].name.split('/')[0];
+    if (firstSeg && entries.every((e) => e.name.startsWith(firstSeg + '/'))) stripLen = firstSeg.length + 1;
+  }
+
+  const files = [];
+  const skipped = [];
+  for (const entry of entries) {
+    const rel = entry.name.slice(stripLen);
+    if (!rel) continue;
+    if (skipExt && skipExt.test(rel)) { skipped.push(rel); continue; }
+    const parts = rel.split('/');
+    if (!parts.length || parts.some((p) => !p) || parts.includes('..') || rel.startsWith('/')) {
+      throw new Error(`安装包包含非法路径：${entry.name}`);
+    }
+    const dest = path.join(destDir, ...parts);
+    const relCheck = path.relative(destDir, dest);
+    if (relCheck.startsWith('..') || path.isAbsolute(relCheck)) {
+      throw new Error(`安装包包含非法路径：${entry.name}`);
+    }
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, entry.data, { mode: 0o644 });
+    files.push(rel);
+  }
+  return { files, skipped };
+}
+
 /** 极简 zip 读取器：中央目录定位 + 解压全部文件条目。不支持的特性直接抛错。 */
-function parseZip(buffer) {
+function parseZip(buffer, { bannedExt = BANNED_EXT } = {}) {
   const sig = (off) => buffer.readUInt32LE(off);
   // 定位 EOCD（22 字节，从尾部向前扫，允许有注释）
   let eocd = -1;
@@ -119,7 +172,7 @@ function parseZip(buffer) {
   for (const e of out) {
     const parts = e.name.split('/');
     if (e.name.startsWith('/') || parts.includes('..')) throw new Error(`安装包包含非法路径：${e.name}`);
-    if (BANNED_EXT.test(e.name)) throw new Error(`安装包包含禁止的文件类型：${e.name}`);
+    if (bannedExt && bannedExt.test(e.name)) throw new Error(`安装包包含禁止的文件类型：${e.name}`);
   }
   return out;
 }
