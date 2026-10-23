@@ -2159,6 +2159,13 @@ body.skin-bg-on .skin-preview {
   backdrop-filter: var(--skin-panel-filter, none);
 }
 body.skin-bg-on .view { background: transparent; }
+/* 预设纹样层：云团/沙丘/松针/雾带/星点，只用 CSS 渐变画（不加载图片） */
+#skin-bg::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background-image: var(--skin-motif, none);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
 #skin-bg::after {
   content: ''; position: absolute; inset: 0; background: var(--skin-dim, transparent);
 }

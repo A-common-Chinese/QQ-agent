@@ -15,13 +15,52 @@
     simhei: '"SimHei", "黑体"',
     simsun: '"SimSun", "宋体"'
   };
-  // 2026-10：预设颜色加深一档（原来太淡，被面板一盖基本看不出效果）
+  // 2026-10：预设颜色加深一档；2026-10-23：每个预设再加一层"和名字对应"的纹样，
+  // 这样和「纯色」一眼能区分（纯色是平的，预设是有质感的）。全部用 CSS 多层渐变，不加载图片。
   const PRESETS = {
-    moon: { label: '云白', css: 'linear-gradient(160deg, #eef2fa 0%, #d5e1f1 100%)' },
-    sand: { label: '暖砂', css: 'linear-gradient(160deg, #f6ead1 0%, #e6cfa4 100%)' },
-    pine: { label: '松绿', css: 'linear-gradient(160deg, #e4f1e7 0%, #c8e0cf 100%)' },
-    mist: { label: '雾蓝', css: 'linear-gradient(160deg, #e6eefb 0%, #cbdaf0 100%)' },
-    night: { label: '墨夜', css: 'linear-gradient(160deg, #0b0f15 0%, #1b2333 100%)' }
+    moon: {
+      label: '云白',
+      css: 'linear-gradient(160deg, #eef2fa 0%, #d5e1f1 100%)',
+      motif: 'radial-gradient(42% 24% at 16% 26%, rgba(255,255,255,.95), transparent 100%),'
+        + 'radial-gradient(30% 18% at 44% 16%, rgba(255,255,255,.85), transparent 100%),'
+        + 'radial-gradient(36% 22% at 78% 34%, rgba(255,255,255,.8), transparent 100%),'
+        + 'radial-gradient(28% 16% at 62% 78%, rgba(255,255,255,.55), transparent 100%)'
+    },
+    sand: {
+      label: '暖砂',
+      css: 'linear-gradient(160deg, #f6ead1 0%, #e6cfa4 100%)',
+      motif: 'repeating-linear-gradient(102deg, rgba(160,120,60,.085) 0 3px, transparent 3px 10px),'
+        + 'radial-gradient(70% 40% at 86% 6%, rgba(255,246,224,.9), transparent 100%),'
+        + 'radial-gradient(95% 55% at 50% 118%, rgba(188,148,86,.32), transparent 100%)'
+    },
+    pine: {
+      label: '松绿',
+      css: 'linear-gradient(160deg, #e4f1e7 0%, #c8e0cf 100%)',
+      motif: 'repeating-linear-gradient(118deg, rgba(24,84,56,.16) 0 2px, transparent 2px 11px),'
+        + 'repeating-linear-gradient(62deg, rgba(24,84,56,.10) 0 2px, transparent 2px 15px),'
+        + 'radial-gradient(60% 40% at 18% 86%, rgba(28,98,64,.2), transparent 100%),'
+        + 'radial-gradient(50% 34% at 82% 12%, rgba(255,255,255,.5), transparent 100%)'
+    },
+    mist: {
+      label: '雾蓝',
+      css: 'linear-gradient(160deg, #e6eefb 0%, #cbdaf0 100%)',
+      motif: 'repeating-linear-gradient(0deg, rgba(70,110,175,.12) 0 18px, transparent 18px 54px),'
+        + 'radial-gradient(80% 50% at 18% 18%, rgba(255,255,255,.75), transparent 100%),'
+        + 'radial-gradient(60% 40% at 86% 82%, rgba(116,156,216,.28), transparent 100%)'
+    },
+    night: {
+      label: '墨夜',
+      css: 'linear-gradient(160deg, #0b0f15 0%, #1b2333 100%)',
+      motif: 'radial-gradient(1.3px 1.3px at 12% 18%, rgba(255,255,255,.9), transparent 100%),'
+        + 'radial-gradient(1px 1px at 31% 8%, rgba(255,255,255,.65), transparent 100%),'
+        + 'radial-gradient(1.5px 1.5px at 54% 28%, rgba(255,255,255,.8), transparent 100%),'
+        + 'radial-gradient(1px 1px at 72% 13%, rgba(255,255,255,.6), transparent 100%),'
+        + 'radial-gradient(1.2px 1.2px at 89% 41%, rgba(255,255,255,.75), transparent 100%),'
+        + 'radial-gradient(1px 1px at 21% 63%, rgba(255,255,255,.5), transparent 100%),'
+        + 'radial-gradient(1.4px 1.4px at 44% 85%, rgba(255,255,255,.6), transparent 100%),'
+        + 'radial-gradient(1px 1px at 78% 71%, rgba(255,255,255,.55), transparent 100%),'
+        + 'radial-gradient(125% 95% at 50% 45%, transparent 42%, rgba(0,0,0,.38) 100%)'
+    }
   };
   // 透明方式 = 半透明面板本身的效果（backdrop-filter，作用于面板/卡片，不作用于背景图）
   //   直接透明 = 只是变透；毛玻璃 = 面板后面的背景被模糊（经典 glass 效果）
@@ -107,6 +146,7 @@
     if (!showImage && !showPreset && !showSolid) {
       if (layer) layer.remove();
       root.style.removeProperty('--skin-dim');
+      root.style.setProperty('--skin-motif', 'none');
       document.body.classList.remove('skin-bg-on');
       return;
     }
@@ -131,6 +171,8 @@
       layer.style.backgroundImage = 'none';
       layer.style.backgroundColor = solidColor;
     }
+    // 预设纹样：只在该预设生效时显示（#skin-bg::before 读取这个变量）
+    root.style.setProperty('--skin-motif', showPreset && PRESETS[bg.preset].motif ? PRESETS[bg.preset].motif : 'none');
     // 背景层本身永远不透明：透明度调的是"面板/卡片"，否则调低只会露出底色（看着像变黑）
     layer.style.opacity = '1';
     layer.style.filter = showImage && Number(bg.blur) > 0 ? 'blur(' + Number(bg.blur) + 'px)' : '';
@@ -155,11 +197,14 @@
   function presetRow() {
     const bg = S.skin.bg || {};
     return '<div class="skin-line">'
-      + Object.entries(PRESETS).map(([id, p]) => `<button class="skin-preset${bg.type === 'preset' && bg.preset === id ? ' on' : ''}" style="background:${p.css}" data-skin-preset="${id}"><span>${p.label}</span></button>`).join('')
+      + Object.entries(PRESETS).map(([id, p]) => {
+        const img = p.motif ? p.css + ', ' + p.motif : p.css;
+        return `<button class="skin-preset${bg.type === 'preset' && bg.preset === id ? ' on' : ''}" style="background-image:${img};background-size:cover" data-skin-preset="${id}"><span>${p.label}</span></button>`;
+      }).join('')
       + `<button class="skin-btn" id="skin-upload-btn">上传图片</button>`
       + '<input type="file" id="skin-file" accept="image/png,image/jpeg,image/webp" style="display:none">'
       + '</div>'
-      + '<div class="skin-note">上传图片只保存在本机（≤2MB，png/jpg/webp），不会进配置文件；换机器需要重新上传。</div>';
+      + '<div class="skin-note">预设带各自纹理（云团 / 沙丘 / 松针 / 雾带 / 星点），和上面的纯色底不是一类；上传图片只保存在本机（≤2MB，png/jpg/webp），换机器需要重新上传。</div>';
   }
   function imageOptionsRow() {
     const bg = S.skin.bg || {};
