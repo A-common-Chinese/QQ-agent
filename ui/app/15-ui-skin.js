@@ -73,7 +73,8 @@
       photo: 'assets/skins/harness.webp',
       base: '#25407e',
       // 铺满：素材本身是 16:9 白底画布（海报居中），所以 cover 时既铺满、四周也是白的
-      layout: { bleed: true, whiteBg: true, contain: true, scrim: 0.22, paneAlpha: 66, alpha: false }
+      // 贴右、顶栏下沿到窗口底、左缘渐隐（用户要的 A-2 效果）
+      layout: { scale: 94, top: 56, offsetX: 0, fade: 20, paneAlpha: 50, alpha: false }
     },
     point: {
       label: '指认',
