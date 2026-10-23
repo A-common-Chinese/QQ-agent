@@ -13,11 +13,11 @@
  */
 (function () {
   const DONE_KEY = 'qqa-boot-played';
-  const IMG_SRC = 'assets/boot/enter.webp?v=20261023i';   // 换素材时改这个版本号，避免浏览器拿旧图
-  const AUD_SRC = 'assets/boot/enter.m4a?v=20261023i';
+  const IMG_SRC = 'assets/boot/enter.webp?v=20261023j';   // 换素材时改这个版本号，避免浏览器拿旧图
+  const AUD_SRC = 'assets/boot/enter.m4a?v=20261023j';
   const T_MOVE = 3300;   // 角色完全起身(约2.9s)后再等 0.4s，然后向左平移
-  const T_END = 5600;    // 延长结尾：让配音（约 2.03s）正好放完再淡出
-  const T_GONE = 5950;   // 彻底移除
+  const T_END = 7500;    // 配音按原速 4.05s（从 0:02 到结尾），等它放完再淡出
+  const T_GONE = 7850;   // 彻底移除
 
   let timers = [];
   let seq = 0;   // 每次创建动画层都换一个 URL，否则 loop=1 的动图第二次不会重播
@@ -93,7 +93,7 @@
         if (audio) { audio.volume = 0.85; const pr = audio.play(); if (pr && pr.catch) pr.catch(() => {}); }
       } catch { /* 自动播放被拦就静默，不影响动画 */ }
     }, T_MOVE - 20);
-    // 淡出前把音量收一下
+    // 淡出前 0.15s 收一下音量（配音此时已快放完）
     later(() => {
       try {
         if (!audio) return;
@@ -102,10 +102,10 @@
           v = Math.max(0, v - 0.15);
           audio.volume = v;
           if (v <= 0) { clearInterval(t); try { audio.pause(); } catch { /* 忽略 */ } }
-        }, 60);
+        }, 40);
         timers.push(() => clearInterval(t));
       } catch { /* 忽略 */ }
-    }, T_END - 300);
+    }, T_END - 150);
     later(() => finish(false), T_END);
     later(() => { if (overlay) finish(true); }, T_GONE + 50);
   }
