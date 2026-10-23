@@ -89,7 +89,7 @@
       base: '#2b3f7d',
       // 左侧出现、半透明、比原来放大一点：像"站在窗边"的背景角色，不抢内容
       // 左侧、半透明、放大并整体下移：只露上半身（裙摆/脚被窗口底边裁掉）
-      layout: { side: 'left', scale: 150, top: 120, offsetX: -36, fade: 30, opacity: 0.7, paneAlpha: 68, alpha: true }
+      layout: { side: 'left', scale: 132, top: 130, offsetX: -96, fade: 30, opacity: 0.7, paneAlpha: 68, alpha: true }
     }
   };
   // 透明方式 = 半透明面板本身的效果（backdrop-filter，作用于面板/卡片，不作用于背景图）
