@@ -19,6 +19,7 @@
   const T_GONE = 5250;   // 彻底移除
 
   let timers = [];
+  let seq = 0;   // 每次创建动画层都换一个 URL，否则 loop=1 的动图第二次不会重播
   let overlay = null;
   let finished = false;
 
@@ -46,10 +47,14 @@
     el.id = 'boot-anim';
     el.innerHTML = ''
       + '<div class="boot-stage">'
-      + '  <img id="boot-char" alt="" src="' + IMG_SRC + '" draggable="false">'
+      + '  <img id="boot-char" alt="" draggable="false">'
       + '</div>'
       + '<div class="boot-word"><span>QQ</span><span>Agent</span></div>'
       + '<div class="boot-skip">点击任意处跳过</div>';
+    const img = el.querySelector('#boot-char');
+    seq += 1;
+    // 加 run 参数强制当作新资源：动画只播一次(loop=1)，复用同一个 URL 时 Chromium 会停在末帧不重播
+    img.src = IMG_SRC + (IMG_SRC.indexOf('?') >= 0 ? '&' : '?') + 'run=' + seq;
     document.body.appendChild(el);
     return el;
   }
