@@ -358,7 +358,9 @@
       img.draggable = false;
       layer.appendChild(img);
     }
-    if (img.getAttribute('src') !== def.photo) img.setAttribute('src', def.photo);
+    // 测试环境（render-test 的假 DOM）没有完整元素 API：缺方法就跳过图片排版
+    if (typeof img.removeAttribute !== 'function' || typeof img.setAttribute !== 'function') return;
+    if (img.getAttribute && img.getAttribute('src') !== def.photo) img.setAttribute('src', def.photo);
     img.removeAttribute('style');
     // scrim：整屏铺满时用一层主题自适应遮罩保证面板文字可读
     let scrim = document.getElementById('skin-scrim');
