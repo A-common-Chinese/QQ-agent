@@ -419,10 +419,11 @@ async function runDynamic(boot) {
   const panelText = () => text(doc.querySelector('#memstudio-panel'));
   const findBtn = (act) => doc.querySelector('#view-memory [data-studio="' + act + '"]');
 
-  // 进入「记忆 → 压缩」
+  // 进入「记忆 → 压缩」（2026-10 改版：子页签挪到顶部二级菜单条 #subnav 里）
   window.switchTab('memory');
-  await waitFor(() => doc.querySelector('#view-memory [data-mem="subtab"][data-sub="compress"]'), 12000, '记忆页子页签');
-  doc.querySelector('#view-memory [data-mem="subtab"][data-sub="compress"]').click();
+  const compressSel = '#subnav [data-mem="subtab"][data-sub="compress"], #view-memory [data-mem="subtab"][data-sub="compress"]';
+  await waitFor(() => doc.querySelector(compressSel), 12000, '记忆页子页签');
+  doc.querySelector(compressSel).click();
   await waitFor(() => doc.querySelector('#memstudio-panel'), 5000, '压缩面板');
   check(true, '点「压缩」子页签后面板渲染出来（不用单开页面）');
 

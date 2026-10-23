@@ -12,7 +12,8 @@ $$('.tab').forEach((tab) => {
 // ── 启动 ──
 (async function init() {
   try {
-    // 主题：明/暗两档（跟随系统/？已移除）
+    initShell();                                      // 左侧主栏：宽度/拖拽/窄窗口折叠（2026-10 改版）
+    // 主题：浅色 / 深色 / 跟随系统（默认浅色）
     applyTheme(getThemePref());
     $('#theme-btn')?.addEventListener('click', cycleTheme);
 

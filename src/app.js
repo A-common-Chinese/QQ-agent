@@ -1562,7 +1562,7 @@ export function createApp({ log = console.log } = {}) {
           //    CSP 浏览器取交集执行，只改一处等于没改**（本次 alicdn 加载失败即漏改此处）。
           headers['content-security-policy'] = [
             "default-src 'self'",
-            "script-src 'self' 'sha256-xBF5qExTuqfXHlYtKYaaldGJshQgQOr5zvcGHjbPL7w=' https://o.alicdn.com https://kondius.cn",
+            "script-src 'self' 'sha256-4ln+HNcX+/7mNZCuF0QQmlz+DCA5rUVmxOBcpZ5RR+U=' https://o.alicdn.com https://kondius.cn",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: blob: http: https:",
             "media-src 'self' data: blob:",

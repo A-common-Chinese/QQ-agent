@@ -2043,7 +2043,7 @@ function renderDesktopSection(c) {
     <h3>界面</h3>
     <div class="field"><label>主题</label>
       <div class="theme-picker" id="theme-picker">
-        ${['dark', 'light'].map((t) => `
+        ${THEME_VALUES.map((t) => `
           <div class="theme-option${getThemePref() === t ? ' on' : ''}" data-theme-opt="${t}" role="button" tabindex="0">
             <span class="t-ico">${THEME_ICON[t]}</span>
             <span>${THEME_LABEL[t]}</span>

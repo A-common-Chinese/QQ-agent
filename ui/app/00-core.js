@@ -559,22 +559,28 @@ const CONSOLE_MARKER = 'qq-agent-console';
 /* ══════════════════════════════════════════════════════════════
    主题（明/暗）—— 「跟随系统」「？」已移除
    ══════════════════════════════════════════════════════════════ */
-const THEME_ICON = { dark: '🌙', light: '☀️' };
-const THEME_LABEL = { dark: '暗色', light: '亮色' };
-const THEME_VALUES = ['dark', 'light'];
+const THEME_ICON = { light: '☀️', dark: '🌙', auto: '🖥️' };
+const THEME_LABEL = { light: '浅色', dark: '深色', auto: '跟随系统' };
+// 2026-10：默认浅色；「跟随系统」作为第三档恢复（原先只有明/暗两档）。
+const THEME_VALUES = ['light', 'dark', 'auto'];
 
-/** 读取当前主题设置（localStorage 优先，非法值回退暗色）。 */
+/** 读取当前主题设置（localStorage 优先，非法值回退浅色）。 */
 function getThemePref() {
   try {
     const v = localStorage.getItem('qqa-theme');
     if (THEME_VALUES.includes(v)) return v;
   } catch { /* 隐私模式下 localStorage 可能不可用 */ }
-  return 'dark';
+  return 'light';
 }
 
-/** 把设置解析成实际要应用的主题名。 */
+/** 把设置解析成实际要应用的主题名（auto → 跟随系统）。 */
 function resolveTheme(pref) {
-  return THEME_VALUES.includes(pref) ? pref : 'dark';
+  if (pref === 'auto') {
+    try {
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch { return 'light'; }
+  }
+  return (pref === 'light' || pref === 'dark') ? pref : 'light';
 }
 
 /** 应用主题到 <html>，并同步按钮图标。 */
@@ -583,19 +589,30 @@ function applyTheme(pref) {
   document.documentElement.setAttribute('data-theme', actual);
   const btn = $('#theme-btn');
   if (btn) {
-    btn.textContent = THEME_ICON[pref] || THEME_ICON.dark;
-    btn.title = `主题：${THEME_LABEL[pref] || '暗色'}（点击切换）`;
+    btn.textContent = THEME_ICON[pref] || THEME_ICON.light;
+    btn.title = `主题：${THEME_LABEL[pref] || '浅色'}（点击切换）`;
   }
   try { localStorage.setItem('qqa-theme', pref); } catch { /* 忽略 */ }
 }
 
-/** 点击按钮：暗 ↔ 亮。 */
+/** 点击按钮：浅色 → 深色 → 跟随系统 → 浅色。 */
 function cycleTheme() {
-  const next = getThemePref() === 'dark' ? 'light' : 'dark';
+  const order = ['light', 'dark', 'auto'];
+  const cur = getThemePref();
+  const next = order[(order.indexOf(cur) + 1) % order.length] || 'light';
   applyTheme(next);
   api('/api/config', { method: 'POST', body: JSON.stringify({ ui: { theme: next } }) })
     .catch(() => { /* 后端不可达时静默：localStorage 已经生效 */ });
 }
+
+// 系统主题变化时，只有「跟随系统」这一档需要跟着变
+try {
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (getThemePref() === 'auto') applyTheme('auto');
+    });
+  }
+} catch { /* 老浏览器不支持 addEventListener */ }
 
 async function api(path, options = {}) {
   // keepalive 由调用方按需传（配置保存的 POST 用它：页面卸载后请求仍能完成）
@@ -801,6 +818,9 @@ function switchTab(name) {
     setTimeout(clear, 220);
   }
   state.tab = name;
+  const titleEl = $('#page-title');
+  if (titleEl) titleEl.textContent = PAGE_TITLES[name] || name;
+  renderSubnav(name);
   if (state.quoteMode && name !== 'chats') exitQuoteMode();   // 离开存档页自动退出金句勾选
   if (name === 'sessions') loadSessions();
   if (name === 'chats') loadChats();
@@ -816,6 +836,90 @@ function switchTab(name) {
   if (name === 'plugins') loadModulePage('plugin');
   if (name === 'snowluma') loadSnowlumaPage();
   if (name === 'settings') loadSettings();
+}
+
+
+// ── 2026-10 UI 改版：外壳（左侧主栏 / 顶栏标题 / 顶部二级菜单）───────────
+const PAGE_TITLES = {
+  sessions: '会话', chats: '存档', memory: '记忆', usage: '用量',
+  skills: '技能', plugins: '插件', snowluma: 'SnowLuma', settings: '设置'
+};
+
+/**
+ * 渲染顶部二级菜单。
+ *  - 记忆：三张卡 ｜ 压缩（渲染逻辑在 05，这里只负责"交给它"）
+ *  - 其余页：暂时没有二级（.subnav 为空时 CSS 自动收起）
+ * 说明：第 2/3 步会陆续给 会话/存档/用量/设置 加二级，全部走同一个容器。
+ */
+function renderSubnav(name) {
+  const box = $('#subnav');
+  if (!box) return;
+  if (name === 'memory' && typeof window.__memRenderSubnav === 'function') {
+    window.__memRenderSubnav(box);
+    return;
+  }
+  box.innerHTML = '';
+}
+
+/**
+ * 外壳初始化：侧栏宽度拖拽 / 双击复原 / 窄窗口自动收成图标栏 / 版本号。
+ * 宽度存 localStorage（qqa-sidebar-w），不写后端配置 —— 这是每台机器自己的屏宽偏好。
+ */
+function initShell() {
+  const DEFAULT_W = 236, MIN_W = 180, MAX_W = 320, NARROW = 1100;
+  const KEY = 'qqa-sidebar-w';
+  const root = document.documentElement;
+  const applyWidth = (w) => {
+    const v = Math.round(Math.min(MAX_W, Math.max(MIN_W, Number(w) || DEFAULT_W)));
+    root.style.setProperty('--sidebar-w', v + 'px');
+    return v;
+  };
+  let savedW = 0;
+  try { savedW = parseInt(localStorage.getItem(KEY) || '', 10) || 0; } catch { /* 忽略 */ }
+  applyWidth(savedW >= MIN_W && savedW <= MAX_W ? savedW : DEFAULT_W);
+
+  const rz = $('#sidebar-resizer');
+  if (rz) {
+    let dragging = false, startX = 0, startW = 0;
+    rz.addEventListener('pointerdown', (e) => {
+      dragging = true;
+      startX = e.clientX;
+      startW = (rz.parentElement || {}).getBoundingClientRect ? rz.parentElement.getBoundingClientRect().width : DEFAULT_W;
+      document.body.classList.remove('sidebar-collapsed');
+      document.body.style.cursor = 'col-resize';
+      try { rz.setPointerCapture(e.pointerId); } catch { /* 忽略 */ }
+      e.preventDefault();
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      applyWidth(startW + (e.clientX - startX));
+    });
+    const endDrag = () => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.style.cursor = '';
+      const w = parseInt(getComputedStyle(root).getPropertyValue('--sidebar-w'), 10) || DEFAULT_W;
+      try { localStorage.setItem(KEY, String(w)); } catch { /* 忽略 */ }
+    };
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    rz.addEventListener('dblclick', () => {
+      applyWidth(DEFAULT_W);
+      try { localStorage.setItem(KEY, String(DEFAULT_W)); } catch { /* 忽略 */ }
+    });
+  }
+
+  const autoCollapse = () => {
+    document.body.classList.toggle('sidebar-collapsed', window.innerWidth < NARROW);
+  };
+  autoCollapse();
+  window.addEventListener('resize', autoCollapse);
+
+  // 侧栏底部的版本号（拿不到就留空，不打扰用户）
+  api('/api/version').then((v) => {
+    const el = $('#sidebar-version');
+    if (el && v && v.version) el.textContent = 'DSH 版 · v' + v.version;
+  }).catch(() => { /* 忽略 */ });
 }
 
 

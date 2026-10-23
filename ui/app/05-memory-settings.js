@@ -1007,6 +1007,22 @@ function renderHealthCard() {
     { id: 'compress', label: '压缩' }
   ];
 
+  // 2026-10 改版：这些子页签渲染到顶部二级菜单条里（#subnav）。
+  // 「压缩」与前三个不是一类东西（它是整份记忆的离线处理，不看选中会话），
+  // 所以中间插一条分隔线、并给它实心胶囊样式（见 style.css 的 .subnav 规则）。
+  let memActiveSub = 'groups';
+  window.__memRenderSubnav = function (box) {
+    if (!box) return;
+    const pill = (t) => '<button class="mem-subtab' + (memActiveSub === t.id ? ' act' : '') +
+      '" data-mem="subtab" data-sub="' + t.id + '">' + t.label + '</button>';
+    const cards = MEM_SUBTABS.filter((t) => t.id !== 'compress');
+    const compress = MEM_SUBTABS.find((t) => t.id === 'compress');
+    box.innerHTML = cards.map(pill).join('') +
+      '<span class="subnav-sep"></span>' +
+      (compress ? pill(compress) : '') +
+      '<span class="subnav-note">压缩只改"注入给模型的内容"，不动原始记忆</span>';
+  };
+
   // 【记忆栏目 V2】顶部「记忆」tab 的三分区卡片视图（覆盖上面的旧 loadMemoryView）
   async function loadMemoryView() {
     const itemsBox = document.getElementById('memory-items');
@@ -1109,11 +1125,15 @@ function renderHealthCard() {
     }
 
     detailBox.innerHTML = '<div class="mem-main">' +
-      '<div class="mem-subtabs">' + MEM_SUBTABS.map((t) =>
-        '<button class="mem-subtab' + (activeSub === t.id ? ' act' : '') + '" data-mem="subtab" data-sub="' + t.id + '">' + t.label + '</button>'
-      ).join('') + '</div>' +
       '<div class="mem-sub-body">' + body + '</div>' +
     '</div>';
+    // 2026-10 改版：子页签挪到顶部二级菜单条（#subnav），这里只负责同步它与内容
+    // ⚠️ 只有当前页就是「记忆」时才写 #subnav —— 启动时后台会预渲染一次记忆页，
+    //    不加这个判断会把记忆的子页签画到会话页顶上（实测踩过）。
+    memActiveSub = activeSub;
+    if (state.tab === 'memory' && typeof window.__memRenderSubnav === 'function') {
+      window.__memRenderSubnav(document.getElementById('subnav'));
+    }
     if (typeof bindMemoryTabEvents === 'function') bindMemoryTabEvents();
     if (activeSub === 'compress') memStudioMount();
   }
@@ -1124,7 +1144,7 @@ function renderHealthCard() {
     window.__memTabDelegated = true;
     document.addEventListener('click', (e) => {
       if (state.tab !== 'memory') return;
-      const el = e.target.closest('#view-memory [data-mem]');
+      const el = e.target.closest('#view-memory [data-mem], #subnav [data-mem]');
       if (!el) return;
       e.preventDefault();
       const st = (typeof memState === 'function') ? memState() : null;

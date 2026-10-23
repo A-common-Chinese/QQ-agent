@@ -13,52 +13,183 @@
        官方要求必须动态加载 o.alicdn.com 的 SDK 并直连 aliyuncs 验签域，
        故 script-src / connect-src / frame-src / worker-src 增列对应来源，
        其余仍锁死在 'self'。 -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-AusRctWgAU9T2N4jaRWpaSsObfjDZwj+sO1AcdUK5/s=' https://o.alicdn.com https://kondius.cn; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; media-src 'self' data: blob:; connect-src 'self' https://kondius.cn https://*.aliyuncs.com https://*.alicdn.com; frame-src https://*.aliyuncs.com https://*.alicdn.com https://kondius.cn; worker-src 'self' blob: https://*.alicdn.com https://kondius.cn; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'" />
-  <link rel="stylesheet" href="/style.css?v=20261022q" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-4ln+HNcX+/7mNZCuF0QQmlz+DCA5rUVmxOBcpZ5RR+U=' https://o.alicdn.com https://kondius.cn; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; media-src 'self' data: blob:; connect-src 'self' https://kondius.cn https://*.aliyuncs.com https://*.alicdn.com; frame-src https://*.aliyuncs.com https://*.alicdn.com https://kondius.cn; worker-src 'self' blob: https://*.alicdn.com https://kondius.cn; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'" />
+  <link rel="stylesheet" href="/style.css?v=20261023a" />
   <script>
-    /* 主题预置：在样式生效前就定好 data-theme，避免首屏闪白/闪黑。
-       只认 dark / light，非法值回退暗色。
+    /* 主题预置：在样式生效前定好 data-theme，避免首屏闪白/闪黑。
+       2026-10 改版：默认浅色；支持 浅色 / 深色 / 跟随系统 三档。
        这里只做"应用"，真正的切换逻辑与持久化在前端脚本。 */
     (function () {
       try {
         var saved = localStorage.getItem('qqa-theme') || '';
-        var theme = (saved === 'light' || saved === 'dark') ? saved : 'dark';
+        var pref = (saved === 'light' || saved === 'dark' || saved === 'auto') ? saved : 'light';
+        var theme = pref;
+        if (pref === 'auto') {
+          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
         document.documentElement.setAttribute('data-theme', theme);
       } catch (e) {
-        document.documentElement.setAttribute('data-theme', 'dark');
+        document.documentElement.setAttribute('data-theme', 'light');
       }
     })();
   </script>
 </head>
 <body>
-  <header id="topbar">
-    <div class="brand">QQ Agent <span class="brand-sub"></span></div>
-    <div class="top-status">
-      <!-- 状态胶囊带：窄窗口下横向滚动（不折行、不裁切）；右侧控件固定可见 -->
-      <div class="top-chips">
-        <span id="onebot-dot" class="dot dot-off" title="OneBot 连接状态"></span>
-        <span id="onebot-label" class="muted">OneBot 未连接</span>
-        <span class="sep"></span>
-        <span id="model-label" class="muted">模型：-</span>
-        <span class="sep"></span>
-        <span id="usage-label" class="muted">今日：-</span>
-        <span class="sep"></span>
-        <span id="search-count-label" class="muted" title="今日联网搜索次数（web_search / web_fetch）">搜索：-</span>
-      </div>
-      <span class="sep"></span>
-      <!-- 就绪进度指示器：4 圆点 = QQ运行 / SnowLuma运行 / OneBot连接 / 配置完成 -->
-      <span id="readiness-dots" class="readiness-dots" title="就绪进度：点击跳转到对应设置">
-        <span class="rdot" data-target="snowluma" title="QQ 内核未运行"></span>
-        <span class="rdot" data-target="snowluma" title="SnowLuma 未运行"></span>
-        <span class="rdot" data-target="snowluma" title="OneBot 未连接"></span>
-        <span class="rdot" data-target="settings" title="配置未完成"></span>
-      </span>
-      <button id="theme-btn" class="icon-btn" title="切换主题（暗 ↔ 亮）" aria-label="切换主题"></button>
-      <button id="pause-btn" class="btn btn-small">暂停</button>
-    </div>
-  </header>
+  <div id="app">
+    <!-- 左侧竖向主栏：5 个主项（技能/插件/SnowLuma 走右下悬浮菜单，见 #nav-extra 里的隐藏入口） -->
+    <aside id="sidebar">
+      <div class="brand">QQ Agent <span class="brand-sub"></span></div>
 
-  <div id="banner" class="banner hidden"></div>
+      <nav id="tabs">
+        <button class="tab active" data-tab="sessions" title="会话">
+          <svg class="tab-ic" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1" y="2.5" width="14" height="9.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.5 12.2 L6.2 15.2" stroke="currentColor" stroke-width="1.4" fill="none"/></svg>
+          <span>会话</span>
+        </button>
+        <button class="tab" data-tab="chats" title="存档">
+          <svg class="tab-ic" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1.2" y="3" width="13.6" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1.2 7 H14.8" stroke="currentColor" stroke-width="1.4"/></svg>
+          <span>存档</span>
+        </button>
+        <button class="tab" data-tab="memory" title="记忆">
+          <svg class="tab-ic" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="2.6" y="1.8" width="10.8" height="12.4" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.2 5.6 H10.8 M5.2 8.4 H10.8" stroke="currentColor" stroke-width="1.4"/></svg>
+          <span>记忆</span>
+        </button>
+        <button class="tab" data-tab="usage" title="用量">
+          <svg class="tab-ic" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2 13.4 V9 M6 13.4 V5 M10 13.4 V7.4 M14 13.4 V2.6" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+          <span>用量</span>
+        </button>
+        <button class="tab" data-tab="settings" title="设置">
+          <svg class="tab-ic" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="2.1" fill="currentColor"/></svg>
+          <span>设置</span>
+        </button>
+      </nav>
+
+      <!-- 这 3 个页签不出现在主栏：第 3 步会把它们挂到右下悬浮菜单里。
+           保留成 data-tab 按钮，switchTab / 视图切换 / 测试口径都不变。 -->
+      <div id="nav-extra" hidden>
+        <button class="tab" data-tab="skills">技能</button>
+        <button class="tab" data-tab="plugins">插件</button>
+        <button class="tab" data-tab="snowluma">SnowLuma</button>
+      </div>
+
+      <div id="sidebar-foot">
+        <div class="sf-row">
+          <span id="onebot-dot" class="dot dot-off" title="OneBot 连接状态"></span>
+          <span id="onebot-label" class="muted">OneBot 未连接</span>
+        </div>
+        <div class="sf-row"><span id="model-label" class="muted">模型：-</span></div>
+        <div class="sf-row sf-actions">
+          <button id="pause-btn" class="btn btn-small">暂停</button>
+          <button id="theme-btn" class="icon-btn" title="切换主题" aria-label="切换主题"></button>
+        </div>
+        <div class="sf-row"><span id="sidebar-version" class="muted"></span></div>
+      </div>
+      <div id="sidebar-resizer" title="拖动调整侧栏宽度（双击恢复默认 236）"></div>
+    </aside>
+
+    <div id="main">
+      <header id="topbar">
+        <div id="page-title">会话</div>
+        <div class="top-status">
+          <!-- 状态胶囊带：窄窗口下横向滚动（不折行、不裁切）；右侧控件固定可见 -->
+          <div class="top-chips">
+            <span id="usage-label" class="muted">今日：-</span>
+            <span class="sep"></span>
+            <span id="search-count-label" class="muted" title="今日联网搜索次数（web_search / web_fetch）">搜索：-</span>
+            <span class="sep"></span>
+            <!-- 就绪进度指示器：4 圆点 = QQ运行 / SnowLuma运行 / OneBot连接 / 配置完成 -->
+            <span id="readiness-dots" class="readiness-dots" title="就绪进度：点击跳转到对应设置">
+              <span class="rdot" data-target="snowluma" title="QQ 内核未运行"></span>
+              <span class="rdot" data-target="snowluma" title="SnowLuma 未运行"></span>
+              <span class="rdot" data-target="snowluma" title="OneBot 未连接"></span>
+              <span class="rdot" data-target="settings" title="配置未完成"></span>
+            </span>
+          </div>
+          <div id="top-actions">
+            <!-- 社区功能（浮层按钮留在顶栏，第 3 步挪进右下悬浮菜单） -->
+            <button class="nav-btn hidden" id="quote-confirm-btn">确认金句</button>
+            <button class="nav-btn" id="quote-btn" title="把机器人的精彩发言收录到金句墙">金句上传</button>
+            <button class="nav-btn" id="feedback-btn" title="向作者反馈意见和建议">意见收集</button>
+            <button class="nav-btn nav-btn-market" id="skill-market-btn" title="打开 Skill 市场">Skill 市场</button>
+            <button class="nav-btn nav-btn-market" id="plugin-market-btn" title="打开插件市场">插件市场</button>
+            <button class="nav-btn nav-btn-persona" id="persona-plaza-btn" title="打开人设广场">人设广场</button>
+            <button class="nav-btn nav-btn-hot" id="open-site-btn" title="打开 QQ Agent 网站">打开网站！</button>
+          </div>
+        </div>
+      </header>
+
+      <!-- 二级菜单：由 renderSubnav() 按当前主项渲染（记忆页 = 三张卡 ｜ 压缩） -->
+      <div id="subnav" class="subnav"></div>
+
+      <div id="banner" class="banner hidden"></div>
+
+      <main id="layout">
+        <!-- 会话视图 -->
+        <section id="view-sessions" class="view active">
+          <aside id="session-list" class="list-pane">
+            <div class="list-head muted"><span id="session-count"></span><button class="list-head-btn" id="session-broadcast-btn" title="给选中的群/私聊批量发送一条消息">群发</button><button class="list-head-btn" id="session-clear-btn" title="清空全部已结束的会话记录（保留运行中/等待中的）">清空</button></div>
+            <div id="session-items"></div>
+            <div id="session-more" class="list-more muted"></div>
+            <div class="list-resizer" id="session-list-resizer" title="拖动调整侧栏宽度"></div>
+          </aside>
+          <div id="session-detail" class="detail-pane">
+            <div class="empty-hint">← 选择左侧会话查看完整过程</div>
+          </div>
+        </section>
+
+        <!-- 存档视图 -->
+        <section id="view-chats" class="view">
+          <aside id="chat-list" class="list-pane">
+            <div class="list-head muted">消息存档</div>
+            <div id="chat-items"></div>
+            <div class="list-resizer" id="chat-list-resizer" title="拖动调整侧栏宽度"></div>
+          </aside>
+          <div id="chat-detail" class="detail-pane">
+            <div class="empty-hint">← 选择会话查看消息存档</div>
+          </div>
+        </section>
+
+        <!-- SnowLuma 视图 -->
+        <section id="view-snowluma" class="view">
+          <div id="snowluma-page" class="snowluma-pane"></div>
+        </section>
+
+        <!-- 记忆视图 -->
+        <section id="view-memory" class="view">
+          <aside id="memory-list" class="list-pane">
+            <div class="list-head muted">记忆</div>
+            <div id="memory-items"></div>
+            <div class="list-resizer" id="memory-list-resizer" title="拖动调整侧栏宽度"></div>
+          </aside>
+          <div id="memory-detail" class="detail-pane">
+            <div class="empty-hint">← 选择会话查看记忆</div>
+          </div>
+        </section>
+
+        <!-- 用量视图 -->
+        <section id="view-usage" class="view">
+          <div id="usage-page" class="usage-pane"></div>
+        </section>
+
+        <!-- 技能视图：从设置页独立出来（原先和模型/聊天设置挤在一起，找不到） -->
+        <section id="view-skills" class="view">
+          <div id="skills-page" class="usage-pane"></div>
+        </section>
+
+        <!-- 插件视图：与技能并列的独立页签。
+             两型的区别在"谁决定何时执行"（确定性 vs 模型决定），是使用者最关心的一件事，
+             所以分成两页各自成组 —— 混在一页里既看不出类型，也数不清各有多少。 -->
+        <section id="view-plugins" class="view">
+          <div id="plugins-page" class="usage-pane"></div>
+        </section>
+
+        <!-- 设置视图 -->
+        <section id="view-settings" class="view">
+          <aside id="settings-sidebar" class="settings-sidebar"></aside>
+          <div id="settings-form" class="settings-pane"></div>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <div id="loading-overlay" class="loading-overlay">
     <div class="loading-card">
@@ -69,109 +200,22 @@
     </div>
   </div>
 
-  <nav id="tabs">
-    <button class="tab active" data-tab="sessions">会话</button>
-    <button class="tab" data-tab="chats">存档</button>
-    <button class="tab" data-tab="memory">记忆</button>
-    <button class="tab" data-tab="usage">用量</button>
-    <button class="tab" data-tab="skills">技能</button>
-    <button class="tab" data-tab="plugins">插件</button>
-    <button class="tab" data-tab="snowluma">SnowLuma</button>
-    <button class="tab" data-tab="settings">设置</button>
-    <!-- 社区功能（右侧）：金句上传 / 意见收集。金句勾选模式下「确认金句」出现在最左 -->
-    <span class="nav-spacer"></span>
-    <button class="nav-btn hidden" id="quote-confirm-btn">确认金句</button>
-    <button class="nav-btn" id="quote-btn" title="把机器人的精彩发言收录到金句墙">金句上传</button>
-    <button class="nav-btn" id="feedback-btn" title="向作者反馈意见和建议">意见收集</button>
-    <button class="nav-btn nav-btn-market" id="skill-market-btn" title="打开 Skill 市场">Skill 市场</button>
-    <button class="nav-btn nav-btn-market" id="plugin-market-btn" title="打开插件市场">插件市场</button>
-    <button class="nav-btn nav-btn-persona" id="persona-plaza-btn" title="打开人设广场">人设广场</button>
-    <button class="nav-btn nav-btn-hot" id="open-site-btn" title="打开 QQ Agent 网站">打开网站！</button>
-  </nav>
-
-  <main id="layout">
-    <!-- 会话视图 -->
-    <section id="view-sessions" class="view active">
-      <aside id="session-list" class="list-pane">
-        <div class="list-head muted"><span id="session-count"></span><button class="list-head-btn" id="session-broadcast-btn" title="给选中的群/私聊批量发送一条消息">群发</button><button class="list-head-btn" id="session-clear-btn" title="清空全部已结束的会话记录（保留运行中/等待中的）">清空</button></div>
-        <div id="session-items"></div>
-        <div id="session-more" class="list-more muted"></div>
-        <div class="list-resizer" id="session-list-resizer" title="拖动调整侧栏宽度"></div>
-      </aside>
-      <div id="session-detail" class="detail-pane">
-        <div class="empty-hint">← 选择左侧会话查看完整过程</div>
-      </div>
-    </section>
-
-    <!-- 存档视图 -->
-    <section id="view-chats" class="view">
-      <aside id="chat-list" class="list-pane">
-        <div class="list-head muted">消息存档</div>
-        <div id="chat-items"></div>
-        <div class="list-resizer" id="chat-list-resizer" title="拖动调整侧栏宽度"></div>
-      </aside>
-      <div id="chat-detail" class="detail-pane">
-        <div class="empty-hint">← 选择会话查看消息存档</div>
-      </div>
-    </section>
-
-    <!-- SnowLuma 视图 -->
-    <section id="view-snowluma" class="view">
-      <div id="snowluma-page" class="snowluma-pane"></div>
-    </section>
-
-    <!-- 记忆视图 -->
-    <section id="view-memory" class="view">
-      <aside id="memory-list" class="list-pane">
-        <div class="list-head muted">记忆</div>
-        <div id="memory-items"></div>
-        <div class="list-resizer" id="memory-list-resizer" title="拖动调整侧栏宽度"></div>
-      </aside>
-      <div id="memory-detail" class="detail-pane">
-        <div class="empty-hint">← 选择会话查看记忆</div>
-      </div>
-    </section>
-
-    <!-- 用量视图 -->
-    <section id="view-usage" class="view">
-      <div id="usage-page" class="usage-pane"></div>
-    </section>
-
-    <!-- 技能视图：从设置页独立出来（原先和模型/聊天设置挤在一起，找不到） -->
-    <section id="view-skills" class="view">
-      <div id="skills-page" class="usage-pane"></div>
-    </section>
-
-    <!-- 插件视图：与技能并列的独立页签。
-         两型的区别在"谁决定何时执行"（确定性 vs 模型决定），是使用者最关心的一件事，
-         所以分成两页各自成组 —— 混在一页里既看不出类型，也数不清各有多少。 -->
-    <section id="view-plugins" class="view">
-      <div id="plugins-page" class="usage-pane"></div>
-    </section>
-
-    <!-- 设置视图 -->
-    <section id="view-settings" class="view">
-      <aside id="settings-sidebar" class="settings-sidebar"></aside>
-      <div id="settings-form" class="settings-pane"></div>
-    </section>
-  </main>
-
   <!-- M9 拆分：ESM 桥（vendor 模块 → window）先执行；其后 12 段普通脚本按 defer 顺序执行，
-       module 与 defer 共享同一条按文档顺序的延迟队列，保证桥先于 00-core.js?v=20261022u。 -->
+       module 与 defer 共享同一条按文档顺序的延迟队列，保证桥先于 00-core.js 执行。 -->
   <script type="module" src="/app.js"></script>
-  <script defer src="/app/00-core.js?v=20261022u"></script>
+  <script defer src="/app/00-core.js?v=20261023a"></script>
   <script defer src="/app/01-boot.js"></script>
   <script defer src="/app/02-sse-sessions.js?v=20261022m"></script>
   <script defer src="/app/03-snowluma.js"></script>
   <script defer src="/app/04-archive-usage.js"></script>
-  <script defer src="/app/05-memory-settings.js?v=20261022r"></script>
-  <script defer src="/app/06-settings-render.js?v=20261022u"></script>
-  <script defer src="/app/07-settings-events.js?v=20261022u"></script>
+  <script defer src="/app/05-memory-settings.js?v=20261023a"></script>
+  <script defer src="/app/06-settings-render.js?v=20261023a"></script>
+  <script defer src="/app/07-settings-events.js?v=20261023a"></script>
   <script defer src="/app/08-modals.js"></script>
   <script defer src="/app/09-community.js"></script>
   <script defer src="/app/10-feedback.js?v=20261022u"></script>
   <script defer src="/app/12-concept2-ui.js?v=20261022g"></script>
-  <script defer src="/app/11-init.js"></script>
+  <script defer src="/app/11-init.js?v=20261023a"></script>
 
   <!-- 阿里云验证码 2.0（意见收集/金句上传共用）：容器常驻；AliyunCaptchaConfig 与
        SDK 动态加载都在 10-feedback.js 内（CSP 不放行无 hash 内联脚本）。 -->
