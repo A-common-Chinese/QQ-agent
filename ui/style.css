@@ -2201,3 +2201,13 @@ body.skin-bg-on .view { background: transparent; }
 
 .uc-lg-shape { display: inline-flex; align-items: center; justify-content: center; }
 .uc-lg-more { color: var(--tx3); font-size: 11px; }
+
+/* 图片参数：滑块 + 数字框 */
+.skin-ranges { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.skin-range { display: flex; align-items: center; gap: 9px; font-size: 12px; color: var(--tx2); }
+.skin-range-lbl { width: 56px; flex: 0 0 auto; white-space: nowrap; }
+.skin-range input[type=range] { width: 150px; accent-color: var(--ac); }
+.skin-range-unit { color: var(--tx3); font-size: 11px; width: 16px; }
+
+/* 字号缩放（整体 zoom）：宽高已由 JS 用 calc(100vw/z) 补偿，这里锁住不换行溢出 */
+#app.ui-zoomed { flex: 0 0 auto; }

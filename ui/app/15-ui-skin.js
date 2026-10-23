@@ -23,9 +23,16 @@
     mist: { label: '雾蓝', css: 'linear-gradient(160deg, #e6eefb 0%, #cbdaf0 100%)' },
     night: { label: '墨夜', css: 'linear-gradient(160deg, #0b0f15 0%, #1b2333 100%)' }
   };
+  // 透明方式：直接透明 / 两档毛玻璃 / 磨砂（都是给背景层加 filter，不影响内容）
+  const BG_MODES = {
+    none: { label: '直接透明', filter: '' },
+    soft: { label: '轻微模糊', filter: 'blur(4px)' },
+    strong: { label: '强模糊', filter: 'blur(12px)' },
+    frost: { label: '磨砂玻璃', filter: 'blur(8px) saturate(1.15) brightness(1.04)' }
+  };
   const SOLIDS = ['#f7f8fa', '#efe7d8', '#e8efe9', '#e9eef7', '#f3ecf4', '#ffffff'];
   const DEFAULTS = {
-    bg: { type: 'solid', color: '', preset: '', blur: 0, dim: 0, fit: 'cover' },
+    bg: { type: 'solid', color: '', preset: '', blur: 0, dim: 0, fit: 'cover', opacity: 100, mode: 'none' },
     colors: { accent: '', bg: '', card: '', text: '', tx2: '', line: '' },
     font: { family: '', scale: 1 },
     sidebarW: 0
@@ -66,36 +73,72 @@
     const fam = FAMILIES[f.family] || '';
     if (fam) root.style.setProperty('--font-ui', fam + ', system-ui, -apple-system, sans-serif');
     else root.style.removeProperty('--font-ui');
-    const scale = Number(f.scale) || 1;
-    if (scale >= 0.9 && scale <= 1.15 && Math.abs(scale - 1) > 0.001) root.style.setProperty('font-size', Math.round(14 * scale) + 'px');
-    else root.style.removeProperty('font-size');
+    // 字号缩放：body 固定了 14px，改根字号不管用；用 zoom 整体缩放并补偿宽高，
+    // 否则 100vh/100vw 会被放大而裁掉底部/右侧
+    const scale = Math.min(1.15, Math.max(0.9, Number(f.scale) || 1));
+    const app = document.getElementById('app');
+    if (app) {
+      if (Math.abs(scale - 1) > 0.001) {
+        app.style.zoom = String(scale);
+        app.style.width = 'calc(100vw / ' + scale + ')';
+        app.style.height = 'calc(100vh / ' + scale + ')';
+        app.classList.add('ui-zoomed');
+      } else {
+        app.style.zoom = '';
+        app.style.width = '';
+        app.style.height = '';
+        app.classList.remove('ui-zoomed');
+      }
+    }
 
     const w = Number(skin && skin.sidebarW) || 0;
     if (w >= 180 && w <= 320) root.style.setProperty('--sidebar-w', w + 'px');
     else root.style.removeProperty('--sidebar-w');
 
-    // 背景层
+    // 背景层：纯色 / 预设渐变 / 上传图片，三者都支持透明度与"透明方式"（模糊档）
     const bg = (skin && skin.bg) || {};
     let layer = document.getElementById('skin-bg');
     const image = readImage();
     const showImage = bg.type === 'image' && image;
     const showPreset = bg.type === 'preset' && PRESETS[bg.preset];
-    if (!showImage && !showPreset) {
+    const solidColor = bg.color || (skin && skin.colors && skin.colors.bg) || '';
+    const showSolid = bg.type === 'solid' && !!solidColor;
+    if (!showImage && !showPreset && !showSolid) {
       if (layer) layer.remove();
       root.style.removeProperty('--skin-dim');
-      document.body.classList.remove('skin-bg-on');   // 恢复不透明面板
+      document.body.classList.remove('skin-bg-on');
       return;
     }
-    document.body.classList.add('skin-bg-on');        // 面板半透明，背景才看得见
+    document.body.classList.add('skin-bg-on');
     if (!layer) {
       layer = document.createElement('div');
       layer.id = 'skin-bg';
       document.body.insertBefore(layer, document.body.firstChild);
     }
-    layer.style.filter = showImage && Number(bg.blur) > 0 ? 'blur(' + Number(bg.blur) + 'px) scale(1.04)' : '';
-    layer.style.backgroundImage = showImage ? 'url("' + image + '")' : PRESETS[bg.preset].css;
-    layer.style.backgroundSize = showImage ? (bg.fit === 'contain' ? 'contain' : bg.fit === 'repeat' ? 'auto' : 'cover') : 'cover';
-    layer.style.backgroundRepeat = showImage && bg.fit === 'repeat' ? 'repeat' : 'no-repeat';
+    // 背景本体
+    if (showImage) {
+      layer.style.backgroundImage = 'url("' + image + '")';
+      layer.style.backgroundColor = 'transparent';
+      layer.style.backgroundSize = bg.fit === 'contain' ? 'contain' : bg.fit === 'repeat' ? 'auto' : 'cover';
+      layer.style.backgroundRepeat = bg.fit === 'repeat' ? 'repeat' : 'no-repeat';
+    } else if (showPreset) {
+      layer.style.backgroundImage = PRESETS[bg.preset].css;
+      layer.style.backgroundColor = 'transparent';
+      layer.style.backgroundSize = 'cover';
+      layer.style.backgroundRepeat = 'no-repeat';
+    } else {
+      layer.style.backgroundImage = 'none';
+      layer.style.backgroundColor = solidColor;
+    }
+    // 透明度（0-100）
+    const opacity = bg.opacity === undefined ? 100 : Math.min(100, Math.max(0, Number(bg.opacity)));
+    layer.style.opacity = String(opacity / 100);
+    // 透明方式（模糊档）：与图片自身的"模糊"叠加
+    const mode = BG_MODES[bg.mode] ? bg.mode : 'none';
+    const filters = [];
+    if (BG_MODES[mode].filter) filters.push(BG_MODES[mode].filter);
+    if (showImage && Number(bg.blur) > 0) filters.push('blur(' + Number(bg.blur) + 'px)');
+    layer.style.filter = filters.length ? filters.join(' ') : '';
     const dim = showImage ? Number(bg.dim) || 0 : 0;
     root.style.setProperty('--skin-dim', dim > 0 ? 'rgba(0,0,0,' + Math.min(0.8, dim / 100) + ')' : 'transparent');
   }
@@ -120,14 +163,24 @@
   function imageOptionsRow() {
     const bg = S.skin.bg || {};
     if (bg.type !== 'image') return '';
-    return '<div class="skin-line" style="margin-top:8px">'
-      + '<label class="skin-color">模糊 <input class="skin-num" type="number" min="0" max="20" step="1" id="skin-blur" value="' + (Number(bg.blur) || 0) + '"></label>'
-      + '<label class="skin-color">变暗 <input class="skin-num" type="number" min="0" max="80" step="5" id="skin-dim" value="' + (Number(bg.dim) || 0) + '">%</label>'
-      + '<label class="skin-color">铺法 <select class="skin-num" id="skin-fit" style="width:96px">'
+    const blur = Math.min(20, Math.max(0, Number(bg.blur) || 0));
+    const dim = Math.min(80, Math.max(0, Number(bg.dim) || 0));
+    // 滑块 + 数字框：滑块拖着看效果，数字框能精确输入（一边动、另一边同步）
+    return '<div class="skin-ranges">'
+      + '<div class="skin-range"><span class="skin-range-lbl">模糊</span>'
+      + `<input type="range" id="skin-blur-range" min="0" max="20" step="1" value="${blur}">`
+      + `<input class="skin-num" type="number" id="skin-blur" min="0" max="20" step="1" value="${blur}">`
+      + '<span class="skin-range-unit">px</span></div>'
+      + '<div class="skin-range"><span class="skin-range-lbl">变暗</span>'
+      + `<input type="range" id="skin-dim-range" min="0" max="80" step="5" value="${dim}">`
+      + `<input class="skin-num" type="number" id="skin-dim" min="0" max="80" step="5" value="${dim}">`
+      + '<span class="skin-range-unit">%</span></div>'
+      + '<div class="skin-range"><span class="skin-range-lbl">铺法</span>'
+      + '<select class="skin-num" id="skin-fit" style="width:110px">'
       + ['cover|铺满', 'contain|居中', 'repeat|平铺'].map((x) => { const [v, l] = x.split('|'); return `<option value="${v}"${bg.fit === v ? ' selected' : ''}>${l}</option>`; }).join('')
-      + '</select></label>'
+      + '</select>'
       + '<button class="skin-btn" id="skin-clear-image">去掉图片</button>'
-      + '</div>';
+      + '</div></div>';
   }
   function colorRow(label, key) {
     const v = S.skin.colors[key] || '';
@@ -149,6 +202,11 @@
       + '<div class="skin-note">改任何一项立即生效；点「保存」才会写进配置（换设备也保留）。</div></div>';
   }
 
+  function opacityVal() {
+    const v = S.skin.bg && S.skin.bg.opacity;
+    return v === undefined ? 100 : Math.min(100, Math.max(0, Number(v) || 0));
+  }
+
   function renderSkinPanel() {
     const bg = S.skin.bg || {};
     return `
@@ -158,6 +216,15 @@
       <div class="skin-col">
         <div class="skin-row"><div class="skin-lbl">背景（纯色）</div>${swatchRow()}</div>
         <div class="skin-row"><div class="skin-lbl">背景（预设 / 图片）</div>${presetRow()}${imageOptionsRow()}</div>
+        <div class="skin-row"><div class="skin-lbl">背景透明度与透明方式</div>
+          <div class="skin-range"><span class="skin-range-lbl">透明度</span>
+            <input type="range" id="skin-opacity-range" min="0" max="100" step="5" value="${opacityVal()}">
+            <input class="skin-num" type="number" id="skin-opacity" min="0" max="100" step="5" value="${opacityVal()}">
+            <span class="skin-range-unit">%</span></div>
+          <div class="skin-line" style="margin-top:8px">
+            ${Object.entries(BG_MODES).map(([id, m]) => `<button class="skin-btn${(S.skin.bg.mode || 'none') === id ? ' on' : ''}" data-skin-mode="${id}">${m.label}</button>`).join('')}
+          </div>
+        </div>
         <div class="skin-row"><div class="skin-lbl">深浅</div>
           <div class="skin-line">
             ${[['light', '浅色'], ['dark', '深色'], ['auto', '跟随系统']].map(([v, l]) => `<button class="skin-btn${getThemePref() === v ? ' on' : ''}" data-skin-theme="${v}">${l}</button>`).join('')}
@@ -264,10 +331,45 @@
       touch();
       rerender();
     });
-    ['blur', 'dim'].forEach((k) => $id('skin-' + k)?.addEventListener('change', (e) => {
-      S.skin.bg[k] = Number(e.currentTarget.value) || 0;
+    // 背景透明度：滑块 + 数字，双向同步
+    {
+      const rangeEl = $id('skin-opacity-range');
+      const numEl = $id('skin-opacity');
+      const applyOpacity = (raw, from) => {
+        const v = Math.min(100, Math.max(0, Number(raw) || 0));
+        S.skin.bg.opacity = v;
+        if (rangeEl && from !== 'range') rangeEl.value = String(v);
+        if (numEl && from !== 'num') numEl.value = String(v);
+        touch();
+      };
+      rangeEl?.addEventListener('input', (e) => applyOpacity(e.currentTarget.value, 'range'));
+      numEl?.addEventListener('input', (e) => applyOpacity(e.currentTarget.value, 'num'));
+    }
+    // 透明方式（模糊档）
+    document.querySelectorAll('[data-skin-mode]').forEach((el) => el.addEventListener('click', () => {
+      S.skin.bg.mode = el.dataset.skinMode;
       touch();
+      rerender();
     }));
+
+    // 模糊 / 变暗：滑块与数字框双向同步（滑块即时应用，数字框精确输入）
+    const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || 0));
+    const syncPair = (key, lo, hi, commit) => {
+      const rangeEl = $id('skin-' + key + '-range');
+      const numEl = $id('skin-' + key);
+      const apply = (raw, fromRange) => {
+        const v = clampNum(raw, lo, hi);
+        S.skin.bg[key] = v;
+        if (rangeEl && fromRange !== 'range') rangeEl.value = String(v);
+        if (numEl && fromRange !== 'num') numEl.value = String(v);
+        touch();
+      };
+      rangeEl?.addEventListener('input', (e) => apply(e.currentTarget.value, 'range'));
+      numEl?.addEventListener('input', (e) => apply(e.currentTarget.value, 'num'));
+      numEl?.addEventListener('change', (e) => apply(e.currentTarget.value, 'num'));
+    };
+    syncPair('blur', 0, 20);
+    syncPair('dim', 0, 80);
     $id('skin-fit')?.addEventListener('change', (e) => { S.skin.bg.fit = e.currentTarget.value; touch(); });
 
     document.querySelectorAll('[data-skin-theme]').forEach((el) => el.addEventListener('click', () => {

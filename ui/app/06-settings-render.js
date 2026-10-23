@@ -2096,15 +2096,7 @@ function renderDesktopSection(c) {
     <div class="checkbox-row"><input type="checkbox" id="cfg-closetray" ${c.server?.closeToTray !== false ? 'checked' : ''} />
       <label for="cfg-closetray">点关闭时最小化到托盘</label></div>
     <h3>界面</h3>
-    <div class="field"><label>主题</label>
-      <div class="theme-picker" id="theme-picker">
-        ${THEME_VALUES.map((t) => `
-          <div class="theme-option${getThemePref() === t ? ' on' : ''}" data-theme-opt="${t}" role="button" tabindex="0">
-            <span class="t-ico">${THEME_ICON[t]}</span>
-            <span>${THEME_LABEL[t]}</span>
-          </div>`).join('')}
-      </div>
-    </div>
+    <div class="hint" style="margin-bottom:10px">主题 / 背景 / 颜色 / 字体已统一到 <b>外观 → UI 自定义</b>，这里不再重复放一份。</div>
     <div class="checkbox-row"><input type="checkbox" id="cfg-showvision" ${c.ui?.showVision !== false ? 'checked' : ''} />
       <label for="cfg-showvision">模型目录显示“支持图片输入/不支持图片输入”徽标</label></div>
     <div class="field"><label>界面刷新间隔（毫秒）</label><input type="number" id="cfg-refreshms" min="1000" step="1000" value="${esc(c.ui?.refreshMs ?? 15000)}" /></div>
