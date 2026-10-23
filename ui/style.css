@@ -2239,3 +2239,14 @@ body.skin-bg-on .view { background: transparent; }
 #tools-off-bar .tob-text { flex: 1 1 auto; min-width: 0; }
 #tools-off-bar .tob-text b { font-weight: 700; }
 #tools-off-bar .btn { flex: 0 0 auto; }
+
+/* 图片类背景预设（海报 / 立绘）：靠右站立、左边缘渐隐 */
+#skin-photo {
+  position: absolute; right: 0; bottom: 0; width: auto; max-width: 62vw;
+  object-fit: contain; object-position: right bottom;
+  pointer-events: none; user-select: none;
+}
+/* 图片预设的缩略图 */
+.skin-preset-photo { position: relative; overflow: hidden; padding: 0; }
+.skin-preset-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+.skin-preset-photo span { position: relative; z-index: 1; background: rgba(0,0,0,.42); color: #fff; }

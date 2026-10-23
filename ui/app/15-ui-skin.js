@@ -66,6 +66,27 @@
         + 'radial-gradient(1.4px 1.4px at 44% 85%, rgba(255,255,255,.6), transparent 100%),'
         + 'radial-gradient(1px 1px at 78% 71%, rgba(255,255,255,.55), transparent 100%),'
         + 'radial-gradient(125% 95% at 50% 45%, transparent 42%, rgba(0,0,0,.38) 100%)'
+    },
+    // 角色 / 海报类：自带图片（ui/assets/skins），每张一套排版（靠右站立 / 左边缘渐隐）
+    harness: {
+      label: '深海海报',
+      photo: 'assets/skins/harness.webp',
+      base: '#25407e',
+      layout: { scale: 76, offsetY: 34, fade: 16, paneAlpha: 50, alpha: false }
+    },
+    point: {
+      label: '指认',
+      photo: 'assets/skins/point.webp',
+      base: '#2a3f7a',
+      // 缩小一点、整体左移，别压住顶栏
+      layout: { scale: 80, offsetY: -2, offsetX: 64, fade: 40, paneAlpha: 56, alpha: true }
+    },
+    maid: {
+      label: '小鲸鱼',
+      photo: 'assets/skins/maid.webp',
+      base: '#2b3f7d',
+      // 左侧出现、半透明、比原来放大一点：像"站在窗边"的背景角色，不抢内容
+      layout: { side: 'left', scale: 102, offsetY: 2, offsetX: 4, fade: 30, opacity: 0.68, paneAlpha: 68, alpha: true }
     }
   };
   // 透明方式 = 半透明面板本身的效果（backdrop-filter，作用于面板/卡片，不作用于背景图）
@@ -261,6 +282,8 @@
     const image = readImage();
     const showImage = bg.type === 'image' && image;
     const showPreset = bg.type === 'preset' && PRESETS[bg.preset];
+    const presetDef = showPreset ? PRESETS[bg.preset] : null;
+    const showPhotoPreset = !!(presetDef && presetDef.photo);
     const solidColor = bg.color || (skin && skin.colors && skin.colors.bg) || '';
     const showSolid = bg.type === 'solid' && !!solidColor;
     if (!showImage && !showPreset && !showSolid) {
@@ -282,6 +305,12 @@
       layer.style.backgroundColor = 'transparent';
       layer.style.backgroundSize = bg.fit === 'contain' ? 'contain' : bg.fit === 'repeat' ? 'auto' : 'cover';
       layer.style.backgroundRepeat = bg.fit === 'repeat' ? 'repeat' : 'no-repeat';
+    } else if (showPreset && showPhotoPreset) {
+      // 图片预设：背景层自己不上色，图片由 #skin-photo 画（可做靠右/渐隐/缩放）
+      layer.style.backgroundImage = 'none';
+      layer.style.backgroundColor = 'transparent';
+      layer.style.backgroundSize = 'auto';
+      layer.style.backgroundRepeat = 'no-repeat';
     } else if (showPreset) {
       layer.style.backgroundImage = PRESETS[bg.preset].css;
       layer.style.backgroundColor = 'transparent';
@@ -304,6 +333,39 @@
     root.style.setProperty('--skin-panel-filter', BG_MODES[mode].filter);
     const dim = showImage ? Number(bg.dim) || 0 : 0;
     root.style.setProperty('--skin-dim', dim > 0 ? 'rgba(0,0,0,' + Math.min(0.8, dim / 100) + ')' : 'transparent');
+    renderPhotoPreset(showPhotoPreset ? presetDef : null);
+  }
+
+  /**
+   * 图片预设的排版：靠右站立 / 左边缘渐隐 / 高度与上下偏移由预设自己的 layout 决定。
+   * 用 <img> 而不是 background-image，才能"按高度缩放 + 底边对齐 + 渐隐遮罩"。
+   */
+  function renderPhotoPreset(def) {
+    const layer = document.getElementById('skin-bg');
+    if (!layer) return;
+    let img = document.getElementById('skin-photo');
+    if (!def) { if (img) img.remove(); return; }
+    const L = def.layout || {};
+    if (!img) {
+      img = document.createElement('img');
+      img.id = 'skin-photo';
+      img.alt = '';
+      img.decoding = 'async';
+      img.draggable = false;
+      layer.appendChild(img);
+    }
+    if (img.getAttribute('src') !== def.photo) img.setAttribute('src', def.photo);
+    img.style.height = (L.scale || 92) + 'vh';
+    img.style.bottom = (L.offsetY || 0) + 'px';
+    // 靠右：右边缘贴边、左边缘渐隐；靠左：左边缘贴边、右边缘渐隐
+    const left = L.side === 'left';
+    img.style.left = left ? ((L.offsetX || 0) + 'px') : '';
+    img.style.right = left ? '' : ((L.offsetX || 0) * -1 + 'px');
+    const to = left ? 'to left' : 'to right';
+    img.style.maskImage = 'linear-gradient(' + to + ', transparent 0%, #000 ' + (L.fade || 30) + '%)';
+    img.style.webkitMaskImage = img.style.maskImage;
+    img.style.opacity = String(L.opacity === undefined ? 1 : L.opacity);
+    img.style.filter = L.alpha === false ? 'none' : 'drop-shadow(0 10px 28px rgba(0,0,0,.16))';
   }
 
   // ── 面板 HTML ─────────────────────────────────────────────────────────
@@ -318,8 +380,10 @@
     const bg = S.skin.bg || {};
     return '<div class="skin-line">'
       + Object.entries(PRESETS).map(([id, p]) => {
+        const on = bg.type === 'preset' && bg.preset === id ? ' on' : '';
+        if (p.photo) return `<button class="skin-preset skin-preset-photo${on}" data-skin-preset="${id}" title="${esc(p.label)}"><img src="${p.photo}" alt=""><span>${p.label}</span></button>`;
         const img = p.motif ? p.css + ', ' + p.motif : p.css;
-        return `<button class="skin-preset${bg.type === 'preset' && bg.preset === id ? ' on' : ''}" style="background-image:${img};background-size:cover" data-skin-preset="${id}"><span>${p.label}</span></button>`;
+        return `<button class="skin-preset${on}" style="background-image:${img};background-size:cover" data-skin-preset="${id}"><span>${p.label}</span></button>`;
       }).join('')
       + `<button class="skin-btn" id="skin-upload-btn">上传图片</button>`
       + '<input type="file" id="skin-file" accept="image/png,image/jpeg,image/webp" style="display:none">'
@@ -479,6 +543,9 @@
       S.skin.bg.type = 'preset';
       S.skin.bg.preset = el.dataset.skinPreset;
       S.skin.colors.bg = '';
+      // 图片类预设自带"建议面板透明度"：不改的话 80% 不透明的面板会把背景图压成水印
+      const pdef = PRESETS[S.skin.bg.preset];
+      if (pdef && pdef.layout && pdef.layout.paneAlpha) S.skin.bg.opacity = pdef.layout.paneAlpha;
       touch();
       recolorIfAuto();
       rerender();
