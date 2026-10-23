@@ -2250,3 +2250,6 @@ body.skin-bg-on .view { background: transparent; }
 .skin-preset-photo { position: relative; overflow: hidden; padding: 0; }
 .skin-preset-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
 .skin-preset-photo span { position: relative; z-index: 1; background: rgba(0,0,0,.42); color: #fff; }
+
+/* 整屏铺满背景的遮罩层（浅色主题白纱 / 深色主题黑纱，由预设 layout.scrim 决定强度） */
+#skin-scrim { position: absolute; inset: 0; pointer-events: none; }

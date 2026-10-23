@@ -72,21 +72,24 @@
       label: '深海海报',
       photo: 'assets/skins/harness.webp',
       base: '#25407e',
-      layout: { scale: 76, offsetY: 34, fade: 16, paneAlpha: 50, alpha: false }
+      // 整屏铺满（顶部对齐裁切）+ 主题自适应遮罩：保留大标题，界面半透压在上面
+      layout: { bleed: true, scrim: 0.40, paneAlpha: 68, alpha: false }
     },
     point: {
       label: '指认',
       photo: 'assets/skins/point.webp',
       base: '#2a3f7a',
       // 缩小一点、整体左移，别压住顶栏
-      layout: { scale: 80, offsetY: -2, offsetX: 64, fade: 40, paneAlpha: 56, alpha: true }
+      // 头顶正好抵住顶栏下边线（top=56px），手和脸朝向内容区
+      layout: { scale: 118, top: 56, offsetX: 64, fade: 40, paneAlpha: 56, alpha: true }
     },
     maid: {
       label: '小鲸鱼',
       photo: 'assets/skins/maid.webp',
       base: '#2b3f7d',
       // 左侧出现、半透明、比原来放大一点：像"站在窗边"的背景角色，不抢内容
-      layout: { side: 'left', scale: 102, offsetY: 2, offsetX: 4, fade: 30, opacity: 0.68, paneAlpha: 68, alpha: true }
+      // 左侧、半透明、放大并整体下移：只露上半身（裙摆/脚被窗口底边裁掉）
+      layout: { side: 'left', scale: 150, top: 120, offsetX: 6, fade: 30, opacity: 0.7, paneAlpha: 68, alpha: true }
     }
   };
   // 透明方式 = 半透明面板本身的效果（backdrop-filter，作用于面板/卡片，不作用于背景图）
@@ -344,7 +347,7 @@
     const layer = document.getElementById('skin-bg');
     if (!layer) return;
     let img = document.getElementById('skin-photo');
-    if (!def) { if (img) img.remove(); return; }
+    if (!def) { if (img) img.remove(); const sc = document.getElementById('skin-scrim'); if (sc) sc.remove(); return; }
     const L = def.layout || {};
     if (!img) {
       img = document.createElement('img');
@@ -355,9 +358,39 @@
       layer.appendChild(img);
     }
     if (img.getAttribute('src') !== def.photo) img.setAttribute('src', def.photo);
+    img.removeAttribute('style');
+    // scrim：整屏铺满时用一层主题自适应遮罩保证面板文字可读
+    let scrim = document.getElementById('skin-scrim');
+    if (L.bleed && L.scrim) {
+      if (!scrim) {
+        scrim = document.createElement('div');
+        scrim.id = 'skin-scrim';
+        layer.appendChild(scrim);
+      }
+      const dark = resolvedTheme() === 'dark';
+      scrim.style.background = dark
+        ? 'rgba(0,0,0,' + Math.min(0.8, L.scrim + 0.12) + ')'
+        : 'rgba(255,255,255,' + L.scrim + ')';
+    } else if (scrim) {
+      scrim.remove();
+    }
+    if (L.bleed) {
+      // 整屏铺满：顶部对齐裁切
+      img.style.left = '0'; img.style.right = '0'; img.style.top = '0'; img.style.bottom = '0';
+      img.style.width = '100%'; img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      img.style.objectPosition = 'top center';
+      img.style.opacity = '1';
+      img.style.filter = 'none';
+      return;
+    }
     img.style.height = (L.scale || 92) + 'vh';
-    img.style.bottom = (L.offsetY || 0) + 'px';
-    // 靠右：右边缘贴边、左边缘渐隐；靠左：左边缘贴边、右边缘渐隐
+    // 两种垂直锚定：给 top 就"头顶贴线"，否则底边对齐再上移 offsetY
+    if (L.top !== undefined) {
+      img.style.top = L.top + 'px';
+    } else {
+      img.style.bottom = (L.offsetY || 0) + 'px';
+    }
     const left = L.side === 'left';
     img.style.left = left ? ((L.offsetX || 0) + 'px') : '';
     img.style.right = left ? '' : ((L.offsetX || 0) * -1 + 'px');
