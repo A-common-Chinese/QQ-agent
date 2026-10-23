@@ -103,7 +103,7 @@
   };
   const SOLIDS = ['#f7f8fa', '#efe7d8', '#e8efe9', '#e9eef7', '#f3ecf4', '#ffffff'];
   const DEFAULTS = {
-    bg: { type: 'solid', color: '', preset: '', blur: 0, dim: 0, fit: 'cover', opacity: 80, mode: 'none' },
+    bg: { type: 'preset', color: '', preset: 'maid', blur: 0, dim: 0, fit: 'cover', opacity: 68, mode: 'none' },
     colors: { accent: '', bg: '', card: '', text: '', tx2: '', line: '' },
     font: { family: '', scale: 1 },
     sidebarW: 0
