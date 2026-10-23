@@ -328,13 +328,26 @@
     root.style.setProperty('--skin-motif', showPreset && PRESETS[bg.preset].motif ? PRESETS[bg.preset].motif : 'none');
     // 背景层本身永远不透明：透明度调的是"面板/卡片"，否则调低只会露出底色（看着像变黑）
     layer.style.opacity = '1';
-    layer.style.filter = showImage && Number(bg.blur) > 0 ? 'blur(' + Number(bg.blur) + 'px)' : '';
+    // 模糊分两部分：① 用户给上传图设的"模糊"；② 透明方式里的磨砂档。
+    // 两者都直接作用在【背景层】上（静态一次），而不是给每个面板挂 backdrop-filter
+    // —— 后者每帧都要重算面板背后的模糊，8~10 个面板叠起来就是"一开磨砂就卡"的元凶。
+    const _modeBlur = { none: 0, soft: 4, strong: 10, frost: 8 }[bg.mode] || 0;
+    const _imgBlur = showImage ? Number(bg.blur) || 0 : 0;
+    const _totalBlur = _imgBlur + _modeBlur;
+    const _sat = bg.mode === 'frost' ? 1.15 : 1;
+    layer.style.filter = (_totalBlur > 0 || _sat !== 1)
+      ? 'blur(' + _totalBlur + 'px)' + (_sat !== 1 ? ' saturate(' + _sat + ')' : '')
+      : '';
+    // 模糊会让边缘发虚/露底，稍微放大一点点盖住
+    layer.style.transform = _totalBlur > 0 ? 'scale(1.06)' : '';
+    layer.style.transformOrigin = 'center';
     // 卡片/面板透明度（0-100）：越低，背景越透出来
     const alpha = bg.opacity === undefined ? 100 : Math.min(100, Math.max(0, Number(bg.opacity)));
     root.style.setProperty('--skin-alpha', alpha + '%');
     // 透明方式：面板的毛玻璃效果
     const mode = BG_MODES[bg.mode] ? bg.mode : 'none';
-    root.style.setProperty('--skin-panel-filter', BG_MODES[mode].filter);
+    // 面板不再用 backdrop-filter（见上方注释），这个变量留空即可
+    root.style.setProperty('--skin-panel-filter', 'none');
     const dim = showImage ? Number(bg.dim) || 0 : 0;
     root.style.setProperty('--skin-dim', dim > 0 ? 'rgba(0,0,0,' + Math.min(0.8, dim / 100) + ')' : 'transparent');
     renderPhotoPreset(showPhotoPreset ? presetDef : null);

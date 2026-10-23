@@ -2144,8 +2144,6 @@ body.skin-bg-on .usage-pane,
 body.skin-bg-on .settings-pane,
 body.skin-bg-on .snowluma-pane {
   background: color-mix(in srgb, var(--bg1) var(--skin-alpha, 100%), transparent);
-  -webkit-backdrop-filter: var(--skin-panel-filter, none);
-  backdrop-filter: var(--skin-panel-filter, none);
 }
 /* 卡片类：同样跟随透明度（背景能透过卡片看到） */
 body.skin-bg-on .usage-card,
@@ -2155,9 +2153,10 @@ body.skin-bg-on .mcard,
 body.skin-bg-on .session-item,
 body.skin-bg-on .skin-preview {
   background-color: color-mix(in srgb, var(--bg2) var(--skin-alpha, 100%), transparent);
-  -webkit-backdrop-filter: var(--skin-panel-filter, none);
-  backdrop-filter: var(--skin-panel-filter, none);
 }
+/* 磨砂玻璃：不再用 backdrop-filter（它要求每帧重算"面板背后的内容"，
+   元素一多就掉帧）。改为在 applySkin 里把【背景层本身】静态模糊一次，
+   面板只做半透明 —— 视觉几乎一样，但滚动时零模糊开销。 */
 body.skin-bg-on .view { background: transparent; }
 /* 预设纹样层：云团/沙丘/松针/雾带/星点，只用 CSS 渐变画（不加载图片） */
 #skin-bg::before {
