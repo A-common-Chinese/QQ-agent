@@ -2227,3 +2227,15 @@ body.skin-bg-on .view { background: transparent; }
 #app.ui-zoomed { flex: 0 0 auto; }
 /* 自动配色：浅/深两套的色点预览 */
 .skin-dot { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin: 0 2px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.15); }
+
+/* ── 工具全局开关关闭时的常驻红条（任何页签都显示）────────────────── */
+#tools-off-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 7px 18px; font-size: 12.5px; line-height: 1.5;
+  color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--err) 35%, transparent);
+}
+#tools-off-bar .tob-ico { font-size: 14px; }
+#tools-off-bar .tob-text { flex: 1 1 auto; min-width: 0; }
+#tools-off-bar .tob-text b { font-weight: 700; }
+#tools-off-bar .btn { flex: 0 0 auto; }

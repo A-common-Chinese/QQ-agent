@@ -937,6 +937,44 @@ function initShell() {
 }
 
 
+/**
+ * 工具全局开关关闭时的常驻红条。
+ *
+ * 为什么需要：关掉 tools.enabled 后模型连 `send_message` 都拿不到 —— 群里 @ 它只会沉默，
+ * 会话记录全是「不回复」。而原来这个状态只在 设置 → 工具与技能 里有一行小字，
+ * 不打开设置页根本发现不了（实测踩过：以为程序坏了）。
+ *
+ * 任何页签都显示；点按钮直接跳 设置 → 工具与技能。
+ */
+function updateToolsOffBar(cfg) {
+  const conf = cfg && typeof cfg === 'object' ? cfg : (typeof state !== 'undefined' ? state.config : null);
+  const off = !!(conf && conf.tools && conf.tools.enabled === false);
+  const main = $('#main');
+  if (!main) return;
+  let bar = $('#tools-off-bar');
+  if (!off) {
+    if (bar) bar.remove();
+    return;
+  }
+  if (bar) return;   // 已在显示
+  bar = document.createElement('div');
+  bar.id = 'tools-off-bar';
+  bar.innerHTML = '<span class="tob-ico" aria-hidden="true">⚠</span>'
+    + '<span class="tob-text">工具全局开关已关闭：机器人<b>发不出任何消息</b>（群里 @ 它只会沉默），联网 / 记忆 / 表情也不可用。</span>'
+    + '<button class="btn btn-small" id="tools-off-bar-go">去打开</button>';
+  const topbar = $('#topbar');
+  if (topbar && topbar.parentNode === main) main.insertBefore(bar, topbar.nextSibling);
+  else main.insertBefore(bar, main.firstChild);
+  bar.querySelector('#tools-off-bar-go')?.addEventListener('click', () => {
+    switchTab('settings');
+    state.settingsSection = 'tools';
+    setTimeout(() => {
+      if (typeof renderSettingsSidebar === 'function') renderSettingsSidebar();
+      if (typeof renderSettings === 'function') renderSettings();
+    }, 120);
+  });
+}
+
 // ── 记录"本窗口自己写配置"的时间 ────────────────────────────────────
 // 用途：SSE 收到 configUpdated 时据此跳过「自己保存 → 自己重渲染」的回路。
 // 不这么做的话：在输入框打字 → 防抖自动保存 → 后端广播 → 前端 loadSettings()

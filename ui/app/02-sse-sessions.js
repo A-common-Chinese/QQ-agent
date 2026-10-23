@@ -139,6 +139,11 @@ function connectSSE() {
   try {
     const d = JSON.parse(ev?.data || '{}');
     if (!d || !d.configUpdated) return;
+    // 工具全局开关的红条要跟着配置变化更新（不管当前在哪个页签）
+    if (Date.now() - (window.__lastToolsBarCheck || 0) > 1500) {
+      window.__lastToolsBarCheck = Date.now();
+      api('/api/config').then((c) => { if (typeof updateToolsOffBar === 'function') updateToolsOffBar(c); }).catch(() => {});
+    }
     if (state.tab !== 'settings' || typeof loadSettings !== 'function') return;
     if (Date.now() - (window.__selfConfigWriteAt || 0) < 3000) return;
     const ae = document.activeElement;

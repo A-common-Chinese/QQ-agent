@@ -248,6 +248,7 @@ function bindSettingsEvents(c) {
     state.config.tools.enabled = toolsEnabledCb.checked;
     const form = $('#settings-form');
     if (form && form.__settingsBound) form.__settingsBound.markDirty(toolsEnabledCb);
+    if (typeof updateToolsOffBar === 'function') updateToolsOffBar(state.config);
   });
 
   // 全部启用/禁用/恢复默认
@@ -258,13 +259,20 @@ function bindSettingsEvents(c) {
     state.config.tools.enabled = true;
     state.config.tools.overrides = {};
     state.config.tools.categories = { __replace__: {} };
+    if (typeof updateToolsOffBar === 'function') updateToolsOffBar(state.config);
     renderSettings();});
-  $('#tools-disable-all')?.addEventListener('click', () => {
+  // ⚠️「全部禁用」= 连 send_message 都收走 → 机器人会"收到但一句话发不出"（会话全是 noreply）。
+  // 这个后果太隐蔽，加一次确认；误触率比"少点一次"高得多。
+  $('#tools-disable-all')?.addEventListener('click', async () => {
+    const ok = await uiConfirm('确定禁用全部工具？\n\n关闭后模型连「发消息」的工具都没有了：群里 @ 它也只会沉默（会话状态显示"不回复"），联网、记忆、表情同样不可用。\n\n确认要关闭？');
+    if (!ok) return;
     state.config.tools = state.config.tools || {};
     state.config.tools.enabled = false;
+    if (typeof updateToolsOffBar === 'function') updateToolsOffBar(state.config);
     renderSettings();});
   $('#tools-reset')?.addEventListener('click', () => {
     state.config.tools = { enabled: true, overrides: {}, categories: { __replace__: {} } };
+    if (typeof updateToolsOffBar === 'function') updateToolsOffBar(state.config);
     renderSettings();});
 
   /** 实时更新提示词预览（旧版在前端拼静态模板，已改为后端同源组装） */

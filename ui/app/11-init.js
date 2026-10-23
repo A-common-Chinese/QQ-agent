@@ -28,11 +28,13 @@ $$('.tab').forEach((tab) => {
       const cfg0 = await api('/api/config');
       const t = cfg0?.ui?.theme;
       if (THEME_VALUES.includes(t)) applyTheme(t);
+      updateToolsOffBar(cfg0);   // 工具全局开关若被关掉，任何页签都挂常驻红条
     } catch { /* 接口不可用就用本地的 */ }
 
     // 首启引导：关键配置（模型/白名单）没填就直接带去设置页
     try {
       const cfg = await api('/api/config');
+      updateToolsOffBar(cfg);
       const ready = !!cfg.api.model && ((cfg.allow.groups?.length || cfg.allow.private?.length) || cfg.allowAllWhenEmpty);
       if (!ready) {
         switchTab('settings');
