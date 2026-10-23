@@ -13,8 +13,9 @@
  */
 (function () {
   const DONE_KEY = 'qqa-boot-played';
-  const IMG_SRC = 'assets/boot/enter.webp?v=20261023e';   // 换素材时改这个版本号，避免浏览器拿旧图
-  const T_MOVE = 3400;   // 角色完全起身(约2.9s)后再等 0.5s，然后向左平移
+  const IMG_SRC = 'assets/boot/enter.webp?v=20261023f';   // 换素材时改这个版本号，避免浏览器拿旧图
+  const AUD_SRC = 'assets/boot/enter.m4a?v=20261023f';
+  const T_MOVE = 3300;   // 角色完全起身(约2.9s)后再等 0.4s，然后向左平移
   const T_END = 4900;    // 平移到位后再停一下才淡出
   const T_GONE = 5250;   // 彻底移除
 
@@ -23,7 +24,7 @@
   let overlay = null;
   let finished = false;
 
-  const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+  const clearTimers = () => { timers.forEach((t) => (typeof t === 'function' ? t() : clearTimeout(t))); timers = []; };
   const later = (fn, ms) => { timers.push(setTimeout(fn, ms)); };
 
   function markPlayed() {
@@ -37,6 +38,10 @@
     if (!overlay) { markPlayed(); return; }
     const el = overlay;
     overlay = null;
+    try {
+      const a = el.querySelector('#boot-audio');
+      if (a) { a.pause(); a.removeAttribute('src'); a.load && a.load(); }
+    } catch { /* 忽略 */ }
     el.classList.add('out');
     setTimeout(() => el.remove(), instant ? 60 : 340);
     markPlayed();
@@ -50,9 +55,12 @@
       + '  <img id="boot-char" alt="" draggable="false">'
       + '</div>'
       + '<div class="boot-word"><span>QQ</span><span>Agent</span></div>'
+      + '<audio id="boot-audio" preload="auto"></audio>'
       + '<div class="boot-skip">点击任意处跳过</div>';
     const img = el.querySelector('#boot-char');
     seq += 1;
+    const audio = el.querySelector('#boot-audio');
+    if (audio) audio.src = AUD_SRC + (AUD_SRC.indexOf('?') >= 0 ? '&' : '?') + 'run=' + seq;
     // 加 run 参数强制当作新资源：动画只播一次(loop=1)，复用同一个 URL 时 Chromium 会停在末帧不重播
     img.src = IMG_SRC + (IMG_SRC.indexOf('?') >= 0 ? '&' : '?') + 'run=' + seq;
     document.body.appendChild(el);
@@ -67,6 +75,7 @@
     const img = overlay.querySelector('#boot-char');
     const word = overlay.querySelector('.boot-word');
     const stage = overlay.querySelector('.boot-stage');
+    const audio = overlay.querySelector('#boot-audio');   // build() 里那个变量出不了作用域
 
     // 素材没就绪也不等它：先把时间线跑起来（低配机器上等图反而更慢），
     // 只有明确报错才立刻收掉动画层。
@@ -77,7 +86,26 @@
     if (typeof window.addEventListener === 'function') window.addEventListener('keydown', skip, { once: true });
 
     later(() => stage.classList.add('go'), T_MOVE);
-    later(() => word.classList.add('in'), T_MOVE + 180);
+    later(() => {
+      word.classList.add('in');
+      // 出字时起音：正片 0:02 之后的音频（已按 2x 对齐到压缩后的时间线）
+      try {
+        if (audio) { audio.volume = 0.85; const pr = audio.play(); if (pr && pr.catch) pr.catch(() => {}); }
+      } catch { /* 自动播放被拦就静音播完，别影响动画 */ }
+    }, T_MOVE + 180);
+    // 淡出前把音量收一下
+    later(() => {
+      try {
+        if (!audio) return;
+        let v = audio.volume;
+        const t = setInterval(() => {
+          v = Math.max(0, v - 0.15);
+          audio.volume = v;
+          if (v <= 0) { clearInterval(t); try { audio.pause(); } catch { /* 忽略 */ } }
+        }, 60);
+        timers.push(() => clearInterval(t));
+      } catch { /* 忽略 */ }
+    }, T_END - 300);
     later(() => finish(false), T_END);
     later(() => { if (overlay) finish(true); }, T_GONE + 50);
   }
