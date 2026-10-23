@@ -81,7 +81,7 @@
       base: '#2a3f7a',
       // 缩小一点、整体左移，别压住顶栏
       // 头顶正好抵住顶栏下边线（top=56px），手和脸朝向内容区
-      layout: { scale: 118, top: 56, offsetX: 64, fade: 40, opacity: 0.85, paneAlpha: 56, alpha: false }
+      layout: { whiteBg: true, scale: 118, top: 56, offsetX: 64, fade: 40, opacity: 0.9, paneAlpha: 56, alpha: false }
     },
     maid: {
       label: '小鲸鱼',
@@ -89,7 +89,7 @@
       base: '#2b3f7d',
       // 左侧出现、半透明、比原来放大一点：像"站在窗边"的背景角色，不抢内容
       // 左侧、半透明、放大并整体下移：只露上半身（裙摆/脚被窗口底边裁掉）
-      layout: { side: 'left', scale: 132, top: 130, offsetX: -96, fade: 30, opacity: 0.55, paneAlpha: 68, alpha: false }
+      layout: { whiteBg: true, side: 'left', scale: 132, top: 130, offsetX: -96, fade: 30, opacity: 0.6, paneAlpha: 68, alpha: false }
     }
   };
   // 透明方式 = 半透明面板本身的效果（backdrop-filter，作用于面板/卡片，不作用于背景图）
@@ -375,9 +375,8 @@
     } else if (scrim) {
       scrim.remove();
     }
+    if (L.whiteBg) layer.style.backgroundColor = '#fff';
     if (L.bleed) {
-      // 整屏铺满：底部刷白（素材已是白底画布，这里兜住加载瞬间与亚像素缝隙）
-      if (L.whiteBg) layer.style.backgroundColor = '#fff';
       // 整屏铺满：顶部对齐裁切
       img.style.left = '0'; img.style.right = '0'; img.style.top = '0'; img.style.bottom = '0';
       img.style.width = '100%'; img.style.height = '100%';
