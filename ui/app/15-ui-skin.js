@@ -8,6 +8,7 @@
 //   · 上传的位图本体 → 本机 localStorage（太大不适合塞 config；换机器/换浏览器不同步）
 (function () {
   const IMG_KEY = 'qqa-skin-image';
+  const AUTO_KEY = 'qqa-skin-auto';   // 自动配色（含开启前的颜色快照）存本机
   const FAMILIES = {
     '': '系统默认',
     msyh: '"Microsoft YaHei", "微软雅黑"',
@@ -20,6 +21,7 @@
   const PRESETS = {
     moon: {
       label: '云白',
+      base: '#eef2fa',
       css: 'linear-gradient(160deg, #eef2fa 0%, #d5e1f1 100%)',
       motif: 'radial-gradient(42% 24% at 16% 26%, rgba(255,255,255,.95), transparent 100%),'
         + 'radial-gradient(30% 18% at 44% 16%, rgba(255,255,255,.85), transparent 100%),'
@@ -28,6 +30,7 @@
     },
     sand: {
       label: '暖砂',
+      base: '#f6ead1',
       css: 'linear-gradient(160deg, #f6ead1 0%, #e6cfa4 100%)',
       motif: 'repeating-linear-gradient(102deg, rgba(160,120,60,.085) 0 3px, transparent 3px 10px),'
         + 'radial-gradient(70% 40% at 86% 6%, rgba(255,246,224,.9), transparent 100%),'
@@ -35,6 +38,7 @@
     },
     pine: {
       label: '松绿',
+      base: '#e4f1e7',
       css: 'linear-gradient(160deg, #e4f1e7 0%, #c8e0cf 100%)',
       motif: 'repeating-linear-gradient(118deg, rgba(24,84,56,.16) 0 2px, transparent 2px 11px),'
         + 'repeating-linear-gradient(62deg, rgba(24,84,56,.10) 0 2px, transparent 2px 15px),'
@@ -43,6 +47,7 @@
     },
     mist: {
       label: '雾蓝',
+      base: '#e6eefb',
       css: 'linear-gradient(160deg, #e6eefb 0%, #cbdaf0 100%)',
       motif: 'repeating-linear-gradient(0deg, rgba(70,110,175,.12) 0 18px, transparent 18px 54px),'
         + 'radial-gradient(80% 50% at 18% 18%, rgba(255,255,255,.75), transparent 100%),'
@@ -50,6 +55,7 @@
     },
     night: {
       label: '墨夜',
+      base: '#0b0f15',
       css: 'linear-gradient(160deg, #0b0f15 0%, #1b2333 100%)',
       motif: 'radial-gradient(1.3px 1.3px at 12% 18%, rgba(255,255,255,.9), transparent 100%),'
         + 'radial-gradient(1px 1px at 31% 8%, rgba(255,255,255,.65), transparent 100%),'
@@ -72,11 +78,110 @@
   };
   const SOLIDS = ['#f7f8fa', '#efe7d8', '#e8efe9', '#e9eef7', '#f3ecf4', '#ffffff'];
   const DEFAULTS = {
-    bg: { type: 'solid', color: '', preset: '', blur: 0, dim: 0, fit: 'cover', opacity: 100, mode: 'none' },
+    bg: { type: 'solid', color: '', preset: '', blur: 0, dim: 0, fit: 'cover', opacity: 80, mode: 'none' },
     colors: { accent: '', bg: '', card: '', text: '', tx2: '', line: '' },
     font: { family: '', scale: 1 },
     sidebarW: 0
   };
+
+  // ── 根据背景自动配色 ────────────────────────────────────────────────
+  // 从背景取一个"基色"，按色相推出一套浅色主题 + 一套深色主题的配色；
+  // 开启时记住原来的颜色（skin.auto.prev），关闭时原样还回去。
+  function hexToRgb(hex) {
+    let s = String(hex || '').trim().replace('#', '');
+    if (s.length === 3) s = s.split('').map((c) => c + c).join('');
+    if (!/^[0-9a-f]{6}$/i.test(s)) return null;
+    return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
+  }
+  function rgbToHsl([r, g, b]) {
+    const R = r / 255, G = g / 255, B = b / 255;
+    const mx = Math.max(R, G, B), mn = Math.min(R, G, B);
+    const l = (mx + mn) / 2;
+    let h = 0, s = 0;
+    if (mx !== mn) {
+      const d = mx - mn;
+      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      if (mx === R) h = ((G - B) / d + (G < B ? 6 : 0));
+      else if (mx === G) h = (B - R) / d + 2;
+      else h = (R - G) / d + 4;
+      h *= 60;
+    }
+    return [h, s, l];
+  }
+  const hsl = (h, s, l) => `hsl(${Math.round(((h % 360) + 360) % 360)} ${Math.round(Math.min(100, Math.max(0, s)))}% ${Math.round(Math.min(100, Math.max(0, l)))}%)`;
+
+  function buildPalette(baseHex, theme) {
+    const rgb = hexToRgb(baseHex) || [210, 222, 240];
+    const [h, s, l] = rgbToHsl(rgb);
+    const sat = s * 100, lig = l * 100;
+    if (theme === 'dark') {
+      return {
+        accent: hsl(h, Math.min(72, Math.max(48, sat * 0.85 + 34)), 62),
+        bg: hsl(h, Math.min(26, sat * 0.5 + 6), 9),
+        card: hsl(h, Math.min(24, sat * 0.45 + 5), 14),
+        text: hsl(h, 12, 94),
+        tx2: hsl(h, 10, 70),
+        line: hsl(h, 14, 25)
+      };
+    }
+    return {
+      accent: hsl(h, Math.min(74, Math.max(46, sat * 0.9 + 28)), 40),
+      bg: hsl(h, Math.min(42, sat * 0.6 + 10), Math.max(93, 99 - lig * 0.04)),
+      card: hsl(h, Math.min(30, sat * 0.4 + 4), 99),
+      text: hsl(h, Math.min(30, sat * 0.4 + 10), 14),
+      tx2: hsl(h, 14, 40),
+      line: hsl(h, Math.min(30, sat * 0.5 + 10), 88)
+    };
+  }
+
+  /** 背景的"基色"：纯色取色值 / 预设取 base / 图片取平均色 */
+  function baseColorOf(skin, cb) {
+    const bg = (skin && skin.bg) || {};
+    if (bg.type === 'image') {
+      const img = readImage();
+      if (!img) { cb('#9fb4cf'); return; }
+      const im = new Image();
+      im.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = 24; c.height = 24;
+          const g = c.getContext('2d');
+          g.drawImage(im, 0, 0, 24, 24);
+          const d = g.getImageData(0, 0, 24, 24).data;
+          let r = 0, gg = 0, b = 0, n = 0;
+          for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; n += 1; }
+          cb('#' + [r / n, gg / n, b / n].map((v) => Math.round(v).toString(16).padStart(2, '0')).join(''));
+        } catch { cb('#9fb4cf'); }
+      };
+      im.onerror = () => cb('#9fb4cf');
+      im.src = img;
+      return;
+    }
+    if (bg.type === 'preset' && PRESETS[bg.preset] && PRESETS[bg.preset].base) { cb(PRESETS[bg.preset].base); return; }
+    cb(bg.color || (skin.colors && skin.colors.bg) || '#eef2fa');
+  }
+
+  /** 重新计算两套自动配色（不改变开关状态） */
+  function recomputeAuto(done) {
+    baseColorOf(S.skin, (base) => {
+      const auto = S.skin.auto || {};
+      auto.light = buildPalette(base, 'light');
+      auto.dark = buildPalette(base, 'dark');
+      auto.base = base;
+      S.skin.auto = auto;
+      if (done) done();
+    });
+  }
+
+  const resolvedTheme = () => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+  function colorsForApply(skin) {
+    const auto = skin && skin.auto;
+    if (auto && auto.on) {
+      const pal = auto[resolvedTheme()] || auto.light;
+      if (pal) return pal;
+    }
+    return (skin && skin.colors) || {};
+  }
 
   const S = { skin: clone(DEFAULTS), saved: false, dirty: false };
 
@@ -93,11 +198,26 @@
   function readImage() {
     try { return localStorage.getItem(IMG_KEY) || ''; } catch { return ''; }
   }
+  function readAuto() {
+    try {
+      const raw = localStorage.getItem(AUTO_KEY);
+      if (!raw) return null;
+      const v = JSON.parse(raw);
+      return v && v.on ? v : null;
+    } catch { return null; }
+  }
+  function writeAuto(auto) {
+    try { localStorage.setItem(AUTO_KEY, JSON.stringify(auto)); } catch { /* 忽略 */ }
+  }
+  function clearAuto() {
+    try { localStorage.removeItem(AUTO_KEY); } catch { /* 忽略 */ }
+  }
+
 
   // ── 应用皮肤 ──────────────────────────────────────────────────────────
   function applySkin(skin) {
     const root = document.documentElement;
-    const c = (skin && skin.colors) || {};
+    const c = colorsForApply(skin);
     const setVar = (k, v) => {
       if (v) root.style.setProperty(k, v);
       else root.style.removeProperty(k);
@@ -250,7 +370,7 @@
 
   function opacityVal() {
     const v = S.skin.bg && S.skin.bg.opacity;
-    return v === undefined ? 100 : Math.min(100, Math.max(0, Number(v) || 0));
+    return v === undefined ? 80 : Math.min(100, Math.max(0, Number(v) || 0));
   }
 
   function renderSkinPanel() {
@@ -277,7 +397,16 @@
             ${[['light', '浅色'], ['dark', '深色'], ['auto', '跟随系统']].map(([v, l]) => `<button class="skin-btn${getThemePref() === v ? ' on' : ''}" data-skin-theme="${v}">${l}</button>`).join('')}
           </div>
         </div>
-        <div class="skin-row"><div class="skin-lbl">颜色</div>
+        <div class="skin-row"><div class="skin-lbl">根据背景自动配色</div>
+          <div class="skin-line">
+            <button class="skin-btn${S.skin.auto && S.skin.auto.on ? ' primary' : ''}" id="skin-auto-toggle">${S.skin.auto && S.skin.auto.on ? '已开启（点此关闭并还原）' : '开启自动配色'}</button>
+            ${S.skin.auto && S.skin.auto.on
+              ? `<span class="skin-note" style="margin:0">浅色主题：<i class="skin-dot" style="background:${esc((S.skin.auto.light || {}).accent || '#888')}"></i><i class="skin-dot" style="background:${esc((S.skin.auto.light || {}).bg || '#eee')}"></i><i class="skin-dot" style="background:${esc((S.skin.auto.light || {}).card || '#fff')}"></i> 深色主题：<i class="skin-dot" style="background:${esc((S.skin.auto.dark || {}).accent || '#888')}"></i><i class="skin-dot" style="background:${esc((S.skin.auto.dark || {}).bg || '#111')}"></i><i class="skin-dot" style="background:${esc((S.skin.auto.dark || {}).card || '#1b1b1b')}"></i></span>`
+              : ''}
+          </div>
+          <div class="skin-note" style="margin:6px 0 0">开启后按背景基色自动给浅色/深色两套配色（随主题切换）；会记住你开启前的颜色，关闭时自动还原。</div>
+        </div>
+        <div class="skin-row"><div class="skin-lbl">颜色${S.skin.auto && S.skin.auto.on ? '（自动配色中，手动修改会先关掉自动）' : ''}</div>
           <div class="skin-line">${colorRow('主色', 'accent')}${colorRow('页面底色', 'bg')}${colorRow('卡片', 'card')}${colorRow('正文', 'text')}</div>
           <div class="skin-adv${S.adv ? ' open' : ''}" id="skin-adv">
             ${colorRow('次要文字', 'tx2')}${colorRow('分隔线', 'line')}
@@ -336,12 +465,14 @@
       S.skin.bg.type = 'solid';
       S.skin.colors.bg = el.dataset.skinSolid;
       touch();
+      recolorIfAuto();
       rerender();
     }));
     $id('skin-color-bg')?.addEventListener('input', (e) => {
       S.skin.bg.type = 'solid';
       S.skin.colors.bg = e.currentTarget.value;
       touch();
+      recolorIfAuto();
       rerender();
     });
     document.querySelectorAll('[data-skin-preset]').forEach((el) => el.addEventListener('click', () => {
@@ -349,6 +480,7 @@
       S.skin.bg.preset = el.dataset.skinPreset;
       S.skin.colors.bg = '';
       touch();
+      recolorIfAuto();
       rerender();
     }));
     $id('skin-upload-btn')?.addEventListener('click', () => $id('skin-file')?.click());
@@ -368,6 +500,7 @@
         S.skin.bg.type = 'image';
         S.skin.bg.preset = '';
         touch();
+        recolorIfAuto();
         rerender();
       };
       fr.readAsDataURL(f);
@@ -429,7 +562,41 @@
       touch();
       rerender();
     }));
+    // 背景一变，自动配色要跟着重算（图片是异步取平均色）
+    const recolorIfAuto = () => {
+      if (!(S.skin.auto && S.skin.auto.on)) return;
+      recomputeAuto(() => { writeAuto(S.skin.auto); applySkin(S.skin); });
+    };
+    // 自动配色：开 / 关（关闭时还原开启前保存的颜色）
+    $id('skin-auto-toggle')?.addEventListener('click', () => {
+      const auto = S.skin.auto || {};
+      if (auto.on) {
+        // 关闭：还原开启前的颜色（快照存在 auto.prev 里）
+        if (auto.prev) S.skin.colors = Object.assign({}, DEFAULTS.colors, auto.prev);
+        S.skin.auto = { on: false, prev: null, light: null, dark: null, base: '' };
+        clearAuto();
+        applySkin(S.skin);
+        rerender();
+        return;
+      }
+      const prev = Object.assign({}, S.skin.colors);
+      S.skin.auto = { on: true, prev, light: null, dark: null, base: '' };
+      recomputeAuto(() => {
+        writeAuto(S.skin.auto);
+        applySkin(S.skin);
+        rerender();
+      });
+    });
+    // 颜色手改 → 自动配色先关掉（否则改了也看不见）
+    const kickAutoOff = () => {
+      if (S.skin.auto && S.skin.auto.on) {
+        const prev = Object.assign({}, S.skin.auto.prev || S.skin.colors);
+        S.skin.auto = { on: false, prev: null, light: null, dark: null, base: '' };
+        S.skin.colors = prev;
+      }
+    };
     ['accent', 'bg', 'card', 'text', 'tx2', 'line'].forEach((k) => $id('skin-c-' + k)?.addEventListener('input', (e) => {
+      kickAutoOff();
       S.skin.colors[k] = e.currentTarget.value;
       touch();
     }));
@@ -510,8 +677,21 @@
       const cfg = await api('/api/config');
       S.skin = mergeSkin(cfg && cfg.ui && cfg.ui.skin);
     } catch { /* 用默认 */ }
+    const autoSaved = readAuto();
+    if (autoSaved) S.skin.auto = autoSaved;   // 自动配色以本机为准（含开启前的颜色）
     applySkin(S.skin);
   }
+  // 主题变化（浅/深/跟随系统）→ 自动配色要换成对应那一套
+  try {
+    let lastTheme = resolvedTheme();
+    new MutationObserver(() => {
+      const now = resolvedTheme();
+      if (now === lastTheme) return;
+      lastTheme = now;
+      if (S.skin.auto && S.skin.auto.on) applySkin(S.skin);
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  } catch { /* 老环境没有 MutationObserver */ }
+
   window.__applySkin = applySkin;
   window.renderSkinPanel = renderSkinPanel;   // 06 的 renderUiCustomSection 要调用它（跨脚本全局）
   window.__skinState = S;

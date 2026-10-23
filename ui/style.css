@@ -2225,3 +2225,5 @@ body.skin-bg-on .view { background: transparent; }
 
 /* 字号缩放（整体 zoom）：宽高已由 JS 用 calc(100vw/z) 补偿，这里锁住不换行溢出 */
 #app.ui-zoomed { flex: 0 0 auto; }
+/* 自动配色：浅/深两套的色点预览 */
+.skin-dot { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin: 0 2px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.15); }
