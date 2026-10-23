@@ -14,6 +14,7 @@
     menu.hidden = false;
     btn.classList.add('open');
     btn.setAttribute('aria-expanded', 'true');
+    reveal();                     // 菜单打开期间保持滑出，否则会被贴边裁掉
   };
   const closeMenu = () => {
     if (menu.hidden) return;
@@ -21,6 +22,37 @@
     btn.classList.remove('open');
     btn.setAttribute('aria-expanded', 'false');
   };
+
+  // ── 贴边/滑出：默认只露 1/3 圆，鼠标靠近右下角（或按钮本身获得焦点）才滑出 ──
+  const PEEK = 19;                // 贴边时露出的像素（约 1/3 圆）
+  const ZONE_X = 132;             // 距右边缘多少像素内算"靠近"
+  const ZONE_Y = 150;
+  let hideTimer = 0;
+  const reveal = () => {
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0; }
+    fab.classList.add('reveal');
+  };
+  const scheduleHide = () => {
+    if (!menu.hidden) return;     // 菜单开着不收起
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      hideTimer = 0;
+      if (menu.hidden && !fab.contains(document.activeElement)) fab.classList.remove('reveal');
+    }, 700);
+  };
+  document.addEventListener('mousemove', (e) => {
+    const near = (window.innerWidth - e.clientX) <= ZONE_X && (window.innerHeight - e.clientY) <= ZONE_Y;
+    if (near) reveal(); else scheduleHide();
+  }, { passive: true });
+  // 触屏/无鼠标：点一下按钮即可（贴边状态本身也能点到露出的 1/3）
+  btn.addEventListener('focusin', reveal);
+  fab.addEventListener('focusout', scheduleHide);
+  fab.addEventListener('pointerenter', reveal);
+  fab.addEventListener('pointerleave', scheduleHide);
+  // 页面初次渲染时如果鼠标停在右下角（比如窗口刚开），也直接滑出
+  document.addEventListener('pointermove', (e) => {
+    if ((window.innerWidth - e.clientX) <= ZONE_X && (window.innerHeight - e.clientY) <= ZONE_Y) reveal();
+  }, { passive: true, once: true });
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     if (menu.hidden) openMenu(); else closeMenu();
