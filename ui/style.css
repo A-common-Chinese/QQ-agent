@@ -2175,3 +2175,6 @@ body.sidebar-collapsed #sidebar-resizer { display: none; }
 .skin-preview .sp-row { display: flex; gap: 10px; }
 .skin-note { font-size: 11px; color: var(--tx3); line-height: 1.7; margin-top: 6px; }
 .skin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+.uc-lg-shape { display: inline-flex; align-items: center; justify-content: center; }
+.uc-lg-more { color: var(--tx3); font-size: 11px; }

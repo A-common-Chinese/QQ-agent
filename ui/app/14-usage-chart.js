@@ -165,7 +165,10 @@
     }
     for (let i = 0; i < n; i += 1) {
       const [x, y] = pts[i];
-      const pid = safeShapeIndex(v, i);
+      // 自动模式：形状 = 当天主导模型；单选某模型时就统一用它自己的形状/颜色（与图头一致）
+      const pid = S.model === 'auto'
+        ? safeShapeIndex(v, i)
+        : v.series.findIndex((s) => s.key === S.model);
       const color = pid >= 0 ? COLORS[pid % COLORS.length] : 'var(--ac)';
       const shape = SHAPES[(pid >= 0 ? pid : 0) % SHAPES.length];
       if (v.buckets[i].partial) {
@@ -292,21 +295,46 @@
     const note = S.data.bucket === 'week' ? '按周' : '按天';
     box.innerHTML = '<div class="uc-card">'
       + '<div class="uc-head"><div class="uc-title">用量趋势 <span class="uc-sub">' + note + ' · ' + esc(S.data.range === 'all' ? '全部' : '近 ' + S.data.range + ' 天') + '</span></div>'
-      + '<div class="uc-legend">'
-      + (S.model === 'auto'
-        ? (S.data.series || []).slice(0, 6).map((s) => `<span class="uc-lg"><i style="background:${colorOf(s.key)}"></i>${esc(shortLabel(s.key))}</span>`).join('')
-        : `<span class="uc-lg"><i style="background:${colorOf(S.model)}"></i>${esc(shortLabel(S.model))}</span>`)
-      + '<span class="uc-lg uc-lg-dash"><i></i>今天（累计中）</span>'
-      + '</div></div>'
+      + '<div class="uc-legend">' + legendHtml() + '</div></div>'
       + controlsHtml()
       + '<div class="uc-plot"><svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="用量趋势图">'
       + gridSvg(v) + (S.chart === 'bar' ? barSvg(v) : lineSvg(v))
       + '</svg></div>'
       + '<div class="uc-foot"><div class="uc-pie"><svg viewBox="0 0 200 200" role="img" aria-label="模型占比">' + pieSvg(v) + '</svg></div>'
       + '<div class="uc-pie-legend">' + (S.data.pie || []).filter((p) => p.value > 0).slice(0, 8).map((p) => `<div class="uc-pl"><i style="background:${colorOf(p.key)}"></i><span class="uc-pl-name">${esc(shortLabel(p.key))}</span><span class="uc-pl-pct">${(p.share * 100).toFixed(1)}%</span></div>`).join('') + '</div>'
-      + '<div class="uc-note">折线点的形状 = 当天调用最多的模型；最后一段虚线 / 最后一根虚框 = 今天（数据还在累计）</div>'
       + '</div></div>';
     bind();
+  }
+
+  /** 图头图例：每个模型对应什么颜色 + 什么形状（折线图用形状区分"当天主导模型"） */
+  function shapeSvg(key, size) {
+    const list = (S.data && S.data.series) || [];
+    const idx = list.findIndex((s) => s.key === key);
+    const color = COLORS[(idx < 0 ? 0 : idx) % COLORS.length];
+    const shape = SHAPES[(idx < 0 ? 0 : idx) % SHAPES.length];
+    const s2 = size || 12;
+    const c = s2 / 2;
+    if (shape === 'square') {
+      return `<svg width="${s2}" height="${s2}" viewBox="0 0 ${s2} ${s2}" aria-hidden="true"><rect x="2" y="2" width="${s2 - 4}" height="${s2 - 4}" rx="1.5" fill="none" stroke="${color}" stroke-width="2"></rect></svg>`;
+    }
+    if (shape === 'triangle') {
+      return `<svg width="${s2}" height="${s2}" viewBox="0 0 ${s2} ${s2}" aria-hidden="true"><polygon points="${c},1.5 ${s2 - 1.5},${s2 - 2} 1.5,${s2 - 2}" fill="none" stroke="${color}" stroke-width="2"></polygon></svg>`;
+    }
+    return `<svg width="${s2}" height="${s2}" viewBox="0 0 ${s2} ${s2}" aria-hidden="true"><circle cx="${c}" cy="${c}" r="${c - 2}" fill="none" stroke="${color}" stroke-width="2"></circle></svg>`;
+  }
+
+  function legendHtml() {
+    const series = (S.data && S.data.series) || [];
+    const shownList = S.model === 'auto' ? series : series.filter((s) => s.key === S.model);
+    const items = shownList.slice(0, 8).map((s) => {
+      const mark = S.chart === 'line'
+        ? '<span class="uc-lg-shape">' + shapeSvg(s.key, 12) + '</span>'
+        : `<i style="background:${colorOf(s.key)}"></i>`;
+      return `<span class="uc-lg">${mark}${esc(shortLabel(s.key))}</span>`;
+    });
+    if (series.length > 8 && S.model === 'auto') items.push('<span class="uc-lg uc-lg-more">等 ' + series.length + ' 个模型</span>');
+    items.push('<span class="uc-lg uc-lg-dash"><i></i>今天（累计中）</span>');
+    return items.join('');
   }
 
   function bind() {
