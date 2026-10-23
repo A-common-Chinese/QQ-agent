@@ -72,8 +72,8 @@
       label: '深海海报',
       photo: 'assets/skins/harness.webp',
       base: '#25407e',
-      // 整屏铺满（顶部对齐裁切）+ 主题自适应遮罩：保留大标题，界面半透压在上面
-      layout: { bleed: true, scrim: 0.40, paneAlpha: 68, alpha: false }
+      // 右侧海报：完整显示、左边缘渐隐，内容区不受影响
+      layout: { scale: 76, offsetY: 34, fade: 16, paneAlpha: 50, alpha: false }
     },
     point: {
       label: '指认',
@@ -89,7 +89,7 @@
       base: '#2b3f7d',
       // 左侧出现、半透明、比原来放大一点：像"站在窗边"的背景角色，不抢内容
       // 左侧、半透明、放大并整体下移：只露上半身（裙摆/脚被窗口底边裁掉）
-      layout: { side: 'left', scale: 150, top: 120, offsetX: 6, fade: 30, opacity: 0.7, paneAlpha: 68, alpha: true }
+      layout: { side: 'left', scale: 150, top: 120, offsetX: -36, fade: 30, opacity: 0.7, paneAlpha: 68, alpha: true }
     }
   };
   // 透明方式 = 半透明面板本身的效果（backdrop-filter，作用于面板/卡片，不作用于背景图）
