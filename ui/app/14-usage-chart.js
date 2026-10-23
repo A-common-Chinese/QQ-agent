@@ -151,7 +151,9 @@
     let out = '';
     const partialFrom = v.buckets.findIndex((b) => b.partial);
     // 实线部分：到"今天"之前
-    const solidEnd = partialFrom > 0 ? partialFrom : n - 1;
+    // 实线部分：**到"今天"的前一个点为止**（今天那段只画虚线）
+    // ⚠️ 不能画到最后一个点：虚线叠在实线上会露出下面的实线段，看起来仍是一条实线（实测踩过）
+    const solidEnd = partialFrom > 0 ? partialFrom - 1 : n - 1;
     if (solidEnd >= 1) {
       out += `<polyline points="${pts.slice(0, solidEnd + 1).map((p) => p.map((x) => x.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="var(--ac)" stroke-width="2"></polyline>`;
     }
