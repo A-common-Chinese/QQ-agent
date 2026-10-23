@@ -13,10 +13,10 @@
  */
 (function () {
   const DONE_KEY = 'qqa-boot-played';
-  const IMG_SRC = 'assets/boot/enter.webp';
-  const T_MOVE = 1500;   // 角色侧移 + 字样淡入
-  const T_END = 2600;    // 开始淡出
-  const T_GONE = 2950;   // 彻底移除
+  const IMG_SRC = 'assets/boot/enter.webp?v=20261023d';   // 换素材时改这个版本号，避免浏览器拿旧图
+  const T_MOVE = 3400;   // 角色完全起身(约2.9s)后再等 0.5s，然后向左平移
+  const T_END = 4900;    // 平移到位后再停一下才淡出
+  const T_GONE = 5250;   // 彻底移除
 
   let timers = [];
   let overlay = null;
@@ -71,10 +71,8 @@
     overlay.addEventListener('pointerdown', skip, { once: true });
     if (typeof window.addEventListener === 'function') window.addEventListener('keydown', skip, { once: true });
 
-    later(() => {
-      stage.classList.add('go');
-      word.classList.add('in');
-    }, T_MOVE);
+    later(() => stage.classList.add('go'), T_MOVE);
+    later(() => word.classList.add('in'), T_MOVE + 180);
     later(() => finish(false), T_END);
     later(() => { if (overlay) finish(true); }, T_GONE + 50);
   }

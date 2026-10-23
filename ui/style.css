@@ -2264,12 +2264,12 @@ body.skin-bg-on .view { background: transparent; }
 .boot-stage {
   position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center;
   transform-origin: 22% 88%;
-  transition: transform .85s cubic-bezier(.22,.7,.2,1);
+  transition: transform 1.15s cubic-bezier(.25,.8,.25,1);
 }
-.boot-stage.go { transform: translate(-30vw, -2vh) scale(.52); }
+.boot-stage.go { transform: translateX(-22vw); }
 #boot-char { height: 100vh; width: auto; object-fit: contain; object-position: center bottom; user-select: none; pointer-events: none; }
 .boot-word {
-  position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%) translateY(10px);
+  position: absolute; left: 66%; top: 45%; transform: translate(-50%, -50%) translateY(10px);
   font-size: clamp(38px, 7vw, 92px); font-weight: 800; letter-spacing: .08em;
   color: var(--tx); opacity: 0; transition: opacity .7s ease, transform .7s ease;
   display: flex; gap: .28em; pointer-events: none; white-space: nowrap;
