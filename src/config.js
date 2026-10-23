@@ -525,11 +525,19 @@ export const DEFAULT_CONFIG = {
     restoreOnStart: true    // 启动后若记账里是 DND，就改回在线
   },
   ui: {
-    // 主题：'dark' | 'light' | 'system'（system = 跟随系统偏好）。
-    // 前端以 localStorage 为准做到即时生效，这里只是跨设备/重装后保留用。
-    theme: 'dark',
+    // 主题：'light' | 'dark' | 'auto'（auto = 跟随系统偏好）。
+    // 2026-10 改版起默认浅色；前端以 localStorage 为准做到即时生效。
+    theme: 'light',
     showVision: true,         // 模型目录显示图片输入能力徽标
-    refreshMs: 15000          // 界面轮询间隔
+    refreshMs: 15000,         // 界面轮询间隔
+    // 2026-10 新增：UI 自定义（背景/颜色/字体/侧栏宽度）。
+    // 图片本体不放这里（太大），只存类型与参数；上传的位图存在本机 localStorage。
+    skin: {
+      bg: { type: 'solid', color: '', preset: '', blur: 0, dim: 0, fit: 'cover' },
+      colors: { accent: '', bg: '', card: '', text: '', tx2: '', line: '' },
+      font: { family: '', scale: 1 },
+      sidebarW: 0
+    }
   }
 };
 

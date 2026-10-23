@@ -241,6 +241,8 @@ function renderSettings() {
     // 挂在 #settings-form 上的委托不受影响。放后面绑定则能找到最终结构。
     if (typeof enhanceConcept2UI === 'function') enhanceConcept2UI(box);
     bindSettingsEvents(c);
+    // 皮肤面板要在 DOM 落位后绑定（输入/按钮/上传）
+    if (typeof window.__bindSkinPanel === 'function') window.__bindSkinPanel();
     if (box && prevScrollTop) box.scrollTop = prevScrollTop;
   } catch (err) {
     // 单个设置区渲染失败不能让整页空白 —— 显示错误占位，其余页签仍可用
@@ -302,13 +304,11 @@ function renderSettingsSection(c) {
   return `
     ${render()}`;
 }
-/** 「UI 自定义」分区（第 2 步先占位；第 4 步填背景/深浅/颜色/字体/侧栏宽度） */
+/** 「UI 自定义」分区：实际面板在 15-ui-skin.js（背景/颜色/字体/侧栏宽度 + 实时预览） */
 function renderUiCustomSection() {
-  return `
-    <h3 id="settings-ui">UI 自定义</h3>
-    <p class="setsub">背景 / 深浅 / 颜色 / 字体 / 侧栏宽度 —— 第 4 步实现</p>
-    <div class="setcard"><div class="hint">这一块正在做：纯色与预设（CSS 渐变）背景、上传图片（≤6MB，png/jpg/webp，可模糊/变暗/铺法）、
-    主色与卡片色、字体与字号、侧栏宽度，以及主题导出/导入。配置会存进 data/config.json，升级不丢。</div></div>`;
+  return (typeof renderSkinPanel === 'function')
+    ? renderSkinPanel()
+    : '<h3>UI 自定义</h3><div class="hint">皮肤模块未加载</div>';
 }
 
 function renderApiSection(c) {
