@@ -69,7 +69,7 @@
 
     const skip = () => finish(false);
     overlay.addEventListener('pointerdown', skip, { once: true });
-    window.addEventListener('keydown', skip, { once: true });
+    if (typeof window.addEventListener === 'function') window.addEventListener('keydown', skip, { once: true });
 
     later(() => {
       stage.classList.add('go');
