@@ -54,7 +54,8 @@
   }, { passive: true });
   // 光标移出窗口 / 窗口失焦 / 点到别处：都要缩回去
   document.addEventListener('mouseleave', () => scheduleHide(200));
-  window.addEventListener('blur', () => scheduleHide(0));
+  // 测试沙箱里的 window 不一定有 addEventListener（render-test 会直接在假 window 上跑）
+  if (typeof window.addEventListener === 'function') window.addEventListener('blur', () => scheduleHide(0));
   document.addEventListener('pointerdown', () => { keyboardMode = false; scheduleHide(0); }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyboardMode = true; }, true);
   fab.addEventListener('pointerenter', reveal);
