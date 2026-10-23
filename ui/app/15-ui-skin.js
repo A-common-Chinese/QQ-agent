@@ -74,7 +74,7 @@
       base: '#25407e',
       // 铺满：素材本身是 16:9 白底画布（海报居中），所以 cover 时既铺满、四周也是白的
       // 贴右、顶栏下沿到窗口底、左缘渐隐（用户要的 A-2 效果）
-      layout: { scale: 94, top: 56, offsetX: 0, fade: 20, paneAlpha: 50, alpha: false }
+      layout: { whiteBg: true, scale: 94, top: 56, offsetX: 0, fade: 20, paneAlpha: 50, alpha: false }
     },
     point: {
       label: '指认',
@@ -426,7 +426,7 @@
       + `<button class="skin-btn" id="skin-upload-btn">上传图片</button>`
       + '<input type="file" id="skin-file" accept="image/png,image/jpeg,image/webp" style="display:none">'
       + '</div>'
-      + '<div class="skin-note">预设带各自纹理（云团 / 沙丘 / 松针 / 雾带 / 星点），和上面的纯色底不是一类；上传图片只保存在本机（≤2MB，png/jpg/webp），换机器需要重新上传。</div>';
+      + '<div class="skin-note">预设带各自纹理（云团 / 沙丘 / 松针 / 雾带 / 星点），和上面的纯色底不是一类；后三张是白底插画，选中时若在深色主题会自动切到浅色；上传图片只保存在本机（≤2MB，png/jpg/webp），换机器需要重新上传。</div>';
   }
   function imageOptionsRow() {
     const bg = S.skin.bg || {};
@@ -584,6 +584,12 @@
       // 图片类预设自带"建议面板透明度"：不改的话 80% 不透明的面板会把背景图压成水印
       const pdef = PRESETS[S.skin.bg.preset];
       if (pdef && pdef.layout && pdef.layout.paneAlpha) S.skin.bg.opacity = pdef.layout.paneAlpha;
+      // 白底插画（whiteBg）在深色主题下必然发灰发黑（深色面板压在白底上），
+      // 选中时直接切到浅色主题；想回深色可以点左下角的主题按钮。
+      if (pdef && pdef.layout && pdef.layout.whiteBg && resolvedTheme() === 'dark' && typeof applyTheme === 'function') {
+        applyTheme('light');
+        api('/api/config', { method: 'POST', body: JSON.stringify({ ui: { theme: 'light' } }) }).catch(() => {});
+      }
       touch();
       recolorIfAuto();
       rerender();
