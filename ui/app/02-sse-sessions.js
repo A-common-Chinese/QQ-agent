@@ -372,16 +372,152 @@ function startListPoller() {
 
 startListPoller();
 
+/**
+ * 会话页视图（2026-10 改版）：
+ *   all  = 现在的平铺列表（每条 = 一次处理过程）
+ *   chat = 先按群/私聊分组，点进去看这个群的会话历史
+ * 视图选择记在本机 localStorage（换前端/升级不丢），不写后端配置。
+ */
+const SESSION_VIEW_KEY = 'qqa-session-view';
+function sessionView() {
+  if (state.sessionView !== 'all' && state.sessionView !== 'chat') {
+    let v = '';
+    try { v = localStorage.getItem(SESSION_VIEW_KEY) || ''; } catch { /* 忽略 */ }
+    state.sessionView = v === 'chat' ? 'chat' : 'all';
+  }
+  return state.sessionView;
+}
+function setSessionView(v) {
+  state.sessionView = v === 'chat' ? 'chat' : 'all';
+  state.sessionChatKey = '';
+  state.sessionLimit = SESSION_PAGE;
+  try { localStorage.setItem(SESSION_VIEW_KEY, state.sessionView); } catch { /* 忽略 */ }
+  renderSessionSubnav();
+  renderSessionList();
+}
+
+/** 顶部二级菜单（会话页）：视图下拉 */
+function renderSessionSubnav() {
+  const box = $('#subnav');
+  if (!box) return;
+  const view = sessionView();
+  const items = [['all', '全部会话'], ['chat', '按会话看历史']];
+  const curLabel = view === 'chat'
+    ? (state.sessionChatKey ? ('按会话 · ' + formatChatTitle(state.sessionChatKey, chatNameOf(state.sessionChatKey))) : '按会话看历史')
+    : '全部会话';
+  box.innerHTML =
+    '<div class="subnav-group-wrap">'
+    + '<button class="subnav-group is-active' + (state.sessionMenuOpen ? ' open' : '') + '" data-session-view-btn="1">视图：' + esc(curLabel) + '<span class="caret" aria-hidden="true"></span></button>'
+    + '<div class="subnav-drop' + (state.sessionMenuOpen ? ' open' : '') + '">'
+    + items.map(([id, label]) => '<button class="settings-menu-item' + (view === id ? ' active' : '') + '" data-session-view="' + id + '">' + label + '</button>').join('')
+    + (view === 'chat' && state.sessionChatKey
+      ? '<button class="settings-menu-item" data-session-back="1">← 返回群列表</button>' : '')
+    + '</div></div>'
+    + '<span class="subnav-note">' + (view === 'chat' ? '按群/私聊分组，点一个群查看它的历史' : '每次处理过程一条记录') + '</span>';
+  box.querySelector('[data-session-view-btn]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.sessionMenuOpen = !state.sessionMenuOpen;
+    renderSessionSubnav();
+  });
+  box.querySelectorAll('[data-session-view]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.sessionMenuOpen = false;
+      setSessionView(el.dataset.sessionView);
+    });
+  });
+  box.querySelectorAll('[data-session-back]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.sessionMenuOpen = false;
+      state.sessionChatKey = '';
+      renderSessionSubnav();
+      renderSessionList();
+    });
+  });
+  if (!window.__sessionMenuOutside) {
+    window.__sessionMenuOutside = true;
+    document.addEventListener('click', () => {
+      if (state.tab !== 'sessions' || !state.sessionMenuOpen) return;
+      state.sessionMenuOpen = false;
+      renderSessionSubnav();
+    });
+  }
+}
+
+/** 会话分组（按 chatKey 归并）：群名、会话数、最近一次时间、运行中/等待中数量 */
+function sessionGroupsOf(list) {
+  const map = new Map();
+  for (const s of list) {
+    const key = String(s.chatKey || '');
+    if (!key) continue;
+    let g = map.get(key);
+    if (!g) {
+      g = { chatKey: key, name: chatNameOf(key), count: 0, lastAt: 0, running: 0, waiting: 0 };
+      map.set(key, g);
+    }
+    g.count += 1;
+    g.lastAt = Math.max(g.lastAt, Number(s.startedAt) || 0);
+    if (s.status === 'running') g.running += 1;
+    if (s.status === 'waiting') g.waiting += 1;
+  }
+  return [...map.values()].sort((a, b) => b.lastAt - a.lastAt);
+}
+
+/** 群列表（按会话视图的第一层） */
+function renderSessionGroups(box) {
+  const groups = sessionGroupsOf(state.sessions || []);
+  state.sessionLimit = Math.max(SESSION_PAGE, Number(state.sessionLimit) || SESSION_PAGE);
+  const shown = groups.slice(0, state.sessionLimit);
+  if (!groups.length) {
+    box.innerHTML = '<div class="mem-empty" style="padding:20px">还没有任何会话记录</div>';
+    return;
+  }
+  box.innerHTML = shown.map((g) => `
+    <div class="session-group-row" data-chat-key="${esc(g.chatKey)}">
+      <div class="session-title">
+        <span class="session-chat">${esc(formatChatTitle(g.chatKey, g.name))}</span>
+        <span class="session-time">${g.lastAt ? fmtTime(g.lastAt) : ''}</span>
+      </div>
+      <div class="session-meta">
+        <span>${g.count} 次处理</span>
+        ${g.running ? `<span class="status-badge status-running">运行中 ${g.running}</span>` : ''}
+        ${g.waiting ? `<span class="status-badge status-waiting">等待中 ${g.waiting}</span>` : ''}
+      </div>
+    </div>`).join('');
+  $$('.session-group-row', box).forEach((el) => {
+    el.addEventListener('click', () => {
+      state.sessionChatKey = el.dataset.chatKey;
+      state.sessionLimit = SESSION_PAGE;
+      renderSessionSubnav();
+      renderSessionList();
+    });
+  });
+  const more = $('#session-more');
+  if (more) {
+    const rest = groups.length - shown.length;
+    more.textContent = rest > 0 ? `向下滚动加载更多（还有 ${rest} 个会话）` : `共 ${groups.length} 个会话`;
+  }
+  const cnt = $('#session-count');
+  if (cnt) cnt.textContent = `${shown.length}/${groups.length} 个会话`;
+}
+
 function renderSessionList() {
   const box = $('#session-items');
+  if (!box) return;
   state.seenSessionIds = state.seenSessionIds || new Set();
+  // 2026-10 改版：视图=按会话 且还没选具体群 → 先列"群列表"（每个群一个入口）
+  if (sessionView() === 'chat' && !state.sessionChatKey) { renderSessionGroups(box); return; }
   // 分页：一次只渲染 sessionLimit 条，滚到底部再加载下一批（见 SESSION_PAGE 常量）。
   // 会话可能积累到几百条，全量渲染会让列表变卡。
   state.sessionLimit = Math.max(SESSION_PAGE, Number(state.sessionLimit) || SESSION_PAGE);
-  const all = state.sessions || [];
+  const all = (state.sessions || []).filter((s) => sessionView() !== 'chat'
+    || String(s.chatKey || '') === String(state.sessionChatKey || ''));
   const shown = all.slice(0, state.sessionLimit);
   const rest = all.length - shown.length;
-  box.innerHTML = shown.map((s) => {
+  const backHtml = sessionView() === 'chat'
+    ? `<button class="session-group-back" data-session-back="1">← 返回群列表</button>` : '';
+  box.innerHTML = backHtml + shown.map((s) => {
     const chatName = formatChatTitle(s.chatKey, chatNameOf(s.chatKey));
     const waitHtml = s.status === 'waiting' && s.waitUntil
       ? `<span class="session-wait" data-until="${Number(s.waitUntil)}">等待中 · ${fmtWaitRemain(Number(s.waitUntil))}</span>`
@@ -434,6 +570,11 @@ function renderSessionList() {
   for (const s of state.sessions) state.seenSessionIds.add(s.id);
   $$('.session-item', box).forEach((el) => {
     el.addEventListener('click', () => selectSession(el.dataset.id));
+  });
+  $('[data-session-back]', box)?.addEventListener('click', () => {
+    state.sessionChatKey = '';
+    renderSessionSubnav();
+    renderSessionList();
   });
   // 失败会自动重试一次的 api 封装（用于"偶发 failed to fetch"的点击类操作：
   // 中止/重试等）。后端在收尾时会做同步落盘（大会话 JSON 写盘可达几百毫秒），

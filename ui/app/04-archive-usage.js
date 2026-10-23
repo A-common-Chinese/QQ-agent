@@ -454,6 +454,9 @@ function renderUsagePage(stats, st, prices) {
         </div>
       </div>
 
+      <!-- 2026-10 改版：可配置图表（折线/柱状 + 模型占比扇形） -->
+      <div class="usage-chart" id="usage-chart"></div>
+
       <div data-block="days">
         <h3 class="usage-h3">按天</h3>
         <table class="usage-table clickable" data-table="days">
@@ -492,6 +495,8 @@ function renderUsagePage(stats, st, prices) {
     });
   });
   $('#usage-refresh-btn')?.addEventListener('click', () => loadUsageView({ force: true }));
+  // 图表（14-usage-chart.js）：页面骨架重建后重新挂载并取数
+  if (typeof renderUsageChart === 'function') renderUsageChart();
 
   // 行点击 → 弹明细
   box.querySelector('[data-table="days"]')?.addEventListener('click', (e) => {

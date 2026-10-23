@@ -472,6 +472,10 @@ const state = {
   pauseReason: null,
   autoFollowRunning: true,
   settingsSection: 'api',
+  // 会话页视图：all=平铺 / chat=按群分组看历史（存 localStorage）
+  sessionView: '',
+  sessionChatKey: '',
+  sessionMenuOpen: false,
   memoryView: 'events',
   currentMemoryChatKey: null,
   groupMembers: [],
@@ -858,6 +862,16 @@ function renderSubnav(name) {
     window.__memRenderSubnav(box);
     return;
   }
+  if (name === 'sessions' && typeof renderSessionSubnav === 'function') {
+    renderSessionSubnav();
+    return;
+  }
+  if (name === 'settings' && typeof renderSettingsSidebar === 'function') {
+    renderSettingsSidebar();
+    return;
+  }
+  state.sessionMenuOpen = false;
+  state.settingsMenuOpen = '';
   box.innerHTML = '';
 }
 

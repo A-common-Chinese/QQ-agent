@@ -106,55 +106,100 @@ function privacyPatternsHint(list) {
     + items.map((r) => esc(String(r?.id || '') + (r?.action === 'block' ? '(拒发)' : '(打码)'))).join('、');
 }
 
-function renderSettingsSidebar() {
-  const s = state.status;
-  const sidebar = $('#settings-sidebar');
-  if (!sidebar) return;
-  const menu = [
-    ['api', '模型 API'],
-    ['search', '搜索服务'],
-    ['memory', '记忆'],
-    ['persona', '人设'],
-    ['allow', '聊天白名单'],
-    ['chat', '聊天设置'],
-    ['desktop', '桌面端'],
-    ['onebot', 'OneBot（SnowLuma）'],
-    ['tools', '工具与技能']
-  ];
-  sidebar.innerHTML = `
-    <div class="settings-runstate">
-      <div class="rs-title">机器人运行状态</div>
-      <div class="rs-row"><span class="dot ${s?.onebot?.connected ? 'dot-on' : 'dot-off'}"></span><span>${s?.onebot?.connected ? '运行中' : '未就绪'}</span></div>
-      <div class="rs-row muted">${state.paused ? '⏸ 已暂停' : (s?.orchestrator?.model ? `模型：${esc(s.orchestrator.model)}` : '模型：未设置')}</div>
-    </div>
-    <div class="settings-menu">
-      ${menu.map(([id, label]) => `<button class="settings-menu-item ${state.settingsSection === id ? 'active' : ''}" data-section="${id}">${label}${id === 'desktop' && (typeof updateAvailable !== 'undefined' && updateAvailable) ? '<span class="update-dot" title="发现新版本"></span>' : ''}</button>`).join('')}
-      <button class="settings-menu-item egg-hot" id="qrcode-egg-btn">！？群群？！</button>
-    </div>`;
-  // 群二维码彩蛋：点一下弹出，再点屏幕任意位置关闭
+// ── 设置页二级菜单（2026-10 改版）：5 组下拉 ─────────────────────────
+// 原来左栏是"9 个分区的竖排列表"，占掉 240px；现在收进顶部二级菜单：
+// 组按钮 + 组内分区下拉。所有 .settings-menu-item 仍然始终渲染在 DOM 里
+// （只是面板默认隐藏）—— 这样键盘/测试/深链（settings-allow 等）都不用改。
+const SETTINGS_GROUPS = [
+  { id: 'model', label: '模型', items: [['api', '模型 API'], ['search', '搜索服务']] },
+  { id: 'chat', label: '聊天', items: [['chat', '聊天设置'], ['allow', '聊天白名单'], ['persona', '人设'], ['memory', '记忆']] },
+  { id: 'service', label: '服务', items: [['onebot', 'OneBot（SnowLuma）'], ['desktop', '桌面端']] },
+  { id: 'tools', label: '工具', items: [['tools', '工具与技能']] },
+  { id: 'look', label: '外观', items: [['ui', 'UI 自定义']] }
+];
+const SETTINGS_SECTION_LABELS = (() => {
+  const map = {};
+  for (const g of SETTINGS_GROUPS) for (const [id, label] of g.items) map[id] = label;
+  return map;
+})();
+
+function settingsCurrentGroup() {
+  const cur = state.settingsSection || 'api';
+  const hit = SETTINGS_GROUPS.find((g) => g.items.some(([id]) => id === cur));
+  return (hit || SETTINGS_GROUPS[0]).id;
+}
+
+/** 群二维码彩蛋（原来挂在左栏底部，现在挂二级菜单条右侧） */
+function openQrEgg() {
   // 图片 onerror 兜底：group-qrcode.jpg 正常随 ui/ 分发，
   // 万一分发包缺了这张图，显示一句说明而不是一个裂图图标。
-  sidebar.querySelector('#qrcode-egg-btn')?.addEventListener('click', () => {
-    const ov = document.createElement('div');
-    ov.className = 'qrcode-egg-overlay';
-    ov.innerHTML = '<img src="group-qrcode.jpg" alt="群二维码" '
-      + 'onerror="this.remove(); this.parentElement?.insertAdjacentText(\'afterbegin\', \'二维码图片缺失：请把 group-qrcode.jpg 放到 ui/ 目录下\')" />';
-    const close = () => closeAnimatedOverlay(ov);
-    ov.addEventListener('click', close);
-    document.body.appendChild(ov);
+  const ov = document.createElement('div');
+  ov.className = 'qrcode-egg-overlay';
+  ov.innerHTML = '<img src="group-qrcode.jpg" alt="群二维码" '
+    + 'onerror="this.remove(); this.parentElement?.insertAdjacentText(\'afterbegin\', \'二维码图片缺失：请把 group-qrcode.jpg 放到 ui/ 目录下\')" />';
+  const close = () => closeAnimatedOverlay(ov);
+  ov.addEventListener('click', close);
+  document.body.appendChild(ov);
+}
+
+function renderSettingsSidebar() {
+  const box = $('#subnav');
+  if (!box) return;
+  const cur = state.settingsSection || 'api';
+  const curGroup = settingsCurrentGroup();
+  const openGroup = state.settingsMenuOpen || '';
+  const note = SETTINGS_SECTION_LABELS[cur] ? '当前：' + SETTINGS_SECTION_LABELS[cur] : '';
+  box.innerHTML = SETTINGS_GROUPS.map((g) => {
+    const isCur = g.id === curGroup;
+    const isOpen = g.id === openGroup;
+    return '<div class="subnav-group-wrap">'
+      + '<button class="subnav-group' + (isCur ? ' is-active' : '') + (isOpen ? ' open' : '') + '" data-group="' + g.id + '">'
+      + g.label + '<span class="caret" aria-hidden="true"></span></button>'
+      + '<div class="subnav-drop' + (isOpen ? ' open' : '') + '" data-drop="' + g.id + '">'
+      + g.items.map(([id, label]) => '<button class="settings-menu-item' + (id === cur ? ' active' : '') + '" data-section="' + id + '">'
+        + label
+        + (id === 'desktop' && (typeof updateAvailable !== 'undefined' && updateAvailable) ? '<span class="update-dot" title="发现新版本"></span>' : '')
+        + '</button>').join('')
+      + '</div></div>';
+  }).join('')
+    + '<span class="subnav-note">' + note + '</span>'
+    + '<button class="subnav-egg" id="qrcode-egg-btn" title="！？群群？！">！？</button>';
+
+  box.querySelectorAll('.subnav-group').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const gid = btn.dataset.group;
+      state.settingsMenuOpen = state.settingsMenuOpen === gid ? '' : gid;
+      renderSettingsSidebar();
+    });
   });
-  sidebar.querySelectorAll('.settings-menu-item').forEach((el) => {
-    el.addEventListener('click', () => {
+  box.querySelectorAll('.settings-menu-item').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
       // 切区块 = 整页表单重建：先把防抖窗口内挂起的保存发出，
       // 否则刚输入的内容直接被重渲染吹掉（与切页签同一条防线）。
       flushSettingsSaves();
       state.settingsSection = el.dataset.section;
+      state.settingsMenuOpen = '';
       renderSettingsSidebar();
       renderSettings();
-      // 切设置分区 = 整页表单重建：新内容淡入（对齐 concept2 的 pane 切换）
+      // 切设置分区 = 整页表单重建：新内容淡入
       uiEnter($('#settings-form'));
     });
   });
+  box.querySelector('#qrcode-egg-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openQrEgg();
+  });
+  // 点空白处收起下拉：只注册一次（#subnav 会被反复重建）
+  if (!window.__settingsMenuOutside) {
+    window.__settingsMenuOutside = true;
+    document.addEventListener('click', () => {
+      if (state.tab !== 'settings' || !state.settingsMenuOpen) return;
+      state.settingsMenuOpen = '';
+      renderSettingsSidebar();
+    });
+  }
 }
 
 function renderSettings() {
@@ -250,12 +295,22 @@ function renderSettingsSection(c) {
     chat: () => renderChatSection(c),
     desktop: () => renderDesktopSection(c),
     onebot: () => renderOnebotSection(c),
-    tools: () => renderToolsSection(c)
+    tools: () => renderToolsSection(c),
+    ui: () => renderUiCustomSection(c)
   };
   const render = sections[sec] || sections.api;
   return `
     ${render()}`;
 }
+/** 「UI 自定义」分区（第 2 步先占位；第 4 步填背景/深浅/颜色/字体/侧栏宽度） */
+function renderUiCustomSection() {
+  return `
+    <h3 id="settings-ui">UI 自定义</h3>
+    <p class="setsub">背景 / 深浅 / 颜色 / 字体 / 侧栏宽度 —— 第 4 步实现</p>
+    <div class="setcard"><div class="hint">这一块正在做：纯色与预设（CSS 渐变）背景、上传图片（≤6MB，png/jpg/webp，可模糊/变暗/铺法）、
+    主色与卡片色、字体与字号、侧栏宽度，以及主题导出/导入。配置会存进 data/config.json，升级不丢。</div></div>`;
+}
+
 function renderApiSection(c) {
   const currentProvider = (state.providers || []).find((p) => p.id === c.api.provider);
   const currentModelDisplay = (currentProvider?.modelNames || {})[c.api.model] || c.api.model;
@@ -2420,6 +2475,7 @@ function renderModulePage(kind) {
         <button class="btn btn-small" id="${esc(meta.tab)}-add-btn" title="从市场口令安装，或查看自建指南">＋ 添加${meta.kind === 'skill' ? '技能' : '插件'}</button>
         <div class="usage-days">
           <button class="btn btn-small" id="${esc(meta.tab)}-refresh-btn">刷新</button>
+          <button class="btn btn-small btn-primary" id="${esc(meta.tab)}-market-btn" title="${meta.kind === 'skill' ? '打开 Skill 市场' : '打开插件市场'}" >${meta.kind === 'skill' ? '打开 Skill 市场' : '打开插件市场'}</button>
         </div></div>
       <div class="empty-hint">${meta.emptyHint}</div>
       <div class="hint" style="margin-top:10px">${meta.lead}</div>
@@ -2504,6 +2560,7 @@ function renderModulePage(kind) {
         <div class="usage-days">
           <span class="uc-tag" title="生效中 / 这一页的总数">${mine.active} / ${mine.total} 生效</span>
           <button class="btn btn-small" id="${esc(meta.tab)}-refresh-btn">刷新</button>
+          <button class="btn btn-small btn-primary" id="${esc(meta.tab)}-market-btn" title="${meta.kind === 'skill' ? '打开 Skill 市场' : '打开插件市场'}" >${meta.kind === 'skill' ? '打开 Skill 市场' : '打开插件市场'}</button>
         </div>
       </div>
       <div class="hint" style="margin-bottom:14px">
@@ -2533,6 +2590,11 @@ function bindModulePageEvents(kind) {
   // 技能/插件页直接失去"添加"能力。按钮与绑定必须成对存在（2026-09-26 修复）。
   $(`#${meta.tab}-add-btn`)?.addEventListener('click', () => openAddModuleModal(kind));
   $(`#${meta.tab}-refresh-btn`)?.addEventListener('click', () => loadModulePage(kind, { rescan: true }));
+  // 「打开市场」页面内按钮（2026-10 改版：市场入口从顶栏挪进技能/插件页）
+  $(`#${meta.tab}-market-btn`)?.addEventListener('click', () => {
+    if (kind === 'skill') $('#skill-market-btn')?.click();
+    else $('#plugin-market-btn')?.click();
+  });
   // 残留配置清理（只在技能页渲染，按钮也只在这一页出现）
   $('#skills-cleanup-btn')?.addEventListener('click', async () => {
     const btn = $('#skills-cleanup-btn');

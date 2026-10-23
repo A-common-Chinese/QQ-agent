@@ -14,7 +14,7 @@
        故 script-src / connect-src / frame-src / worker-src 增列对应来源，
        其余仍锁死在 'self'。 -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-4ln+HNcX+/7mNZCuF0QQmlz+DCA5rUVmxOBcpZ5RR+U=' https://o.alicdn.com https://kondius.cn; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; media-src 'self' data: blob:; connect-src 'self' https://kondius.cn https://*.aliyuncs.com https://*.alicdn.com; frame-src https://*.aliyuncs.com https://*.alicdn.com https://kondius.cn; worker-src 'self' blob: https://*.alicdn.com https://kondius.cn; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'" />
-  <link rel="stylesheet" href="/style.css?v=20261023a" />
+  <link rel="stylesheet" href="/style.css?v=20261023b" />
   <script>
     /* 主题预置：在样式生效前定好 data-theme，避免首屏闪白/闪黑。
        2026-10 改版：默认浅色；支持 浅色 / 深色 / 跟随系统 三档。
@@ -105,14 +105,17 @@
             </span>
           </div>
           <div id="top-actions">
-            <!-- 社区功能（浮层按钮留在顶栏，第 3 步挪进右下悬浮菜单） -->
-            <button class="nav-btn hidden" id="quote-confirm-btn">确认金句</button>
-            <button class="nav-btn" id="quote-btn" title="把机器人的精彩发言收录到金句墙">金句上传</button>
-            <button class="nav-btn" id="feedback-btn" title="向作者反馈意见和建议">意见收集</button>
-            <button class="nav-btn nav-btn-market" id="skill-market-btn" title="打开 Skill 市场">Skill 市场</button>
-            <button class="nav-btn nav-btn-market" id="plugin-market-btn" title="打开插件市场">插件市场</button>
-            <button class="nav-btn nav-btn-persona" id="persona-plaza-btn" title="打开人设广场">人设广场</button>
-            <button class="nav-btn nav-btn-hot" id="open-site-btn" title="打开 QQ Agent 网站">打开网站！</button>
+            <!-- 2026-10 改版：原顶栏的社区/市场按钮已收进右下悬浮菜单（#fab）。
+                 这 4 个按钮保留为 hidden，只作为"旧逻辑的入口"：市场/人设/官网的既有
+                 绑定（09-community.js）与技能/插件页内的「打开市场」按钮都点它。
+                 金句上传 / 意见收集按需求移除（底层代码不再有可见入口）。 -->
+            <button class="hidden" id="skill-market-btn" type="button" aria-hidden="true"></button>
+            <button class="hidden" id="plugin-market-btn" type="button" aria-hidden="true"></button>
+            <button class="hidden" id="persona-plaza-btn" type="button" aria-hidden="true"></button>
+            <button class="hidden" id="open-site-btn" type="button" aria-hidden="true"></button>
+            <button class="hidden" id="quote-btn" type="button" aria-hidden="true"></button>
+            <button class="hidden" id="feedback-btn" type="button" aria-hidden="true"></button>
+            <button class="hidden" id="quote-confirm-btn" type="button" aria-hidden="true"></button>
           </div>
         </div>
       </header>
@@ -191,6 +194,36 @@
     </div>
   </div>
 
+
+  <!-- 右下悬浮菜单（三条杠，C1 向上列表）：九条四组 -->
+  <div id="fab" class="fab">
+    <div id="fab-menu" class="fab-menu" hidden role="menu" aria-label="更多功能">
+      <div class="fab-group">
+        <div class="fab-gtitle">服务</div>
+        <button class="fab-item" data-fab="snowluma" role="menuitem">SnowLuma 设置</button>
+      </div>
+      <div class="fab-group">
+        <div class="fab-gtitle">扩展</div>
+        <button class="fab-item" data-fab="skills" role="menuitem">技能</button>
+        <button class="fab-item" data-fab="plugins" role="menuitem">插件</button>
+      </div>
+      <div class="fab-group">
+        <div class="fab-gtitle">社区</div>
+        <button class="fab-item" data-fab="persona" role="menuitem">人设广场</button>
+        <button class="fab-item" data-fab="site" role="menuitem">官方网站</button>
+      </div>
+      <div class="fab-group">
+        <div class="fab-gtitle">帮助与维护</div>
+        <button class="fab-item" data-fab="bug" role="menuitem">Bug 反馈</button>
+        <button class="fab-item" data-fab="update" role="menuitem">检查更新</button>
+        <button class="fab-item" data-fab="datadir" role="menuitem">打开数据目录</button>
+      </div>
+    </div>
+    <button id="fab-btn" class="fab-btn" aria-label="更多功能（技能 / 插件 / SnowLuma / 反馈）" aria-expanded="false" aria-haspopup="menu">
+      <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+
   <div id="loading-overlay" class="loading-overlay">
     <div class="loading-card">
       <div class="loading-title">QQ Agent 正在启动</div>
@@ -215,6 +248,8 @@
   <script defer src="/app/09-community.js"></script>
   <script defer src="/app/10-feedback.js?v=20261022u"></script>
   <script defer src="/app/12-concept2-ui.js?v=20261022g"></script>
+  <script defer src="/app/13-fab.js?v=20261023a"></script>
+  <script defer src="/app/14-usage-chart.js?v=20261023a"></script>
   <script defer src="/app/11-init.js?v=20261023a"></script>
 
   <!-- 阿里云验证码 2.0（意见收集/金句上传共用）：容器常驻；AliyunCaptchaConfig 与

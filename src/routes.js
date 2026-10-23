@@ -87,7 +87,7 @@ export function createRoutes(deps) {
     memoryStudioStatus, memoryStudioStart, memoryStudioStop, memoryStudioCall,
     memoryStudioCheckUpdate, memoryStudioInstall,
     visionScan,
-    buildUsageStats, buildUsageBreakdown,
+    buildUsageStats, buildUsageBreakdown, buildUsageSeries,
     reloadSkills
   } = deps;
 
@@ -1799,7 +1799,12 @@ export function createRoutes(deps) {
     // ── 版本 / 更新 ──────────────────────────────────────────────────
     {
       method: 'GET', pattern: '/api/version',
-      handler: async ({ res, json }) => json(res, 200, { version: localVersion() })
+      handler: async ({ res, json }) => json(res, 200, {
+        version: localVersion(),
+        // Bug 反馈弹窗要把这两个路径附给用户（自己找日志目录太麻烦）
+        dataDir: DATA_DIR,
+        logDir: path.join(DATA_DIR, 'logs')
+      })
     },
     {
       method: 'GET', pattern: '/api/update-check',
@@ -1930,6 +1935,20 @@ export function createRoutes(deps) {
         } catch (error) {
           return json(res, 200, { ok: false, error: String(error?.message ?? error) });
         }
+      }
+    },
+    {
+      // 用量页图表：桶 × 序列矩阵（折线/柱状 + 扇形占比）
+      method: 'POST', pattern: '/api/usage/series',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const r = await buildUsageSeries({
+          range: body && body.range,
+          bucket: body && body.bucket,
+          seriesBy: body && body.seriesBy,
+          metric: body && body.metric
+        });
+        return json(res, 200, r);
       }
     },
     {

@@ -1436,7 +1436,7 @@ export function createApp({ log = console.log } = {}) {
     memoryStudioStatus, memoryStudioStart, memoryStudioStop, memoryStudioCall,
     memoryStudioCheckUpdate, memoryStudioInstall,
     visionScan, isPortOpen,
-    buildUsageStats, buildUsageBreakdown,
+    buildUsageStats, buildUsageBreakdown, buildUsageSeries,
     reloadSkills
   });
 
@@ -2634,6 +2634,102 @@ function tryBreakdownFromDayFiles({ range, dim, key, by }) {
     : (a, b) => b.cost - a.cost || b.totalTokens - a.totalTokens);
   const sum = groups.reduce((acc, g) => addTotals(acc, g), emptyTotals());
   return pack(sum, groups);
+}
+
+
+// ── 用量序列（用量页图表：折线/柱状 + 扇形占比）────────────────────────
+// 与 buildUsageBreakdown 的区别：那个是"一维分组"，这里是"桶 × 序列"的矩阵，
+// 正好是画时间序列需要的形状。复用同一份 collectUsageRows，不重复扫盘。
+
+const USAGE_SERIES_BUCKET = { '7': 'day', '30': 'day', all: 'week' };
+
+function seriesBucketKey(at, unit) {
+  const d = new Date(at);
+  const pad = (n) => String(n).padStart(2, '0');
+  const dayKey = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  if (unit === 'hour') return `${dayKey}T${pad(d.getHours())}`;
+  if (unit === 'week') {
+    const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    t.setDate(t.getDate() - ((t.getDay() + 6) % 7));   // 周一为一周之始
+    return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+  }
+  return dayKey;
+}
+
+/** 单条调用的成本（与 costOfRows 同口径：按模型价 + 峰谷价） */
+function seriesRowCost(r) {
+  const p = priceOf(r.model, r.vendor);
+  const tier = p.peak ? priceAt({ in: p.in, out: p.out, cached: p.cached, peak: p.peak }, r.at) : p;
+  const prompt = Number(r.promptTokens) || 0;
+  const completion = Number(r.completionTokens) || 0;
+  const cached = Math.min(Number(r.cachedTokens) || 0, prompt);
+  const fresh = Math.max(0, prompt - cached);
+  return (fresh / 1_000_000) * tier.in + (cached / 1_000_000) * tier.cached + (completion / 1_000_000) * tier.out;
+}
+
+async function buildUsageSeries({ range = '7', bucket = '', seriesBy = 'model', metric = 'cost' } = {}) {
+  const rng = ['7', '30', 'all'].includes(String(range)) ? String(range) : '7';
+  const unit = ['hour', 'day', 'week'].includes(String(bucket)) ? String(bucket) : USAGE_SERIES_BUCKET[rng];
+  const { rows } = await collectUsageRows({ range: rng });
+
+  const valueOf = (r) => {
+    if (metric === 'tokens') return (Number(r.promptTokens) || 0) + (Number(r.completionTokens) || 0);
+    if (metric === 'runs') return 1;                    // 每行 = 一次实际调用
+    if (metric === 'promptTokens') return Number(r.promptTokens) || 0;
+    return seriesRowCost(r);
+  };
+
+  // 桶清单：近 7/30 天按天补齐（空天也要出现）；全部按周，从最早一条到今天
+  const pad = (n) => String(n).padStart(2, '0');
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  const buckets = [];
+  if (unit === 'hour') {
+    for (let h = 0; h < 24; h++) buckets.push({ key: `${todayKey}T${pad(h)}`, label: `${pad(h)}:00` });
+  } else if (unit === 'week') {
+    let start = null;
+    for (const r of rows) {
+      if (!start || r.at < start) start = r.at;
+    }
+    const cur = start ? new Date(seriesBucketKey(start, 'week')) : new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const end = new Date(seriesBucketKey(today.getTime(), 'week'));
+    for (let t = new Date(cur); t <= end; t.setDate(t.getDate() + 7)) {
+      const key = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+      buckets.push({ key, label: key.slice(5) });
+    }
+  } else {
+    const days = rng === '30' ? 30 : 7;
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+      const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      buckets.push({ key, label: key.slice(5) });
+    }
+  }
+  const partialKey = unit === 'week' ? seriesBucketKey(today.getTime(), 'week') : todayKey;
+  for (const b of buckets) b.partial = b.key === partialKey;
+
+  // 序列：默认按模型（用量页只用模型维度；按会话留给以后）
+  const labelOf = (r) => (seriesBy === 'chat' ? String(r.chatKey || '(未知)') : String(r.modelKey || r.model || '(未知)'));
+  const map = new Map();     // seriesKey -> values[]
+  const idx = new Map(buckets.map((b, i) => [b.key, i]));
+  for (const b of buckets) { /* 占位：保证空桶也参与 */ }
+  for (const r of rows) {
+    const bi = idx.get(seriesBucketKey(r.at, unit));
+    if (bi === undefined) continue;
+    const key = labelOf(r);
+    let arr = map.get(key);
+    if (!arr) { arr = new Array(buckets.length).fill(0); map.set(key, arr); }
+    arr[bi] += valueOf(r);
+  }
+  const series = [...map.entries()]
+    .map(([key, values]) => ({ key, label: key, values }))
+    .sort((a, b) => b.values.reduce((x, y) => x + y, 0) - a.values.reduce((x, y) => x + y, 0));
+  const total = series.reduce((s, x) => s + x.values.reduce((a, b) => a + b, 0), 0);
+  const pie = series.map((s) => {
+    const v = s.values.reduce((a, b) => a + b, 0);
+    return { key: s.key, label: s.label, value: v, share: total ? v / total : 0 };
+  });
+  return { ok: true, range: rng, bucket: unit, metric, seriesBy, buckets, series, pie, total };
 }
 
 async function buildUsageBreakdown({ range = '7', dim = '', key = '', by = '' } = {}) {
