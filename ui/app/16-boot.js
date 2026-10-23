@@ -13,8 +13,8 @@
  */
 (function () {
   const DONE_KEY = 'qqa-boot-played';
-  const IMG_SRC = 'assets/boot/enter.webp?v=20261023h';   // 换素材时改这个版本号，避免浏览器拿旧图
-  const AUD_SRC = 'assets/boot/enter.m4a?v=20261023h';
+  const IMG_SRC = 'assets/boot/enter.webp?v=20261023i';   // 换素材时改这个版本号，避免浏览器拿旧图
+  const AUD_SRC = 'assets/boot/enter.m4a?v=20261023i';
   const T_MOVE = 3300;   // 角色完全起身(约2.9s)后再等 0.4s，然后向左平移
   const T_END = 5600;    // 延长结尾：让配音（约 2.03s）正好放完再淡出
   const T_GONE = 5950;   // 彻底移除
