@@ -15,12 +15,13 @@
     simhei: '"SimHei", "黑体"',
     simsun: '"SimSun", "宋体"'
   };
+  // 2026-10：预设颜色加深一档（原来太淡，被面板一盖基本看不出效果）
   const PRESETS = {
-    moon: { label: '云白', css: 'linear-gradient(160deg, #f7f8fa 0%, #e4eaf3 100%)' },
-    sand: { label: '暖砂', css: 'linear-gradient(160deg, #f9f2e4 0%, #ecdcc0 100%)' },
-    pine: { label: '松绿', css: 'linear-gradient(160deg, #eef6f0 0%, #d6e7db 100%)' },
-    mist: { label: '雾蓝', css: 'linear-gradient(160deg, #eef3fb 0%, #dbe5f4 100%)' },
-    night: { label: '墨夜', css: 'linear-gradient(160deg, #0f1319 0%, #1d2432 100%)' }
+    moon: { label: '云白', css: 'linear-gradient(160deg, #eef2fa 0%, #d5e1f1 100%)' },
+    sand: { label: '暖砂', css: 'linear-gradient(160deg, #f6ead1 0%, #e6cfa4 100%)' },
+    pine: { label: '松绿', css: 'linear-gradient(160deg, #e4f1e7 0%, #c8e0cf 100%)' },
+    mist: { label: '雾蓝', css: 'linear-gradient(160deg, #e6eefb 0%, #cbdaf0 100%)' },
+    night: { label: '墨夜', css: 'linear-gradient(160deg, #0b0f15 0%, #1b2333 100%)' }
   };
   const SOLIDS = ['#f7f8fa', '#efe7d8', '#e8efe9', '#e9eef7', '#f3ecf4', '#ffffff'];
   const DEFAULTS = {
@@ -82,8 +83,10 @@
     if (!showImage && !showPreset) {
       if (layer) layer.remove();
       root.style.removeProperty('--skin-dim');
+      document.body.classList.remove('skin-bg-on');   // 恢复不透明面板
       return;
     }
+    document.body.classList.add('skin-bg-on');        // 面板半透明，背景才看得见
     if (!layer) {
       layer = document.createElement('div');
       layer.id = 'skin-bg';

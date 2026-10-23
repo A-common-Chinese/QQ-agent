@@ -2125,10 +2125,33 @@ body.sidebar-collapsed #sidebar-resizer { display: none; }
 .uc-err { color: var(--err); font-size: 12.5px; margin-bottom: 8px; }
 
 /* ── 第 5 步：UI 自定义（设置 → 外观 → UI 自定义）───────────────────── */
+/* 背景层：必须在 body 底色之上、内容之下（z-index:-1 会被 body 底色与面板盖住 → 完全看不见） */
 #skin-bg {
-  position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background-size: cover; background-position: center; background-repeat: no-repeat;
 }
+body.skin-bg-on { background: transparent; }
+body.skin-bg-on #app { position: relative; z-index: 1; }
+/* 打开自定义背景时，把"整块铺满"的面板改成半透明，否则背景只会在面板缝隙里露一点 */
+body.skin-bg-on #sidebar,
+body.skin-bg-on #topbar,
+body.skin-bg-on .subnav {
+  background: color-mix(in srgb, var(--bg1) 80%, transparent);
+}
+/* 内容面板：半透（不是全透明）—— 既能看见背景，文字又保持可读。
+   列表/表单这类密集文字用更实的底；详情区基本是空白，可以更透。 */
+body.skin-bg-on .list-pane,
+body.skin-bg-on .settings-pane,
+body.skin-bg-on .snowluma-pane {
+  background: color-mix(in srgb, var(--bg1) 86%, transparent);
+}
+body.skin-bg-on .detail-pane {
+  background: color-mix(in srgb, var(--bg1) 55%, transparent);
+}
+body.skin-bg-on .usage-pane {
+  background: color-mix(in srgb, var(--bg1) 65%, transparent);
+}
+body.skin-bg-on .view { background: transparent; }
 #skin-bg::after {
   content: ''; position: absolute; inset: 0; background: var(--skin-dim, transparent);
 }
