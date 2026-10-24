@@ -5,7 +5,8 @@
  * 流程：角色播放 → 播放到 1.9s 时角色缩小侧移、"QQ Agent" 字样淡入 → 3.0s 整体淡出 → 露出控制台
  *
  * 播放策略 config.ui.bootAnim：
- *   'once'  （默认）装完/更新后第一次启动播一次，之后秒进（localStorage 标记）
+ *   'once'  （默认）装完/**每个版本更新后**第一次启动播一次，之后秒进
+ *             （localStorage 记的是"播过哪个版本"，不是布尔值——否则升级后永远不会再播）
  *   'always' 每次启动都播（仍可点击/按键跳过）
  *   'off'    关闭
  *
@@ -28,7 +29,6 @@
   const later = (fn, ms) => { timers.push(setTimeout(fn, ms)); };
 
   function markPlayed() {
-    try { localStorage.setItem(DONE_KEY, String(Date.now())); } catch { /* 忽略 */ }
   }
 
   function finish(instant) {
@@ -120,22 +120,57 @@
     return play();
   };
 
+  function readMode() {
+    let mode = 'once';
+    try {
+      const cached = localStorage.getItem('qqa-boot-mode');
+      if (cached === 'off' || cached === 'always' || cached === 'once') mode = cached;
+    } catch { /* 忽略 */ }
+    return mode;
+  }
+
+  /**
+   * 'once' 的判定：记的是**播过的版本号**。
+   * - 首次安装：没有记录 → 播
+   * - 升级后：记录 ≠ 当前版本 → 播（以前存的是布尔，升级后就再也不播了，这是个 bug）
+   * - 同版本已播过：跳过
+   * /api/version 是本地接口（毫秒级），拿不到时退回旧的"播过就不再播"行为。
+   */
+  async function shouldPlayOnce() {
+    let played = '';
+    try { played = localStorage.getItem(DONE_KEY) || ''; } catch { /* 忽略 */ }
+    let ver = '';
+    try {
+      const r = await fetch('/api/version', { cache: 'no-store' });
+      const j = await r.json();
+      ver = String((j && j.version) || '').trim();
+    } catch { /* 忽略 */ }
+    const info = { ver, played, at: Date.now() };
+    try { window.__bootInfo = info; } catch { /* 忽略 */ }
+    if (!ver) { info.play = !played; return !played; }
+    if (played === ver) { info.play = false; return false; }
+    info.play = true;
+    try { localStorage.setItem(DONE_KEY, ver); } catch { /* 忽略 */ }
+    return true;
+  }
+
   (function boot() {
     try {
       // 同步读本地缓存（由 15-ui-skin 在配置加载/修改时写入），
       // 这样动画第一帧不用等 /api/config，启动不会先白屏一下。
-      let mode = 'once';
-      try {
-        const cached = localStorage.getItem('qqa-boot-mode');
-        if (cached === 'off' || cached === 'always' || cached === 'once') mode = cached;
-      } catch { /* 忽略 */ }
+      const mode = readMode();
       if (mode === 'off') return;
-      if (mode === 'once') {
-        let played = '';
-        try { played = localStorage.getItem(DONE_KEY) || ''; } catch { /* 忽略 */ }
-        if (played) return;
-      }
-      play();
+      if (mode === 'always') { play(); syncModeFromConfig(); return; }
+      shouldPlayOnce().then((yes) => {
+        if (yes) play();
+        syncModeFromConfig();
+      }).catch(() => { /* 判定失败不影响启动 */ });
+      return;
+    } catch { /* 任何异常都不影响启动 */ }
+  })();
+
+  function syncModeFromConfig() {
+    try {
       // 后台再对一次配置（比如别的窗口刚把它关了），不一致时缓存同步过来
       api('/api/config').then((cfg) => {
         const v = cfg && cfg.ui && cfg.ui.bootAnim;
@@ -143,6 +178,6 @@
           try { localStorage.setItem('qqa-boot-mode', v); } catch { /* 忽略 */ }
         }
       }).catch(() => {});
-    } catch { /* 任何异常都不影响启动 */ }
-  })();
+    } catch { /* 忽略 */ }
+  }
 })();

@@ -552,7 +552,7 @@
             <button class="skin-btn skin-boot-btn${S.bootAnim === 'off' ? ' on' : ''}" data-boot-anim="off">关闭</button>
             <button class="skin-btn" id="skin-boot-preview">预览一次</button>
           </div>
-          <div class="skin-note" style="margin:6px 0 0">默认「仅一次」：装完 / 更新后第一次启动播一遍角色动画，之后秒进；播放中点击任意处可跳过。</div>
+          <div class="skin-note" style="margin:6px 0 0">默认「仅一次」：装完 / **每次版本更新后**第一次启动播一遍角色动画，之后秒进；播放中点击任意处可跳过。</div>
         </div>
         <div class="skin-actions">
           <button class="skin-btn primary" id="skin-save">保存</button>
