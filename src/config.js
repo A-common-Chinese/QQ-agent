@@ -201,6 +201,7 @@ export const DEFAULT_CONFIG = {
   snowluma: {
     dir: '',                   // SnowLuma 程序目录；留空 = 自动探测项目内 ./snowluma
     autoLaunch: false,         // 应用启动时自动拉起 SnowLuma（未运行时）
+    autoReadToken: false,      // 默认关：不主动读取 SnowLuma 的账号目录/令牌文件（改为手动填写）
     // 第二实例默认连自己的 OneBot 端口（3001/3000 + 偏移），
     // 否则两个实例会同时连到主实例的 SnowLuma，消息被处理两遍。
     wsUrl: `ws://127.0.0.1:${3001 + portOffset()}`,

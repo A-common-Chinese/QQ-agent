@@ -250,6 +250,44 @@ export function createApp({ log = console.log } = {}) {
    *  「命令行含 <snowluma目录>\index.mjs」匹配进程后 taskkill —— 否则 UI 的「停止」
    *  对外启动实例毫无作用，用户只能去任务管理器，而残留实例会继续抢占管道与端口。
    *  返回是否执行了关闭动作。 */
+  /** 协议端是否已就位（目录存在即视为"已安装"） */
+  function snowlumaInstalled() {
+    try {
+      const d = snowlumaDir();
+      return !!d && fs.existsSync(d);
+    } catch { return false; }
+  }
+
+  /** 卸载协议端：先停进程，再删除目录（需 confirm），并清空配置里的目录 */
+  async function uninstallSnowluma() {
+    const dir = snowlumaDir();
+    if (!dir || !fs.existsSync(dir)) return { ok: true, removed: false, dir: dir || '', note: '目录不存在，已视为未安装' };
+    try { await stopSnowluma(); } catch { /* 没在跑也无所谓 */ }
+    const target = path.resolve(dir);
+    // 安全边界 1：绝不删除随应用解包/自带的协议端目录（那是安装的一部分）
+    try {
+      const appRoot = path.resolve(ROOT);
+      if (target === appRoot || target.startsWith(appRoot + path.sep)) {
+        return {
+          ok: false,
+          dir: target,
+          error: '这个目录在应用安装目录里（随应用解包的协议端），不能在这里删除；要移除请手动处理安装目录，或用外部目录的协议端'
+        };
+      }
+    } catch { /* 忽略 */ }
+    // 安全边界 2：只允许删除"看起来是协议端目录"的路径（含 package.json 或可执行文件）
+    const looksLikeProtocol = fs.existsSync(path.join(target, 'package.json'))
+      || fs.existsSync(path.join(target, 'SnowLuma.exe'))
+      || fs.existsSync(path.join(target, 'snowluma.exe'));
+    if (!looksLikeProtocol) {
+      return { ok: false, dir: target, error: '目标目录不像协议端目录（没有 package.json / SnowLuma.exe），已中止删除' };
+    }
+    fs.rmSync(target, { recursive: true, force: true });
+    updateConfig({ snowluma: { dir: '' } });
+    log('[snowluma] 已卸载协议端目录：' + target);
+    return { ok: true, removed: true, dir: target };
+  }
+
   async function stopSnowluma() {
     const proc = snowlumaProc;
     if (proc) {
@@ -780,6 +818,8 @@ export function createApp({ log = console.log } = {}) {
 
   /** 把候选列表同步进配置 + 挂到 onebot 实例（不立即连接）。返回是否有变化。 */
   function syncSnowlumaTokens() {
+    // P2：默认不再读取第三方程序的账号目录/令牌文件，必须显式开启
+    if (getConfig().snowluma?.autoReadToken !== true) return false;
     try {
       const candidates = readSnowlumaTokenCandidates();
       if (!candidates.length) return false;
@@ -1560,6 +1600,9 @@ export function createApp({ log = console.log } = {}) {
     qqbotChats,
     simulateQqbotEvent: (evt) => feedQqbotEvent(evt),
     qqbotStatus: () => qqbotStatus,
+    qqbotStats: () => ({ received: qqbotRecv, activeChats: qqbotChats.size }),
+    snowlumaInstalled,
+    uninstallSnowluma,
     store, memory, sessions, onebot, orchestrator, sender,
     emit, log,
     localVersion, compareSemver, UPDATE_INFO_URL,

@@ -2372,3 +2372,11 @@ body.skin-bg-on .view { background: transparent; }
 .status-menu .sm-ok { color: #16a34a; }
 .status-menu .sm-bad { color: var(--err); }
 .status-menu .sm-act { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
+/* 「高级：本机协议端管理（可选）」折叠区 */
+.sl-adv { margin: 6px 0 14px; border: 1px dashed var(--bd); border-radius: 12px; padding: 10px 14px; background: var(--bg2); }
+.sl-adv > summary { cursor: pointer; font-weight: 600; color: var(--tx2); list-style: none; }
+.sl-adv > summary::before { content: '▸ '; color: var(--tx3); }
+.sl-adv[open] > summary::before { content: '▾ '; }
+.sl-adv > summary::-webkit-details-marker { display: none; }
+.sl-adv[open] { padding-bottom: 16px; }

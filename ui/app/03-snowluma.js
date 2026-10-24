@@ -74,6 +74,8 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
     ]);
     const slCfg = (cfgData && cfgData.snowluma) || {};
     const s = status;
+    // P1：没装协议端时，通道选项只保留官方机器人；OneBot 卡片与进程管理都隐藏
+    const slInstalled = !!(s?.snowluma?.installed || s?.snowluma?.dir);
     const box = $('#snowluma-page');
     let chan = 'onebot';
     try { chan = localStorage.getItem('qqa-sl-chan') || 'onebot'; } catch { /* 忽略 */ }
@@ -133,7 +135,7 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           <button class="btn btn-small sl-info-btn" id="sl-interface-info" title="接入方式对比 / 能力说明">ⓘ 说明</button>
         </h2>
         <div class="sl-chan-switch">
-          <button class="sl-chan ${chan === 'onebot' ? 'on' : ''}" data-sl-chan="onebot">OneBot（SnowLuma）</button>
+          ${slInstalled ? `<button class="sl-chan ${chan === 'onebot' ? 'on' : ''}" data-sl-chan="onebot">OneBot（SnowLuma）</button>` : ''}
           <button class="sl-chan ${chan === 'qqbot' ? 'on' : ''}" data-sl-chan="qqbot">官方机器人（QQ 开放平台）</button>
         </div>
         <div class="hint" style="margin:-4px 0 12px">两种接入方式只能选一种（可留空另一种）；切换后需重启应用生效。点右上角「ⓘ 说明」看能力对比。</div>
@@ -173,6 +175,7 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
               <span class="muted">${qb.configured ? '已配置（' + esc(qb.appId || '') + '）' : '未配置'}${s.qqbot?.connected ? ' · 已连接' : ''}</span>
               <span class="muted" style="margin-left:auto">当前通道：${esc(tr.active || 'onebot')}</span>
             </div>
+          </details>
           <h3>运行日志</h3>
             <div class="sl-qb-log-wrap">
               <div class="hint" style="margin-bottom:4px">官方机器人运行日志（<code>data/logs/qqbot/</code>）</div>
@@ -185,7 +188,22 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           </div>
         </div>
 
-        <div id="sl-onebot-card" class="${chan === 'onebot' ? '' : 'hidden'}">
+        ${!slInstalled ? `
+        <div class="sl-qb-card" style="margin-top:14px">
+          <h3>还没有 OneBot 协议端（可选）</h3>
+          <div class="hint" style="line-height:1.8">
+            现在只有一个通道：<b>官方机器人（QQ 开放平台）</b>，不需要协议端，合规、无协议封号风险。<br>
+            想要 OneBot 的完整玩法（全量消息 / 拍一拍 / 贴表情 / 群名片），需要自己准备一个
+            <b>OneBot v11 协议端</b>（SnowLuma、NapCat、LLOneBot 任选），装好并登录 QQ 后回到这里填地址与令牌。
+          </div>
+          <div class="hint" style="margin-top:6px">
+            本项目<b>不代管</b>协议端的安装/登录，也不随包分发第三方程序；装好后点下面「重新检测」。
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn-small" id="sl-redetect">重新检测</button>
+          </div>
+        </div>` : ''}
+        <div id="sl-onebot-card" class="${chan === 'onebot' && slInstalled ? '' : 'hidden'}">
           <div class="sl-onebot-sentinel"></div>
           <h3>连接配置</h3>
           <div class="sl-ob-config">
@@ -203,12 +221,20 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
             </div>
             <div class="checkbox-row"><input type="checkbox" id="sl-ob-autolaunch" ${slCfg.autoLaunch ? 'checked' : ''} />
               <label for="sl-ob-autolaunch">QQ Agent 启动时自动拉起 SnowLuma（未运行时）</label></div>
+            <div class="checkbox-row"><input type="checkbox" id="sl-ob-autoreadtoken" ${slCfg.autoReadToken ? 'checked' : ''} />
+              <label for="sl-ob-autoreadtoken">自动从本机协议端读取令牌（默认关；会读取第三方程序的账号目录，介意就别开）</label></div>
             <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
               <button class="btn btn-small btn-primary" id="sl-ob-save">保存 OneBot 配置</button>
               <span class="muted" id="sl-ob-hint" style="font-size:12px"></span>
             </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <button class="btn btn-small btn-danger" id="sl-sl-uninstall">卸载协议端</button>
+              <span class="muted" id="sl-uninstall-hint" style="font-size:12px">会先停止进程，再删除协议端目录（不可恢复）</span>
+            </div>
           </div>
           <h3>运行状态</h3>
+          <details class="sl-adv">
+            <summary>高级：本机协议端管理（可选）</summary>
         <!-- 一键启动区域（核心入口） -->
         ${!onebotConnected ? `
         <div class="quick-start-section" style="background:var(--bg);border:none;border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:var(--raise-sm)">
@@ -389,6 +415,50 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       } catch (e) { qbLogPre.textContent = '读取失败：' + (e.message || e); }
     };
     fillQbLog();
+
+    // 未安装协议端：重新检测
+    const redetect = box.querySelector('#sl-redetect');
+    if (redetect) redetect.addEventListener('click', () => loadSnowlumaPage());
+
+    // P2：自动读取协议端令牌（默认关）
+    const autoRead = box.querySelector('#sl-ob-autoreadtoken');
+    if (autoRead) {
+      autoRead.addEventListener('change', async () => {
+        try {
+          await api('/api/config', { method: 'PATCH', body: JSON.stringify({ snowluma: { autoReadToken: autoRead.checked } }) });
+        } catch (e) {
+          const hint = box.querySelector('#sl-ob-hint');
+          if (hint) { hint.textContent = '保存失败：' + (e.message || e); hint.style.color = 'var(--red)'; }
+        }
+      });
+    }
+
+    // 卸载协议端（二次确认 → 停进程 → 删目录）
+    const uninstallBtn = box.querySelector('#sl-sl-uninstall');
+    if (uninstallBtn) {
+      uninstallBtn.addEventListener('click', async () => {
+        const hint = box.querySelector('#sl-uninstall-hint');
+        const setHint = (t, c) => { if (hint) { hint.textContent = t; hint.style.color = c || ''; } };
+        const first = typeof uiConfirm === 'function'
+          ? await uiConfirm({ title: '卸载协议端', message: '会先停止协议端进程，然后删除它的整个目录（配置、账号数据一并删除，不可恢复）。继续？', okText: '继续' })
+          : window.confirm('会停止并删除协议端目录（不可恢复），继续？');
+        if (!first) return;
+        const second = typeof uiConfirm === 'function'
+          ? await uiConfirm({ title: '再次确认', message: '确定删除？这一步不可撤销。', okText: '删除' })
+          : window.confirm('再次确认：真的要删除协议端目录？');
+        if (!second) return;
+        uninstallBtn.disabled = true;
+        setHint('卸载中…');
+        try {
+          const r = await api('/api/snowluma/uninstall', { method: 'POST', body: JSON.stringify({ confirm: true }) });
+          setHint(r && r.removed ? '已卸载：' + (r.dir || '') : '目录不存在，已视为未安装', 'var(--green)');
+          await loadSnowlumaPage();
+        } catch (e) {
+          setHint('卸载失败：' + (e.message || e), 'var(--red)');
+        }
+        uninstallBtn.disabled = false;
+      });
+    }
 
     // OneBot 连接配置保存
     const obSave = box.querySelector('#sl-ob-save');

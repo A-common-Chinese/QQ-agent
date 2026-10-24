@@ -74,7 +74,7 @@ function parseSectionsQuery(searchParams) {
 export function createRoutes(deps) {
   const conn = deps.transport || asTransport({ client: deps.onebot });
   const {
-    store, memory, sessions, onebot, transport, qqbotChats, qqbotStatus, qqbotStats, simulateQqbotEvent, orchestrator, sender,
+    store, memory, sessions, onebot, transport, qqbotChats, qqbotStatus, qqbotStats, simulateQqbotEvent, snowlumaInstalled, uninstallSnowluma, orchestrator, sender,
     emit, log,
     // app.js 内部的过程/状态
     localVersion, compareSemver, UPDATE_INFO_URL,
@@ -173,6 +173,7 @@ export function createRoutes(deps) {
           },
           snowluma: {
             dir: snowlumaDir(),
+            installed: (typeof snowlumaInstalled === 'function' ? snowlumaInstalled() : false),
             running: slRunning,
             webuiUrl: snowlumaWebuiUrl(),
             ...snowlumaStatus()
@@ -306,6 +307,20 @@ export function createRoutes(deps) {
     {
       method: 'GET', pattern: '/api/snowluma/logs',
       handler: async ({ res, json }) => json(res, 200, { logs: snowlumaLogs.slice(-200) })
+    },
+    {
+      method: 'POST', pattern: '/api/snowluma/uninstall',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        if (body.confirm !== true) return json(res, 400, { ok: false, error: '需要 confirm:true 才会卸载（会删除协议端目录）' });
+        if (typeof uninstallSnowluma !== 'function') return json(res, 500, { ok: false, error: '卸载入口未接线' });
+        try {
+          const r = await uninstallSnowluma();
+          return json(res, 200, r);
+        } catch (error) {
+          return json(res, 500, { ok: false, error: String(error?.message ?? error) });
+        }
+      }
     },
     {
       method: 'POST', pattern: '/api/snowluma/stop',
