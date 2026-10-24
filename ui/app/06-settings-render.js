@@ -1154,6 +1154,39 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     q('pv2e-name').focus();
   }
 
+  /** 只读查看一张卡的完整内容（内置卡以前完全看不到写了什么）。 */
+  async function pv2ViewCard(id) {
+    const c = state.config || {};
+    const card = pv2Cards(c).find((x) => x && x.id === id);
+    if (!card) return;
+    const shared = String(c.personaShared?.core || '') + String(c.personaShared?.voice || '');
+    const parts = [];
+    if (card.useShared !== false && shared.trim()) parts.push('【共用部分（core + voice）】\n' + shared.trim());
+    if (String(card.variant || '').trim()) parts.push('【本卡正文】\n' + String(card.variant).trim());
+    (Array.isArray(card.examples) ? card.examples : []).forEach((e, i) => {
+      if (!e) return;
+      parts.push('【示例 ' + (i + 1) + '】\n群友：' + String(e.user || '') + (e.bad ? '\n× ' + e.bad : '') + (e.good ? '\n√ ' + e.good : ''));
+    });
+    (Array.isArray(card.scenarios) ? card.scenarios : []).forEach((sc) => {
+      if (!sc) return;
+      parts.push('【场景】触发：' + String(sc.trigger || '') + '\n' + String(sc.text || ''));
+    });
+    const full = parts.join('\n\n') || '（这张卡没有正文）';
+    const overlay = modelModalShell({
+      head: '查看人格卡：' + card.name + (card.builtin && !/只读/.test(card.name) ? '（只读）' : ''),
+      body: '<div class="hint">共 ' + full.length + ' 字。人设里的 {{owner}} / {{ownerQQ}} 会在运行时替换成部署者。</div>'
+        + '<textarea class="persona-role-text" readonly style="width:100%;min-height:320px;margin-top:8px">' + esc(full) + '</textarea>',
+      foot: '<button class="btn" id="pv2v-copy">复制全文</button><button class="btn btn-primary" id="pv2v-close">关闭</button>'
+    });
+    overlay.querySelector('#pv2v-close').addEventListener('click', () => closeModelModal(overlay));
+    overlay.querySelector('#pv2v-copy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(full);
+        overlay.querySelector('#pv2v-copy').textContent = '已复制 ✓';
+      } catch { showNoticeModal('复制失败', '浏览器拒绝了剪贴板权限，可以手动全选文本复制'); }
+    });
+  }
+
   async function pv2CopyCard(id) {
     const c = state.config || {};
     const card = pv2Cards(c).find((x) => x && x.id === id);
@@ -1161,10 +1194,12 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     try {
       await pv2Api('POST', '/api/personas', {
         name: card.name + '（副本）',
-        variant: card.builtin ? '' : (card.variant || ''),
-        examples: card.builtin ? [] : (card.examples || []),
-        scenarios: card.builtin ? [] : (card.scenarios || []),
-        useShared: card.builtin ? true : (card.useShared !== false)
+        // 内置卡是「独立卡」：正文全在 variant 里。以前这里传空串，
+        // 副本就只剩共用段（≈1000 字），看起来像"复制丢了内容"。
+        variant: String(card.variant || ''),
+        examples: Array.isArray(card.examples) ? card.examples : [],
+        scenarios: Array.isArray(card.scenarios) ? card.scenarios : [],
+        useShared: false
       });
       pv2Reload();
     } catch (e) { showNoticeModal('复制失败', String(e.message || e)); }
@@ -1213,6 +1248,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
         <b style="min-width:160px">${esc(x.name)}${x.builtin ? '（只读）' : ''}</b>
         <span class="muted" style="font-size:12px">常驻 ${len} 字${refs ? ' · 被 ' + refs + ' 个会话使用' : ''}</span>
         <span style="flex:1"></span>
+        <button class="btn btn-small" data-pv2="view" data-id="${esc(x.id)}">查看</button>
         ${x.builtin ? '' : `<button class="btn btn-small" data-pv2="edit" data-id="${esc(x.id)}">编辑</button>
         <button class="btn btn-small btn-danger" data-pv2="del" data-id="${esc(x.id)}">删除</button>`}
         <button class="btn btn-small" data-pv2="copy" data-id="${esc(x.id)}">复制</button>
@@ -1335,6 +1371,7 @@ if (!window.__pv2Delegated) {
       return undefined;
     }
     if (act === 'del') return pv2DelCard(el.dataset.id);
+    if (act === 'view') return pv2ViewCard(el.dataset.id);
     if (act === 'copy') return pv2CopyCard(el.dataset.id);
     return undefined;
   });
