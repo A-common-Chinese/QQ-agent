@@ -1051,3 +1051,14 @@ if (typeof document !== 'undefined' && !window.__jumpBound) {
     }
   });
 }
+
+/** 记忆卡「事实」行格式化：兼容字符串 / {key,value} 两种历史格式 */
+function memFactLine(f) {
+  if (typeof f === 'string') return esc(f);
+  if (f && typeof f === 'object') {
+    const k = String(f.key || '').trim();
+    const v = String(f.value ?? '').trim();
+    return k ? esc(k) + '=' + esc(v) : esc(v);
+  }
+  return esc(String(f ?? ''));
+}

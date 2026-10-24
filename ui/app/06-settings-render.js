@@ -587,7 +587,7 @@ function renderSearchSection(c) {
     const d = st.detail;
     if (!d) return '<div class="muted" style="padding:20px">从左侧选一项</div>';
     const key = st.tab === 'persons' ? 'person/' + d.qq : (st.tab === 'groups' ? 'group/' + encodeURIComponent(d.chatKey) : 'general');
-    const facts = (d.facts || []).map((f) => esc(f.key || '') + '=' + esc(f.value || '')).join('\n');
+    const facts = (d.facts || []).map((f) => memFactLine(f)).join('\n');
     const notes = (d.notes || []).join('\n');
     const prefs = (d.prefs || []).map((x) => esc(x.what || x.text || JSON.stringify(x))).join('\n');
     const pending = (d.pending || []).map((x) => esc(x.text || JSON.stringify(x))).join('\n');
@@ -726,7 +726,8 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     if (g('memv-facts')) {
       body.facts = memParseLines(g('memv-facts').value).map((line) => {
         const i = line.indexOf('=');
-        return i > 0 ? { key: line.slice(0, i).trim(), value: line.slice(i + 1).trim() } : { key: line, value: '' };
+        // 没有 '=' 的行按纯描述保存（key 留空，渲染时不显示等号）
+      return i > 0 ? { key: line.slice(0, i).trim(), value: line.slice(i + 1).trim() } : { key: '', value: line.trim() };
       });
     }
     try {

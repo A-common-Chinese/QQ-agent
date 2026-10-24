@@ -1295,7 +1295,7 @@ function renderHealthCard() {
     if (!gens.length) return '<div class="muted" style="padding:16px">还没有通用卡 <button class="btn btn-small" data-mem="gen-new">＋ 新建</button></div>';
     const g = gens.find((x) => x.id === st.genId) || gens[0];
     st.genId = g.id;
-    const facts = (g.facts || []).map((f) => esc(f.key || '') + '=' + esc(f.value || '')).join('\n');
+    const facts = (g.facts || []).map((f) => memFactLine(f)).join('\n');
     // 挂靠：哪些人设卡用了这张通用卡
     const personas = (st.list && st.list.personas) ? st.list.personas : [];
     const allPersonas = (state.config && state.config.personas) ? state.config.personas : [];
