@@ -892,7 +892,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
   // 旧版（JSON 编辑，已停用；保留便于回溯）
   function pv2OpenEditorJSON(card, forceNew) {
     const isNew = !card || forceNew === true;
-    const c0 = card || { name: '', variant: '', examples: [], scenarios: [] };
+    const c0 = card || { name: '', variant: '', examples: [], scenarios: [], useShared: false, useSharedCore: true, useSharedVoice: true };
     const js = (v) => esc(JSON.stringify(v || [], null, 2));
     const overlay = modelModalShell({
       head: isNew ? '新建人格卡' : '编辑人格卡：' + c0.name,
@@ -905,7 +905,10 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
         <div class="field"><label>按需场景（JSON 数组：{id,trigger,text}，trigger 为正则）</label>
           <textarea id="pv2e-scenarios" class="persona-role-text" style="min-height:120px">${js(c0.scenarios)}</textarea></div>
         <div class="field checkbox-row"><input type="checkbox" id="pv2e-useshared" ${c0.useShared !== false ? 'checked' : ''} />
-          <label for="pv2e-useshared">使用共用部分（core + voice）</label></div>`,
+          <label for="pv2e-useshared">使用共用部分</label>
+          <label style="margin-left:12px"><input type="checkbox" id="pv2e-useshared-core" ${c0.useSharedCore !== false ? 'checked' : ''}/> core（身份）</label>
+          <label style="margin-left:8px"><input type="checkbox" id="pv2e-useshared-voice" ${c0.useSharedVoice !== false ? 'checked' : ''}/> voice（说话方式）</label></div>
+        <div class="hint">有的卡只需要共用身份、不要共用说话方式，就把 voice 取消勾选。</div>`,
       foot: `<button class="btn" id="pv2e-cancel">取消</button><button class="btn btn-primary" id="pv2e-save">保存</button>`
     });
     const q = (id) => overlay.querySelector('#' + id);
@@ -937,6 +940,8 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       };
       if (!payload.name) { showNoticeModal('缺少名称', '给这张卡起个名字'); return; }
       payload.useShared = q('pv2e-useshared').checked;
+      payload.useSharedCore = q('pv2e-useshared-core') ? q('pv2e-useshared-core').checked : true;
+      payload.useSharedVoice = q('pv2e-useshared-voice') ? q('pv2e-useshared-voice').checked : true;
       try {
         if (isNew) await pv2Api('POST', '/api/personas', payload);
         else await pv2Api('PUT', '/api/personas/' + encodeURIComponent(card.id), payload);
@@ -1181,7 +1186,15 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     if (!card) return;
     const shared = String(c.personaShared?.core || '') + String(c.personaShared?.voice || '');
     const parts = [];
-    if (card.useShared !== false && shared.trim()) parts.push('【共用部分（core + voice）】\n' + shared.trim());
+    if (card.useShared !== false && shared.trim()) {
+      const useCore = card.useSharedCore !== false;
+      const useVoice = card.useSharedVoice !== false;
+      const bits = [
+        useCore ? 'core ' + String(c.personaShared?.core || '').length + ' 字' : 'core 未使用',
+        useVoice ? 'voice ' + String(c.personaShared?.voice || '').length + ' 字' : 'voice 未使用'
+      ].join(' / ');
+      parts.push('【共用部分（' + bits + '）】\n' + shared.trim());
+    }
     if (String(card.variant || '').trim()) parts.push('【本卡正文】\n' + String(card.variant).trim());
     (Array.isArray(card.examples) ? card.examples : []).forEach((e, i) => {
       if (!e) return;

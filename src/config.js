@@ -588,7 +588,8 @@ export function loadConfig() {
     try {
       const _p1 = migratePersonaSharedCore(merged);
       const _p2 = migratePersonaOwnerPlaceholder(merged);
-      if (_p1 || _p2) {
+      const _p3 = migrateDedupeBuiltinPersona(merged);
+      if (_p1 || _p2 || _p3) {
         fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf8');
       }
     } catch { /* 迁移失败不影响启动，下次再试 */ }
@@ -652,6 +653,53 @@ const LEGACY_SKILL_MIGRATIONS = [
  * 目的：卡可以原样分享给别人部署，谁部署就填谁的白名单，不用改文案。
  * 幂等：已经是 {{ownerQQ}} 的不会再变。
  */
+/**
+ * 内置卡去重：把 variant 里**标题重复的整段丢掉**（保留第一次出现的）。
+ *
+ * 背景：2026-10-24 把老的 personaShared.core 追加进内置卡后，追加块里
+ * "一、你是谁 / 二、群聊说话铁律…" 与卡片原文重复，末尾还多出一整段。
+ * 幂等：标题归一化后比较，重复即丢。
+ */
+export function migrateDedupeBuiltinPersona(cfg) {
+  const cards = Array.isArray(cfg.personas) ? cfg.personas : [];
+  const card = cards.find((p) => p && (p.builtin === true || p.id === 'builtin_xiaojingyu'));
+  if (!card) return false;
+  const text = String(card.variant || '');
+  if (!/^## /m.test(text)) return false;
+  const blocks = [];
+  let cur = { head: '', lines: [] };
+  for (const ln of text.split('\n')) {
+    const m = /^##\s+(.*)$/.exec(ln);
+    if (m) { blocks.push(cur); cur = { head: m[1].trim(), lines: [ln] }; }
+    else cur.lines.push(ln);
+  }
+  blocks.push(cur);
+  const norm = (h) => String(h)
+    .replace(/[（(][^）)]*[）)]/g, '')
+    .replace(/[:：].*$/, '')
+    .replace(/^[一二三四五六七八九十〇]+、/, '')
+    .replace(/\s+/g, '');
+  const seen = new Set();
+  const out = [];
+  for (const b of blocks) {
+    if (!b.head) { out.push(b.lines.join('\n')); continue; }
+    const key = norm(b.head);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(b.lines.join('\n'));
+  }
+  // 「一句话定位」如果被追加到末尾，挪到标题后（读起来更顺）
+  const pos = out.findIndex((b) => /^##\s*〇?、?\s*一句话定位/.test(b));
+  if (pos > 1) {
+    const [blk] = out.splice(pos, 1);
+    out.splice(1, 0, blk);
+  }
+  const next = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (!next || next === text) return false;
+  card.variant = next;
+  return true;
+}
+
 export function migratePersonaOwnerPlaceholder(cfg) {
   const qq = '85946573';
   let changed = false;

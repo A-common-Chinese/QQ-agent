@@ -834,8 +834,11 @@ function fillPersonaVars(text) {
     const _shared = _cardInfo.shared || {};
     const _chunks = [];
     const _useShared = _cardInfo.card.useShared !== false;
-    if (_useShared && String(_shared.core || '').trim()) _chunks.push(fillPersonaVars(String(_shared.core).trim()));
-    if (_useShared && String(_shared.voice || '').trim()) _chunks.push(fillPersonaVars(String(_shared.voice).trim()));
+    // 共用段的两块可以分别关掉：有的卡只要身份 core，不需要共用的"说话方式"voice
+    const _useSharedCore = _useShared && _cardInfo.card.useSharedCore !== false;
+    const _useSharedVoice = _useShared && _cardInfo.card.useSharedVoice !== false;
+    if (_useSharedCore && String(_shared.core || '').trim()) _chunks.push(fillPersonaVars(String(_shared.core).trim()));
+    if (_useSharedVoice && String(_shared.voice || '').trim()) _chunks.push(fillPersonaVars(String(_shared.voice).trim()));
     if (String(_cardInfo.card.variant || '').trim()) _chunks.push(fillPersonaVars(String(_cardInfo.card.variant).trim()));
     const _ex = Array.isArray(_cardInfo.card.examples) ? _cardInfo.card.examples.slice(0, 4) : [];
     if (_ex.length) {
