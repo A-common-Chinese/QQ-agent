@@ -589,7 +589,8 @@ export function loadConfig() {
       const _p1 = migratePersonaSharedCore(merged);
       const _p2 = migratePersonaOwnerPlaceholder(merged);
       const _p3 = migrateDedupeBuiltinPersona(merged);
-      if (_p1 || _p2 || _p3) {
+      const _p4 = migrateBuiltinUseSharedRules(merged);
+      if (_p1 || _p2 || _p3 || _p4) {
         fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf8');
       }
     } catch { /* 迁移失败不影响启动，下次再试 */ }
@@ -698,6 +699,70 @@ export function migrateDedupeBuiltinPersona(cfg) {
   if (!next || next === text) return false;
   card.variant = next;
   return true;
+}
+
+/**
+ * 内置卡瘦身：把「说话规则」类段落交给通用卡（共用段 voice），人格卡只留下
+ * 角色特有内容 + 说话例子。
+ *
+ * 判定：共用段 voice 里已有的段（标题归一化后相同）就内置卡删掉，
+ * 然后把内置卡切到 useShared=true / useSharedVoice=true，让它从通用卡拿这些规则。
+ * 幂等：没删到东西且开关已开 → 直接返回 false。
+ */
+export function migrateBuiltinUseSharedRules(cfg) {
+  const cards = Array.isArray(cfg.personas) ? cfg.personas : [];
+  const card = cards.find((p) => p && (p.builtin === true || p.id === 'builtin_xiaojingyu'));
+  const voice = String(cfg?.personaShared?.voice || '');
+  if (!card || !voice.trim()) return false;
+
+  const norm = (h) => String(h)
+    .replace(/[（(][^）)]*[）)]/g, '')
+    .replace(/[:：].*$/, '')
+    .replace(/^[一二三四五六七八九十〇]+、/, '')
+    .replace(/\s+/g, '');
+  const sharedHeads = new Set(
+    voice.split('\n')
+      .map((ln) => /^##\s+(.*)$/.exec(ln))
+      .filter(Boolean)
+      .map((m) => norm(m[1]))
+  );
+
+  const text = String(card.variant || '');
+  const blocks = [];
+  let cur = { head: '', lines: [] };
+  for (const ln of text.split('\n')) {
+    const m = /^##\s+(.*)$/.exec(ln);
+    if (m) { blocks.push(cur); cur = { head: m[1].trim(), lines: [ln] }; }
+    else cur.lines.push(ln);
+  }
+  blocks.push(cur);
+
+  const kept = blocks.filter((b) => {
+    if (!b.head) return true;
+    return !sharedHeads.has(norm(b.head));
+  });
+  const removed = blocks.length - kept.length;
+
+  // 删段后序号会断（一 → 五），重新按顺序编号；「〇」段保持不动
+  const nums = ['一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五','十六','十七','十八','十九','二十'];
+  let seq = 0;
+  const renumbered = kept.map((b) => {
+    if (!b.head) return b.lines.join('\n');
+    const isZero = /^〇/.test(b.head) || /一句话定位/.test(b.head);
+    const body = b.lines.slice(1).join('\n');
+    if (isZero) return ['## ' + b.head].concat(body ? [body] : []).join('\n');
+    const title = b.head.replace(/^[一二三四五六七八九十〇]+、/, '');
+    const num = nums[seq] || String(seq + 1);
+    seq += 1;
+    return ['## ' + num + '、' + title].concat(body ? [body] : []).join('\n');
+  }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+
+  let changed = false;
+  // 序号断裂也算“需要改”（例如上一轮只删了段、没重编号）
+  if (renumbered && renumbered !== text) { card.variant = renumbered; changed = true; }
+  if (card.useShared === false) { card.useShared = true; changed = true; }
+  if (card.useSharedVoice === false) { card.useSharedVoice = true; changed = true; }
+  return changed;
 }
 
 export function migratePersonaOwnerPlaceholder(cfg) {
