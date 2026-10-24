@@ -1953,6 +1953,37 @@ export function createRoutes(deps) {
         return json(res, 200, r);
       }
     },
+    {
+      method: 'GET', pattern: '/api/logs/channel',
+      handler: async ({ res, json, url }) => {
+        const { channelLogs: readLogs, CHANNELS: chans } = await import('./channel-log.js');
+        const ch = String(url.searchParams.get('channel') || 'snowluma');
+        const limit = Math.min(400, Math.max(20, Number(url.searchParams.get('limit')) || 200));
+        if (!chans.includes(ch)) return json(res, 400, { ok: false, error: 'channel 只能是 snowluma / qqbot' });
+        return json(res, 200, { ok: true, channel: ch, logs: readLogs(ch, limit) });
+      }
+    },
+    {
+      method: 'GET', pattern: '/api/allow-qqbot',
+      handler: async ({ res, json }) => {
+        const a = getConfig().allowQqbot || {};
+        return json(res, 200, { ok: true, groups: a.groups || [], private: a.private || [] });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/allow-qqbot/remove',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const kind = String(body.kind || '');
+        const id = String(body.id || '');
+        if (!['groups', 'private'].includes(kind) || !id) return json(res, 400, { ok: false, error: '参数不合法' });
+        const a = getConfig().allowQqbot || {};
+        const next = { groups: [...(a.groups || [])], private: [...(a.private || [])] };
+        next[kind] = next[kind].filter((x) => String(x) !== id);
+        updateConfig({ allowQqbot: next });
+        return json(res, 200, { ok: true, allowQqbot: next });
+      }
+    },
     // ── 接入方式（QQ 接口：OneBot / 官方机器人） ─────────────────────
     {
       method: 'GET', pattern: '/api/transport/qqbot/chats',
@@ -1970,11 +2001,11 @@ export function createRoutes(deps) {
         const id = String(body.id || '').trim();
         if (!['group', 'private'].includes(kind) || !id) return json(res, 400, { ok: false, error: '参数不合法' });
         const cfg = getConfig();
-        const allow = { groups: [...(cfg.allow?.groups || [])], private: [...(cfg.allow?.private || [])] };
+        const allow = { groups: [...(cfg.allowQqbot?.groups || [])], private: [...(cfg.allowQqbot?.private || [])] };
         const key = kind === 'group' ? 'groups' : 'private';
         if (!allow[key].includes(id)) allow[key].push(id);
-        updateConfig({ allow });
-        return json(res, 200, { ok: true, allow });
+        updateConfig({ allowQqbot: allow });
+        return json(res, 200, { ok: true, allowQqbot: allow });
       }
     },
     {

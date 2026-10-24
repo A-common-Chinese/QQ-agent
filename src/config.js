@@ -259,8 +259,12 @@ export const DEFAULT_CONFIG = {
       ]
     }
   },
-  // 接入白名单
+  // 接入白名单（SnowLuma/OneBot：群号 / QQ 号）
   allow: { groups: [], private: [] },
+  // 官方机器人白名单（openid，与上面互不影响；官方通道只认这套）
+  allowQqbot: { groups: [], private: [] },
+  // 未来：QQ 号 ↔ openid 映射（记忆打通用）；现在两套分开存，映射留空
+  identityLinks: [],
   deny: { groups: [], private: [] },
   allowAllWhenEmpty: false,
   // 运行节奏
@@ -602,7 +606,8 @@ export function loadConfig() {
       const _p2 = migratePersonaOwnerPlaceholder(merged);
       const _p3 = migrateDedupeBuiltinPersona(merged);
       const _p4 = migrateBuiltinUseSharedRules(merged);
-      if (_p1 || _p2 || _p3 || _p4) {
+      const _p5 = migrateAllowQqbotSplit(merged);
+      if (_p1 || _p2 || _p3 || _p4 || _p5) {
         fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf8');
       }
     } catch { /* 迁移失败不影响启动，下次再试 */ }
@@ -820,6 +825,29 @@ export function migratePersonaOwnerPlaceholder(cfg) {
     const adminQQ = String(cfg.forwardRules?.adminQQ || '').trim();
     if (firstPriv && adminQQ === firstPriv) { cfg.forwardRules.adminQQ = ''; changed = true; }
   } catch { /* 忽略 */ }
+  return changed;
+}
+
+/**
+ * 迁移：早期「最近会话 → 加入白名单」把 openid 写进了 allow（群号那套）。
+ * openid 是 32 位十六进制，与数字群号/QQ 号一眼可分：搬到 allowQqbot。
+ */
+export function migrateAllowQqbotSplit(cfg) {
+  const isOpenid = (v) => /^[0-9a-f]{20,}$/i.test(String(v || ''));
+  let changed = false;
+  const aq = cfg.allowQqbot || (cfg.allowQqbot = { groups: [], private: [] });
+  for (const kind of ['groups', 'private']) {
+    const list = Array.isArray(cfg.allow?.[kind]) ? cfg.allow[kind] : [];
+    const keep = [];
+    for (const v of list) {
+      if (isOpenid(v)) {
+        if (!Array.isArray(aq[kind])) aq[kind] = [];
+        if (!aq[kind].includes(v)) aq[kind].push(v);
+        changed = true;
+      } else keep.push(v);
+    }
+    if (keep.length !== list.length) cfg.allow[kind] = keep;
+  }
   return changed;
 }
 

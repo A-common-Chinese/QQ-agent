@@ -1391,6 +1391,13 @@ async function saveConfig({ quiet = false } = {}) {
       groups: parseList(val('#cfg-allowgroups', (c.allow?.groups || []).join(','))),
       private: parseList(val('#cfg-allowprivate', (c.allow?.private || []).join(',')))
     };
+    // 官方机器人白名单（openid）：与上面互不影响
+    if (document.getElementById('cfg-allowqqbot-groups') || document.getElementById('cfg-allowqqbot-private')) {
+      patch.allowQqbot = {
+        groups: parseList(val('#cfg-allowqqbot-groups', (c.allowQqbot?.groups || []).join(','))),
+        private: parseList(val('#cfg-allowqqbot-private', (c.allowQqbot?.private || []).join(',')))
+      };
+    }
     // deny 不在这里硬清空：UI 没有 deny 编辑入口（屏蔽走「屏蔽名单」按钮），
     // 曾经无条件写 patch.deny = { groups: [], private: [] } —— 用户手改 JSON
     // 加的黑名单在任何一次 allow 区块保存时被抹掉。不写 = deepMerge 保留现值。

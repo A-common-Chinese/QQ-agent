@@ -271,6 +271,17 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           </div>
           <pre class="snowluma-logs-view" id="app-logs-view">${esc(appLogText)}</pre>
         </div>
+
+        <div class="sl-chan-logs-wrap">
+          <div class="sl-chan-logs-head">
+            <b>运行日志（按通道分开）</b>
+            <button class="btn btn-small" data-sl-logtab="snowluma">SnowLuma</button>
+            <button class="btn btn-small" data-sl-logtab="qqbot">官方机器人</button>
+            <button class="btn btn-small" id="sl-chan-log-refresh">刷新</button>
+            <span class="muted" id="sl-chan-log-hint" style="font-size:12px"></span>
+          </div>
+          <pre class="snowluma-logs-view" id="sl-chan-log-pre">加载中…</pre>
+        </div>
       </div>`;
 
     // 还原 QQ 接口表单的输入值与焦点
@@ -319,6 +330,42 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
         });
       }).catch(() => { chatsBox.innerHTML = '<span class="muted">读取失败</span>'; });
     }
+
+    // ── 运行日志（按通道分开）：SnowLuma / 官方机器人 各自一个查看窗口 ──
+    let logChan = (() => { try { return localStorage.getItem('qqa-sl-logtab') || (chan === 'qqbot' ? 'qqbot' : 'snowluma'); } catch { return 'snowluma'; } })();
+    const chanLogPre = box.querySelector('#sl-chan-log-pre');
+    const chanLogHint = box.querySelector('#sl-chan-log-hint');
+    const markLogTab = () => {
+      box.querySelectorAll('[data-sl-logtab]').forEach((b) => b.classList.toggle('on', b.dataset.slLogtab === logChan));
+    };
+    const fillChanLog = async () => {
+      if (!chanLogPre) return;
+      try {
+        const r = await api('/api/logs/channel?channel=' + encodeURIComponent(logChan) + '&limit=200');
+        const rows = (r && r.logs) || [];
+        chanLogPre.textContent = rows.length
+          ? rows.map((l) => {
+            const t = new Date(l.at).toLocaleTimeString('zh-CN', { hour12: false });
+            return `[${t}]${l.stream === 'stderr' ? ' ⚠' : ''} ${l.text}`;
+          }).join('\n')
+          : '（这个通道还没有日志）';
+        chanLogPre.scrollTop = chanLogPre.scrollHeight;
+        if (chanLogHint) chanLogHint.textContent = logChan === 'qqbot' ? 'data/logs/qqbot/' : 'data/logs/snowluma/';
+      } catch (e) {
+        chanLogPre.textContent = '读取失败：' + (e.message || e);
+      }
+      markLogTab();
+    };
+    box.querySelectorAll('[data-sl-logtab]').forEach((b) => {
+      b.addEventListener('click', () => {
+        logChan = b.dataset.slLogtab;
+        try { localStorage.setItem('qqa-sl-logtab', logChan); } catch { /* 忽略 */ }
+        fillChanLog();
+      });
+    });
+    const chanLogRefresh = box.querySelector('#sl-chan-log-refresh');
+    if (chanLogRefresh) chanLogRefresh.addEventListener('click', () => fillChanLog());
+    fillChanLog();
 
     // 通道切换
     box.querySelectorAll('[data-sl-chan]').forEach((b) => {

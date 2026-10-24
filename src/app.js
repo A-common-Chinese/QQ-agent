@@ -36,6 +36,7 @@ import * as instanceLockModule from './instance-lock.js';
 import { logger } from './logger.js';
 import { startCommunitySync, isGloballyBlocked, FIXED_PRICE_FEED_URL } from './community.js';
 import { getStatus as memoryStudioStatus, startStudio as memoryStudioStart, stopStudio as memoryStudioStop, callStudio as memoryStudioCall, disposeStudio as memoryStudioDispose, checkStudioUpdate as memoryStudioCheckUpdate, installStudio as memoryStudioInstall } from './memory-studio.js';
+import { channelLog } from './channel-log.js';
 
 // 全局 fetch（undici）默认连接建立超时只有 10 秒，openrouter.ai 这类海外端点
 // 握手慢时会直接报 "Connect Timeout Error ... timeout: 10000ms"（注意这不是
@@ -52,11 +53,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.resolve(__dirname, '..', 'ui');
 
 // ── 白名单判断（移植自原版 allowed()） ───────────────────────────────────
-function allowed(kind, id, cfg) {
+function allowed(kind, id, cfg, channel = 'onebot') {
   const s = String(id);
-  const denyList = cfg.deny?.[kind] ?? cfg.deny?.[`${kind}s`] ?? [];
+  // 两套白名单：OneBot 用 allow（群号/QQ号），官方机器人用 allowQqbot（openid）
+  const bucket = channel === 'qqbot' ? (cfg.allowQqbot || {}) : (cfg.allow || {});
+  const denyBucket = channel === 'qqbot' ? (cfg.denyQqbot || {}) : (cfg.deny || {});
+  const denyList = denyBucket?.[kind] ?? denyBucket?.[`${kind}s`] ?? [];
   if (denyList.map(String).includes(s)) return false;
-  const allowList = cfg.allow?.[kind] ?? cfg.allow?.[`${kind}s`] ?? [];
+  const allowList = bucket?.[kind] ?? bucket?.[`${kind}s`] ?? [];
   if (allowList.length > 0) return allowList.map(String).includes(s);
   return cfg.allowAllWhenEmpty === true;
 }
@@ -229,6 +233,7 @@ export function createApp({ log = console.log } = {}) {
     if (!line.text) return;
     snowlumaLogs.push(line);
     if (snowlumaLogs.length > 500) snowlumaLogs.splice(0, snowlumaLogs.length - 500);
+    try { channelLog('snowluma', line.text, stream); } catch { /* 忽略 */ }
     emit('snowluma-log', line);
   }
 
@@ -847,9 +852,9 @@ export function createApp({ log = console.log } = {}) {
     }
   }
 
-  async function ingestMessage(kind, id, event) {
+  async function ingestMessage(kind, id, event, channel = 'onebot') {
     const cfgNow = getConfig();
-    if (!allowed(kind, id, cfgNow)) return; // 白名单外的聊天完全不记录
+    if (!allowed(kind, id, cfgNow, channel)) return; // 白名单外的聊天完全不记录
 
     const segments = Array.isArray(event.message) ? event.message : null;
     const senderId = String(event.sender?.user_id ?? event.user_id ?? '');
@@ -1216,8 +1221,8 @@ export function createApp({ log = console.log } = {}) {
         text: String(evt.text || '').slice(0, 60)
       });
       if (qqbotChats.size > 30) { const first = qqbotChats.keys().next().value; qqbotChats.delete(first); }
-      log(`[qqbot] 收到 ${ck}（${evt.nickname || '?'}）：${String(evt.text || '').slice(0, 40)}`);
-      return ingestMessage(isGroup ? 'group' : 'private', String(evt.chatId), pseudo);
+      { const msg = `[qqbot] 收到 ${ck}（${evt.nickname || '?'}）：${String(evt.text || '').slice(0, 40)}`; log(msg); try { channelLog('qqbot', msg); } catch { /* 忽略 */ } }
+      return ingestMessage(isGroup ? 'group' : 'private', String(evt.chatId), pseudo, 'qqbot');
     } catch (error) {
       log('[qqbot] 事件处理出错:', error?.message ?? error);
     }
@@ -1227,11 +1232,18 @@ export function createApp({ log = console.log } = {}) {
   async function startQqbotChannel() {
     try {
       transport.onMessage((evt) => { feedQqbotEvent(evt).catch?.((e) => log('[qqbot] ingest 失败:', e?.message ?? e)); });
-      transport.onStatus((st) => { emit('qqbot-status', st); log('[qqbot] 状态:', JSON.stringify(st)); });
+      transport.onStatus((st) => {
+        emit('qqbot-status', st);
+        const msg = '[qqbot] 状态: ' + JSON.stringify(st);
+        log(msg);
+        try { channelLog('qqbot', msg); } catch { /* 忽略 */ }
+      });
       await transport.start();
       log('[qqbot] 官方机器人通道已连接');
+      try { channelLog('qqbot', '[qqbot] 官方机器人通道已连接'); } catch { /* 忽略 */ }
     } catch (error) {
       log('[qqbot] 连接失败：', error?.message ?? error);
+      try { channelLog('qqbot', '[qqbot] 连接失败：' + String(error?.message ?? error)); } catch { /* 忽略 */ }
       setTimeout(() => { startQqbotChannel(); }, 15000).unref?.();
     }
   }

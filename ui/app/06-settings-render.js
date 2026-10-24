@@ -1717,6 +1717,13 @@ function renderAllowSection(c) {
       <div class="field"><label>允许的群号</label>${renderTagInput('groups', c.allow.groups || [])}</div>
       <div class="field"><label>允许的 QQ</label>${renderTagInput('private', c.allow.private || [])}</div>
     </div>
+
+    <h3 id="settings-allow-qqbot" style="margin-top:22px">官方机器人白名单（openid）</h3>
+    <div class="hint">和上面的群号/QQ 号白名单<strong>互不影响</strong>：官方通道只认 openid。可以从「QQ 接口 → 官方机器人 → 最近收到的会话」点「加入白名单」自动填，也可以手动粘。</div>
+    <div class="field"><label>允许的群（group_openid，逗号或换行分隔）</label>
+      <input type="text" id="cfg-allowqqbot-groups" value="${esc((c.allowQqbot?.groups || []).join(', '))}" placeholder="6A3B9C1D5E2F4A6B7C8D9E0F" /></div>
+    <div class="field"><label>允许的用户（user_openid）</label>
+      <input type="text" id="cfg-allowqqbot-private" value="${esc((c.allowQqbot?.private || []).join(', '))}" placeholder="7A3B..." /></div>
       ${renderForwardRulesSection(c)}
     <div class="checkbox-row"><input type="checkbox" id="cfg-allowallwhenempty" ${c.allowAllWhenEmpty === true ? 'checked' : ''} />
       <label for="cfg-allowallwhenempty">白名单留空时允许所有会话</label></div>
