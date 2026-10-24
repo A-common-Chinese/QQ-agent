@@ -20,6 +20,8 @@ import { skillManager } from './skills/manager.js';
 import { getToolAvailability } from './tool-registry.js';
 import { rescueUnsentReply } from './reply-rescue.js';
 import { asTransport } from './transport/index.js';
+import { upsertPerson, upsertGroup } from './memory-cards.js';
+import { readChunks, readSemanticCards, lastAutoCardsAt, markAutoCards } from './memory-layers.js';
 
 export class Orchestrator {
   constructor({ store, memory, stickers, sender, sessions, onebot, transport = null, emit = null, reminders = null, videoReader = null }) {
@@ -668,6 +670,8 @@ export class Orchestrator {
 
     // 记忆自动整理（后台静默，绝不阻塞/影响聊天主流程）
     this.#maybeConsolidateMemory(chatKey);
+    // 记忆卡自动更新（按会话 6 小时冷却，独立于整理）
+    this.#maybeAutoCards(chatKey);
   }
 
   /**
@@ -1479,6 +1483,122 @@ export class Orchestrator {
   // 否则记忆为空的群点整理会得到"没有可整理的群友"，功能对新群完全无效。
   static DISCOVER_MIN_MESSAGES = 20;      // 至少发过这么多条才值得分析
   static DISCOVER_MAX_MEMBERS = 3;        // 单次最多发现几个人（控制成本）
+
+  /**
+   * 记忆卡自动更新：会话结束后（节流）把聊天记录/印象/小时摘要/语义卡
+   * 交给整理模型，产出「群卡 + 个人卡」的稳定信息并 upsert 落盘。
+   * 失败静默，绝不影响聊天。
+   */
+  /** 手动触发：立即为某个会话生成/刷新记忆卡（跳过冷却） */
+  async updateMemoryCardsNow(chatKey) {
+    const cfg = getConfig();
+    if (!cfg.api?.baseUrl || !cfg.api?.model) throw new Error('模型未配置');
+    if (this.consolidating.has('cards:' + chatKey)) return { ok: false, error: '正在更新中' };
+    this.consolidating.add('cards:' + chatKey);
+    try {
+      await this.#autoUpdateCards(chatKey);
+      markAutoCards(chatKey);
+      return { ok: true, at: Date.now() };
+    } finally {
+      this.consolidating.delete('cards:' + chatKey);
+    }
+  }
+
+  #maybeAutoCards(chatKey) {
+    try {
+      const cfg = getConfig();
+      if (cfg.memoryCards?.autoUpdate === false) return;
+      if (!cfg.api?.baseUrl || !cfg.api?.model) return;
+      if (isSilentChat(chatKey)) return;
+      if (this.paused || this.aborted) return;
+      if (this.consolidating.has('cards:' + chatKey)) return;
+      const minInterval = Math.max(30 * 60 * 1000,
+        Number(cfg.memoryCards?.autoIntervalMs) || 6 * 60 * 60 * 1000);
+      if (Date.now() - lastAutoCardsAt(chatKey) < minInterval) return;
+      this.consolidating.add('cards:' + chatKey);
+      this.#autoUpdateCards(chatKey)
+        .catch((e) => console.error('[memory] 自动更新记忆卡失败:', e?.message ?? e))
+        .finally(() => this.consolidating.delete('cards:' + chatKey));
+    } catch { /* 锦上添花 */ }
+  }
+
+  async #autoUpdateCards(chatKey) {
+    const recent = this.store.recent(chatKey, { limit: 80 }) || [];
+    if (!recent.length) return;
+    const impressions = (this.memory.query(chatKey).memberImpression || []).slice(0, 20);
+    const chunks = readChunks(chatKey, 40).slice(0, 12);
+    const sem = readSemanticCards(chatKey).slice(0, 12);
+    const isGroup = String(chatKey).startsWith('group:');
+    const names = [...new Set(recent.map((m) => (m.senderId ? `${m.senderName || m.senderId}(${m.senderId})` : '')).filter(Boolean))].slice(0, 10);
+    const lines = recent.slice(-60).map((m) => `${m.senderName || '我'}: ${String(m.text || '').replace(/\s+/g, ' ').slice(0, 120)}`).join('\n');
+    const memText = impressions.map((i) => `- ${i.target}: ${i.content}`).join('\n');
+    const chunkText = chunks.map((c) => `- ${c.hourKey || c.title || ''} ${String(c.summary || '').slice(0, 160)}`).join('\n');
+    const semText = sem.map((c) => `- [${c.type || ''}] ${c.title || ''}${c.detail ? '：' + String(c.detail).slice(0, 100) : ''}`).join('\n');
+    const sys = '你是记忆整理助手，只输出 JSON，不要任何解释或代码块标记。';
+    const user = [
+      `会话：${chatKey}（${isGroup ? '群聊' : '私聊'}）`,
+      `发言人：${names.join('，') || '（未标注）'}`,
+      '',
+      '最近聊天：',
+      lines,
+      '',
+      '已有印象：',
+      memText || '（无）',
+      '',
+      '小时摘要：',
+      chunkText || '（无）',
+      '',
+      '语义卡：',
+      semText || '（无）',
+      '',
+      '请输出 JSON：',
+      '{"group":{"name":"会话或群名","summary":"1-3 句定位","facts":["稳定事实，最多6条"],"topics":["常聊话题，最多6条"]},',
+      ' "persons":[{"qq":"数字QQ号","name":"昵称","summary":"1-2 句概括","tone":"说话风格","facts":["稳定事实，最多5条"],"prefs":[],"notes":[]}]}',
+      '要求：只写稳定信息，不写一次性事件；persons 最多 5 人；没有数字QQ号的人不要输出；信息不足就留空字符串或空数组。'
+    ].join('\n');
+    const resp = await this.#memoryChat([{ role: 'system', content: sys }, { role: 'user', content: user }]);
+    // chatCompletion 返回 { message: { content }, ... }，不是 content 顶层字段
+    const text = String(resp?.message?.content ?? resp?.content ?? '').trim();
+    console.log(`[memory] 自动写卡 ${chatKey}：recent=${recent.length} 印象=${impressions.length} 块=${chunks.length} 语义=${sem.length} 回复=${text.length}字`);
+    const json = (() => {
+      if (!text) return null;
+      const cleaned = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      try { return JSON.parse(cleaned); } catch { /* 再尝试截取花括号 */ }
+      const a = cleaned.indexOf('{'); const b = cleaned.lastIndexOf('}');
+      if (a < 0 || b <= a) return null;
+      try { return JSON.parse(cleaned.slice(a, b + 1)); } catch { return null; }
+    })();
+    if (!json) { console.log('[memory] 自动写卡：模型输出不是合法 JSON，预览=' + text.slice(0, 200)); return; }
+    let touched = 0;
+    if (json.group && typeof json.group === 'object') {
+      const g = json.group;
+      const patch = {};
+      if (g.name) patch.name = String(g.name).slice(0, 60);
+      if (g.summary) patch.summary = String(g.summary).slice(0, 400);
+      if (Array.isArray(g.facts)) patch.facts = g.facts.map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 12);
+      if (Array.isArray(g.topics)) patch.topics = g.topics.map((x) => String(x).slice(0, 120)).filter(Boolean).slice(0, 12);
+      if (Object.keys(patch).length) { if (upsertGroup(chatKey, patch).ok) touched += 1; }
+    }
+    for (const p of (Array.isArray(json.persons) ? json.persons : []).slice(0, 5)) {
+      const qq = String(p?.qq || '').trim();
+      if (!/^\d{4,12}$/.test(qq)) continue;
+      const patch = {};
+      if (p.name) patch.name = String(p.name).slice(0, 40);
+      if (p.summary) patch.summary = String(p.summary).slice(0, 400);
+      if (p.tone) patch.tone = String(p.tone).slice(0, 200);
+      if (Array.isArray(p.facts)) patch.facts = p.facts.map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 10);
+      if (Array.isArray(p.prefs)) patch.prefs = p.prefs.map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 10);
+      if (Array.isArray(p.notes)) patch.notes = p.notes.map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 10);
+      if (Object.keys(patch).length) { if (upsertPerson(qq, patch).ok) touched += 1; }
+    }
+    if (touched) {
+      markAutoCards(chatKey);
+      console.log(`[memory] 自动更新记忆卡 ${chatKey}：${touched} 张`);
+      try { this.emit('chat-update', chatKey); } catch { /* 忽略 */ }
+    } else {
+      markAutoCards(chatKey);   // 没内容也记一次，避免每轮都调模型
+    }
+  }
 
   #maybeConsolidateMemory(chatKey) {
     try {

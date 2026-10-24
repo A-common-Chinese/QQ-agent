@@ -80,6 +80,52 @@ export function updateGroup(chatKey, patch) {
   return { ok: true, card: next };
 }
 
+const PERSON_FIELDS = ['name', 'summary', 'tone', 'facts', 'prefs', 'events', 'pending', 'notes', 'impressions', 'aliases'];
+
+/** 个人卡：不存在就建（自动生成用），存在则合并字段 */
+export function upsertPerson(qq, patch = {}) {
+  const id = String(qq || '').trim();
+  if (!id) return { ok: false, error: 'missing_qq' };
+  const cur = getPerson(id) || {
+    qq: id,
+    name: String(patch.name || id),
+    summary: '',
+    tone: '',
+    facts: [],
+    prefs: [],
+    events: [],
+    pending: [],
+    notes: [],
+    impressions: [],
+    aliases: []
+  };
+  const next = { ...cur, qq: id, updatedAt: new Date().toISOString() };
+  for (const k of PERSON_FIELDS) if (patch && patch[k] !== undefined) next[k] = patch[k];
+  writeAtomic(path.join(PERSONS, safeKey(id) + '.json'), next);
+  return { ok: true, card: next, created: !getPerson(id) ? false : true };
+}
+
+/** 群/私聊卡：不存在就建（自动生成用），存在则合并字段 */
+export function upsertGroup(chatKey, patch = {}) {
+  const key = String(chatKey || '').trim();
+  if (!key) return { ok: false, error: 'missing_chatKey' };
+  const file = path.join(dirOf(key), 'group.json');
+  const cur = read(file) || {
+    chatKey: key,
+    name: String(patch.name || key),
+    summary: '',
+    facts: [],
+    topics: [],
+    members: []
+  };
+  const next = { ...cur, chatKey: key, updatedAt: new Date().toISOString() };
+  for (const k of ['name', 'summary', 'facts', 'topics', 'members']) {
+    if (patch && patch[k] !== undefined) next[k] = patch[k];
+  }
+  writeAtomic(file, next);
+  return { ok: true, card: next };
+}
+
 export function updateGeneral(patch) {
   const file = path.join(ROOT, 'general.json');
   const cur = read(file) || { id: 'general', name: '通用卡' };

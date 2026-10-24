@@ -36,6 +36,7 @@ import { analyzeExtension } from './plugin-compat.js';
 import { exportToFile, previewImport, applyImport, buildBundle, bundleStats } from './memory-bundle.js';
 import { redactText, getSafeModeConfig } from './safe-mode.js';
 import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral, listTopics, getTopic, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
+import { readChunks, readSemanticCards, lastAutoCardsAt } from './memory-layers.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
 import { availabilityOf, listTools, CATEGORY_META } from './tool-registry.js';
 import { safeFetchBinary, browseLockState } from './safe-fetch.js';
@@ -1434,6 +1435,39 @@ export function createRoutes(deps) {
       }
     },
     // ── 记忆卡（群聊 / 个人 / 基本事实）────────────────────────────
+    {
+      method: 'POST', pattern: '/api/memory-cards/auto',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const chatKey = String(body.chatKey || '').trim();
+        if (!chatKey) return json(res, 400, { ok: false, error: '缺少 chatKey' });
+        try {
+          const r = await orchestrator.updateMemoryCardsNow(chatKey);
+          return json(res, 200, r);
+        } catch (e) {
+          return json(res, 500, { ok: false, error: String(e?.message ?? e) });
+        }
+      }
+    },
+    {
+      method: 'GET', pattern: '/api/memory-layers',
+      handler: async ({ res, json, url }) => {
+        const chatKey = String(url.searchParams.get('chatKey') || '').trim();
+        if (!chatKey) return json(res, 400, { ok: false, error: '缺少 chatKey' });
+        const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') || 30)));
+        const impressions = (memory && typeof memory.query === 'function')
+          ? (memory.query(chatKey).memberImpression || [])
+          : [];
+        return json(res, 200, {
+          ok: true,
+          chatKey,
+          chunks: readChunks(chatKey, limit),
+          semanticCards: readSemanticCards(chatKey),
+          impressions,
+          lastAutoCardsAt: lastAutoCardsAt(chatKey)
+        });
+      }
+    },
     {
       method: 'GET', pattern: '/api/memory-cards',
       handler: async ({ res, json }) => {
