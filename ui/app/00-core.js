@@ -740,11 +740,38 @@ function assessReadiness(cfg, status) {
     label: modelOk ? `模型已选择：${cfg.api.model}` : '还没有选择模型（填好地址和 Key 后会自动拉取勾选，或在模型管理里手动添加）',
     fix: modelOk ? null : 'settings-api'
   });
-  const allowOk = (cfg.allow?.groups?.length || cfg.allow?.private?.length || cfg.allowAllWhenEmpty);
-  checks.push({ ok: !!allowOk, label: allowOk ? `白名单：${(cfg.allow.groups || []).length} 个群 / ${(cfg.allow.private || []).length} 个好友` : '还没有配置白名单（必填）', fix: allowOk ? null : 'settings-allow' });
-  const obOk = status?.onebot?.connected;
-    checks.push({ ok: !!obOk, label: obOk ? `OneBot 已连接${status.onebot.self ? `（${status.onebot.self.nickname}）` : ''}` : (status.onebot.diagnosis || 'OneBot（SnowLuma）未连接 —— 请到 SnowLuma 页签启动'), fix: obOk ? null : 'snowluma-tab' });
-  return { ready: urlOk && modelOk && allowOk && obOk, checks };
+  // 通道感知：官方机器人通道不再要求 OneBot 连接 / OneBot 白名单
+  const useQb = String(status?.qqbot?.active || 'onebot') === 'qqbot';
+  const allowList = useQb ? (cfg.allowQqbot || {}) : (cfg.allow || {});
+  const allowOk = (allowList.groups?.length || allowList.private?.length || cfg.allowAllWhenEmpty);
+  checks.push({
+    ok: !!allowOk,
+    label: allowOk
+      ? `白名单（${useQb ? 'openid' : 'OneBot'}）：${(allowList.groups || []).length} 个群 / ${(allowList.private || []).length} 个会话`
+      : `还没有配置${useQb ? '官方机器人（openid）' : 'OneBot'}白名单（必填）`,
+    fix: allowOk ? null : 'settings-allow'
+  });
+  let chOk;
+  if (useQb) {
+    const qb = status?.qqbot || {};
+    chOk = qb.connected === true;
+    checks.push({
+      ok: chOk,
+      label: chOk
+        ? `官方机器人已连接${qb.selfNickname ? `（${qb.selfNickname}）` : ''}`
+        : (qb.configured ? '官方机器人未连接 —— 检查 AppID/AppSecret 与网络' : '还没有配置官方机器人（AppID/AppSecret）'),
+      fix: chOk ? null : 'snowluma-tab'
+    });
+  } else {
+    const ob = status?.onebot || {};
+    chOk = ob.connected === true;
+    checks.push({
+      ok: chOk,
+      label: chOk ? `OneBot 已连接${ob.self ? `（${ob.self.nickname}）` : ''}` : (ob.diagnosis || 'OneBot（SnowLuma）未连接 —— 请到 QQ 接口页启动'),
+      fix: chOk ? null : 'snowluma-tab'
+    });
+  }
+  return { ready: urlOk && modelOk && allowOk && chOk, checks };
 }
 
 function renderBanner() {
@@ -756,6 +783,11 @@ function renderBanner() {
   if (state.paused) {
     show = true;
     html = '⏸ 机器人已暂停，不会处理任何消息。';
+  } else if (s && String(s.qqbot?.active || 'onebot') === 'qqbot') {
+    if (s.qqbot && s.qqbot.configured === true && s.qqbot.connected !== true) {
+      show = true;
+      html = '🔌 官方机器人通道还没连上：检查 AppID / AppSecret，或网络能否访问 api.bot.qq.com。';
+    }
   } else if (s && !s.onebot.connected && !s.onebot.everConnected) {
     show = true;
     html = '🔌 OneBot（SnowLuma）还没连上：请确认 SnowLuma 已启动，且设置里的 WS/HTTP 地址正确。';
