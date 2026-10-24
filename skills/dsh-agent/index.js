@@ -68,14 +68,18 @@ export function setup(api) {
       if (scope === 'private' && ctx.kind !== 'private') {
         return { content: '（该技能只允许在私聊里使用）', isError: true };
       }
-      if (scope === 'mention' && ctx.proactive) {
+      // 官方版的工具上下文不一定有 proactive：undefined 时不拦（档位退化为不限制），
+      // 明确 true（模型主动开话题/补话）或 mentioned===false 才判定为“没被叫到”。
+      const proactive = ctx.proactive === true || (ctx.proactive === undefined && ctx.mentioned === false);
+      if (scope === 'mention' && proactive) {
         return { content: '（该技能只允许在被点名时使用）', isError: true };
       }
+      const chatKey = String(ctx.chatKey || (ctx.kind && ctx.chatId ? `${ctx.kind}:${ctx.chatId}` : 'unknown'));
       const task = String(args?.task ?? '').trim();
       if (!task) return { content: '任务为空：请提供 task', isError: true };
 
       const limit = pickNum(cfg.maxPerHour, 3, 0, 999);
-      const used = recent(ctx.chatKey);
+      const used = recent(chatKey);
       if (limit > 0 && used.length >= limit) {
         return { content: `（本会话这一小时已调用 ${used.length} 次，达到上限 ${limit}；稍后再试或让用户改设置）`, isError: true };
       }
@@ -103,7 +107,7 @@ export function setup(api) {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            chatKey: ctx.chatKey,
+            chatKey,
             text,
             permissionPreset: String(cfg.permissionMode || '').trim()
           }),
@@ -114,19 +118,19 @@ export function setup(api) {
         try { data = JSON.parse(raw); } catch { /* 非 JSON 就按文本处理 */ }
         if (!res.ok || !data || data.ok === false) {
           const detail = String((data && data.error) || raw || '').slice(0, 400);
-          api.log(`[dsh-agent] ❌ ${ctx.chatKey} HTTP ${res.status} ${detail}`);
+          api.log(`[dsh-agent] ❌ ${chatKey} HTTP ${res.status} ${detail}`);
           return { content: `DSH 调用失败（HTTP ${res.status}）：${detail}`, isError: true };
         }
         const reply = String(data.reply || '').trim();
-        api.log(`[dsh-agent] ✅ ${ctx.chatKey} ${data.elapsedMs ?? '?'}ms · 第 ${data.turns ?? '?'} 轮 · 权限=${cfg.permissionMode}`);
+        api.log(`[dsh-agent] ✅ ${chatKey} ${data.elapsedMs ?? '?'}ms · 第 ${data.turns ?? '?'} 轮 · 权限=${cfg.permissionMode}`);
         if (!reply) return { content: '（DSH 执行完了，但没有返回文本；可能需要看它自己的日志）' };
         return { content: reply.slice(0, 1200) };
       } catch (error) {
         if (error && error.name === 'AbortError') {
-          api.log(`[dsh-agent] ⏱ ${ctx.chatKey} 等待 ${waitSec}s 超时（任务可能仍在后台执行）`);
+          api.log(`[dsh-agent] ⏱ ${chatKey} 等待 ${waitSec}s 超时（任务可能仍在后台执行）`);
           return { content: `DSH 还没跑完（超过 ${waitSec} 秒）。任务可能仍在后台执行，过一会儿可以再问它结果。` };
         }
-        api.log(`[dsh-agent] ❌ ${ctx.chatKey} ${error && error.message ? error.message : error}`);
+        api.log(`[dsh-agent] ❌ ${chatKey} ${error && error.message ? error.message : error}`);
         return { content: `DSH 调用异常：${error && error.message ? error.message : error}`, isError: true };
       } finally {
         clearTimeout(timer);
