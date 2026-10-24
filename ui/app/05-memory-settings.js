@@ -2383,11 +2383,13 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
       const mc = cfg.memoryCards || {};
       hours.value = Math.round((Number(mc.batchIntervalMs) || 6 * 3600 * 1000) / 3600000);
       max.value = Number(mc.batchMaxChats) || 20;
+      const sil = document.getElementById('mem-batch-silent');
+      if (sil) sil.checked = mc.batchIncludeSilent === true;
     } catch { /* 忽略 */ }
   };
   setTimeout(() => { try { fillBatchBar(); } catch { /* 忽略 */ } }, 400);
   const setStatus = (t) => { const el = document.getElementById('mem-batch-status'); if (el) el.textContent = t || ''; };
-  ['mem-batch-hours', 'mem-batch-max'].forEach((id) => {
+  ['mem-batch-hours', 'mem-batch-max', 'mem-batch-silent'].forEach((id) => {
     const el = document.getElementById(id);
     if (el && !el.__memBound) { el.__memBound = true; el.addEventListener('change', () => setStatus('有未保存的配置')); }
   });
@@ -2396,10 +2398,11 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
     if (save) {
       const h = Number((document.getElementById('mem-batch-hours') || {}).value) || 6;
       const m = Number((document.getElementById('mem-batch-max') || {}).value) || 20;
+      const sil = !!(document.getElementById('mem-batch-silent') || {}).checked;
       try {
         state.config = await api('/api/config', {
           method: 'POST',
-          body: JSON.stringify({ memoryCards: { batchIntervalMs: h * 3600 * 1000, batchMaxChats: m } })
+          body: JSON.stringify({ memoryCards: { batchIntervalMs: h * 3600 * 1000, batchMaxChats: m, batchIncludeSilent: sil } })
         });
         setStatus('已保存 ✅');
       } catch (err) { setStatus('保存失败：' + (err.message || err)); }

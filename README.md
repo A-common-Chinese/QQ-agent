@@ -100,7 +100,7 @@
 | 15 | **界面重构**：「SnowLuma」页改成「QQ 接口」（两张卡统一「连接配置 → 运行状态 → 运行日志 → 应用日志」+ ⓘ 说明弹窗）；顶栏通道胶囊 + 状态菜单；设置里只留跳转入口 | `ui/app/03-snowluma.js`、`ui/app/01-boot.js`、`ui/index.html`、`ui/app/06-settings-render.js` | v0.7.0 |
 | 16 | **双通道隔离**：白名单两套（`allow` / `allowQqbot`，openid 自动迁移）、日志分目录、顶栏就绪点按通道换语义 | `src/app.js`、`src/channel-log.js`、`src/routes.js` | v0.7.0 |
 | 17 | **协议端可选化**：未检测到协议端时只显示官方通道；检测/启停/卸载集中到 **设置 → 服务 → 「协议端管理（可选）」**（QQ 接口页只留连接配置与日志）；默认不读第三方令牌（`snowluma.autoReadToken=false`）；「卸载协议端」仅对外部目录生效、自带目录受保护 | `ui/app/03-snowluma.js`、`ui/app/06-settings-render.js`、`src/app.js`、`src/routes.js`、`src/config.js` | v0.7.0 |
-| 19 | **记忆自动写卡 + 分层记忆可见**：会话结束后按 6 小时冷却自动把聊天记录/印象/小时摘要/语义卡交给整理模型，生成并更新「群卡 + 个人卡」（`memoryCards.autoUpdate` 可关）；记忆页新增「分层记忆」入口（小时摘要 / 语义卡 / 印象 / 立即更新），数据来自 `conversation-memory` 插件的 `memory-v2` 与 `semantic-cards` | `src/orchestrator.js`、`src/memory-layers.js`、`src/memory-cards.js`、`src/routes.js`、`ui/app/05-memory-settings.js` | v0.7.2 待发布 |
+| 19 | **记忆自动写卡 + 分层记忆可见**：会话结束后按 6 小时冷却自动把聊天记录/印象/小时摘要/语义卡交给整理模型，生成并更新「群卡 + 个人卡」（`memoryCards.autoUpdate` 可关）；记忆页新增「记忆整理」配置条（间隔/上限/包含静默会话 + 立即整理全部 + 进度），数据来自 `conversation-memory` 插件的 `memory-v2` 与 `semantic-cards` | `src/orchestrator.js`、`src/memory-layers.js`、`src/memory-cards.js`、`src/routes.js`、`ui/app/05-memory-settings.js` | v0.7.2 待发布 |
 | 18 | **可用性修复**：保存 OneBot 配置 / 自动读取令牌开关（PATCH→POST）；官方通道下顶部体检卡常驻导致的"自动刷新"（就绪检查与横幅改按通道判断 + 体检卡内容去抖）；OneBot 卡片补「设为当前通道」；未安装提示可点击跳转协议端管理 | `ui/app/00-core.js`、`ui/app/01-boot.js`、`ui/app/03-snowluma.js`、`ui/app/06-settings-render.js` | v0.7.1 |
 
 ### 人设系统（v0.5.0 重点）

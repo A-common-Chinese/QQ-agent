@@ -1512,7 +1512,7 @@ export class Orchestrator {
     this.memoryBatch = { running: true, done: 0, total: all.length, failed: 0, current: '', startedAt: Date.now(), result: null };
     for (const { k } of all) {
       if (this.paused || this.aborted) break;
-      if (isSilentChat(k)) continue;
+      if (!cfg.memoryCards?.batchIncludeSilent && isSilentChat(k)) continue;
       this.memoryBatch.current = k;
       try {
         // 一条流水线：先整理印象（有阈值判断，没到就跳过），再写/更新记忆卡

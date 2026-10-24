@@ -65,6 +65,7 @@ export const DEFAULT_CONFIG = {
     batchEnabled: true,
     batchIntervalMs: 6 * 60 * 60 * 1000,   // 6 小时
     batchMaxChats: 20,                     // 单次最多处理多少个会话（控制成本）
+    batchIncludeSilent: false,             // 批量整理是否包含静默会话（默认排除，静默=不花 token）
     autoUpdate: true // auto=通用+本会话 / all=全部 / model=只给通留给模型自己查
   },
   api: {
