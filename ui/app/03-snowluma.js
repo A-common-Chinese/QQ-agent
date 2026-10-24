@@ -176,7 +176,6 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
               <span class="muted">${qb.configured ? '已配置（' + esc(qb.appId || '') + '）' : '未配置'}${s.qqbot?.connected ? ' · 已连接' : ''}</span>
               <span class="muted" style="margin-left:auto">当前通道：${esc(tr.active || 'onebot')}</span>
             </div>
-          </details>
           <h3>运行日志</h3>
             <div class="sl-qb-log-wrap">
               <div class="hint" style="margin-bottom:4px">官方机器人运行日志（<code>data/logs/qqbot/</code>）</div>
@@ -233,81 +232,6 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
               <span class="muted" id="sl-uninstall-hint" style="font-size:12px">会先停止进程，再删除协议端目录（不可恢复）</span>
             </div>
           </div>
-          <h3>运行状态</h3>
-          <details class="sl-adv">
-            <summary>高级：本机协议端管理（可选）</summary>
-        <!-- 一键启动区域（核心入口） -->
-        ${!onebotConnected ? `
-        <div class="quick-start-section" style="background:var(--bg);border:none;border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:var(--raise-sm)">
-          <div style="font-size:15px;font-weight:600;margin-bottom:8px">🚀 快速启动</div>
-          <div class="muted" style="font-size:13px;margin-bottom:12px;line-height:1.6">
-            ${!qqReady ? '便携 QQ 未安装，请先运行 <code>npm run setup</code>' :
-              !qqRunning ? '点击下面按钮，自动完成：启动 QQ → 启动 SnowLuma → 连接 OneBot' :
-              !running ? 'QQ 已运行，点击启动 SnowLuma 并连接' :
-              'SnowLuma 已运行，等待 OneBot 连接…'}
-          </div>
-          <button class="btn btn-primary" id="quick-start-btn" style="font-size:14px;padding:10px 20px" ${!qqReady ? 'disabled' : ''}>
-            ${!qqReady ? '请先运行 npm run setup' :
-              !qqRunning ? '一键启动（QQ + SnowLuma）' :
-              !running ? '启动 SnowLuma' :
-              '等待连接…'}
-          </button>
-          <span id="quick-start-hint" class="muted" style="font-size:12px;margin-left:12px"></span>
-        </div>` : ''}
-        <!-- 便携 QQ 内核状态 -->
-        <div class="snowluma-qq-section">
-          <div class="snowluma-state-row">
-            <span class="dot ${qqRunning ? 'dot-on' : 'dot-off'}"></span>
-            <span>QQ 内核：<strong>${qqRunning ? `运行中${qqPid ? `（pid ${qqPid}）` : ''}` : (qqReady ? '未启动' : '未安装')}</strong></span>
-            ${!qqReady ? '<span class="muted" style="color:var(--orange)">请先运行 npm run setup</span>' : ''}
-          </div>
-          ${qqReady ? `
-          <div class="snowluma-state-row muted" style="font-size:12px">
-            <span>目录：${esc(qq.dir || '')}</span>
-          </div>` : ''}
-          <div class="snowluma-actions">
-            <button class="btn btn-small" id="qq-start-btn" ${!qqReady || qqRunning ? 'disabled' : ''}>${qqRunning ? '已运行' : '单独启动 QQ'}</button>
-            <button class="btn btn-small btn-danger" id="qq-stop-btn" ${!qqRunning ? 'disabled' : ''}>关闭 QQ</button>
-            <span id="qq-hint" class="muted" style="font-size:12px"></span>
-          </div>
-          ${qqLogText !== '暂无日志' ? `
-          <div class="sl-log-block">
-            <div class="hint sl-log-head">QQ 日志</div>
-            <pre class="snowluma-logs-view" id="qq-logs-view" style="max-height:120px">${esc(qqLogText)}</pre>
-          </div>` : ''}
-        </div>
-        <hr class="sl-sep">
-
-        <!-- SnowLuma 状态 -->
-        <div class="snowluma-qq-section">
-          <div class="snowluma-state-row">
-            <span class="dot ${running ? 'dot-on' : 'dot-off'}"></span>
-            <span>SnowLuma：<strong>${running ? '运行中' : '未运行'}</strong></span>
-            ${pid ? `<span class="muted">pid ${pid}</span>` : ''}
-            <span class="muted">${embedded ? '内置模式（随 QQ Agent 退出）' : (running ? '独立模式' : '')}</span>
-          </div>
-          <div class="snowluma-state-row">
-            <span class="dot ${onebotConnected ? 'dot-on' : 'dot-off'}"></span>
-            <span>OneBot：<strong>${onebotConnected ? `已连接${s.onebot.self ? `（${s.onebot.self.nickname}）` : ''}` : '未连接'}</strong></span>
-            <span class="muted">WS ${s.onebot?.error ? `：${s.onebot.error}` : ''}</span>
-          </div>
-          <div class="snowluma-state-row muted">
-            <span>目录：${esc(dir || '（未找到项目内 snowluma/ 文件夹）')}</span>
-          </div>
-          <div class="snowluma-state-row">
-            <span>WebUI：</span>
-            ${webuiUrl
-              ? `<button class="btn btn-small" id="sl-open-webui-btn" title="在浏览器中打开 SnowLuma 控制台">${esc(webuiUrl)}</button>`
-              : '<span class="muted">等待 SnowLuma 启动后自动识别…</span>'}
-          </div>
-          <div class="snowluma-actions">
-            <button class="btn btn-primary" id="sl-start-btn" ${running ? 'disabled' : ''}>${running ? '已运行' : '启动 SnowLuma'}</button>
-            <button class="btn btn-danger" id="sl-stop-btn" ${running ? '' : 'disabled'}>关闭 SnowLuma</button>
-            <button class="btn btn-small" id="sl-refresh-btn">刷新状态</button>
-            <button class="btn btn-small" id="sl-open-folder-btn">打开文件夹</button>
-            <span id="sl-hint" class="muted" style="font-size:12px"></span>
-          </div>
-        </div>
           <h3>运行日志</h3>
         <div class="sl-log-block">
           <div class="hint sl-log-head">运行日志（仅保留最近 500 行）</div>
@@ -668,7 +592,7 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       setTimeout(() => loadSnowlumaPage({ quiet: true }), 1500);
     });
 
-    $('#sl-start-btn').addEventListener('click', async () => {
+    const _slStartBtn = $('#sl-start-btn'); if (_slStartBtn) _slStartBtn.addEventListener('click', async () => {
       const btn = $('#sl-start-btn');
       btn.disabled = true; btn.textContent = '启动中…';
       $('#sl-hint').textContent = '';
@@ -680,7 +604,7 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       }
       setTimeout(() => loadSnowlumaPage({ quiet: true }), 2500);
     });
-    $('#sl-stop-btn').addEventListener('click', async () => {
+    const _slStopBtn = $('#sl-stop-btn'); if (_slStopBtn) _slStopBtn.addEventListener('click', async () => {
       const btn = $('#sl-stop-btn');
       btn.disabled = true; btn.textContent = '关闭中…';
       $('#sl-hint').textContent = '';
@@ -692,8 +616,8 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       }
       setTimeout(() => loadSnowlumaPage({ quiet: true }), 1500);
     });
-    $('#sl-refresh-btn').addEventListener('click', () => loadSnowlumaPage());
-    $('#sl-open-folder-btn').addEventListener('click', async () => {
+    const _slRefreshBtn = $('#sl-refresh-btn'); if (_slRefreshBtn) _slRefreshBtn.addEventListener('click', () => loadSnowlumaPage());
+    const _slFolderBtn = $('#sl-open-folder-btn'); if (_slFolderBtn) _slFolderBtn.addEventListener('click', async () => {
       try { await api('/api/snowluma/open-folder', { method: 'POST', body: '{}' }); }
       catch (e) { $('#sl-hint').textContent = `失败：${e.message}`; }
     });

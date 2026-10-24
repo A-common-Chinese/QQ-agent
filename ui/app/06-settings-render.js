@@ -113,7 +113,7 @@ function privacyPatternsHint(list) {
 const SETTINGS_GROUPS = [
   { id: 'model', label: '模型', items: [['api', '模型 API'], ['search', '搜索服务']] },
   { id: 'chat', label: '聊天', items: [['chat', '聊天设置'], ['allow', '聊天白名单'], ['persona', '人设'], ['memory', '记忆']] },
-  { id: 'service', label: '服务', items: [['onebot', 'OneBot（SnowLuma）'], ['desktop', '桌面端']] },
+  { id: 'service', label: '服务', items: [['onebot', '协议端管理（可选）'], ['desktop', '桌面端']] },
   { id: 'tools', label: '工具', items: [['tools', '工具与技能']] },
   { id: 'look', label: '外观', items: [['ui', 'UI 自定义']] }
 ];
@@ -2250,19 +2250,47 @@ function renderDesktopSection(c) {
 }
 
 function renderOnebotSection(c) {
-  // 连接配置已迁移到「QQ 接口」页签（OneBot 卡片内），这里只留一个入口
+  // 协议端是外部依赖：这里只做「检测 / 启停 / 卸载」，安装与登录由用户自行完成
+  const s = state.status || {};
+  const sl = s.snowluma || {};
+  const qq = s.qqPortable || {};
+  const ob = s.onebot || {};
+  const installed = !!sl.installed;
+  const slRunning = !!sl.running;
+  const qqRunning = !!qq.running;
+  const qqReady = !!qq.ready;
+  const row = (dotClass, label, value, extra = '') => `
+    <div class="snowluma-state-row">
+      <span class="dot ${dotClass}"></span>
+      <span>${label}</span>
+      <strong>${value}</strong>
+      ${extra ? `<span class="muted">${extra}</span>` : ''}
+    </div>`;
   return `
-    <h3 id="settings-onebot">OneBot（SnowLuma）</h3>
-    <div class="health-card" style="margin-top:8px">
-      <div class="h-title">配置已迁移到「QQ 接口」页</div>
-      <div class="hint">OneBot 的地址 / 令牌 / 启动与日志，现在都放在顶部「QQ 接口」页签里的
-        <b>OneBot（SnowLuma）</b> 卡片中；这里保留入口，点下面的按钮直接过去。</div>
-      <div style="margin-top:10px">
-        <button class="btn btn-primary" data-jump="qq-interface">打开 QQ 接口</button>
-      </div>
-      <div class="hint" style="margin-top:8px">当前：<span class="muted">${esc(c.snowluma?.wsUrl || '')}</span> ·
-        <span class="muted">${esc(c.snowluma?.httpUrl || '')}</span> ·
-        ${c.snowluma?.hasAccessToken ? '令牌已保存' : '<span style="color:var(--orange)">未设置令牌</span>'}</div>
+    <h3 id="settings-onebot">协议端管理（可选）</h3>
+    <div class="hint" style="margin-bottom:10px">
+      协议端（OneBot v11）是<b>外部依赖</b>：本项目不随包分发、也不代管安装与登录。
+      没装协议端时，请直接使用「QQ 接口 → 官方机器人」通道；想用 OneBot 的完整玩法，
+      自行安装 SnowLuma / NapCat / LLOneBot 并登录后，回到这里填地址与令牌。
+    </div>
+    <div class="health-card" style="margin-bottom:12px">
+      <div class="h-title">当前状态</div>
+      ${row(qqRunning ? 'dot-on' : 'dot-off', 'QQ 内核', qqRunning ? `运行中${qq.pid ? `（pid ${qq.pid}）` : ''}` : (qqReady ? '未启动' : '未安装'))}
+      ${row(slRunning ? 'dot-on' : 'dot-off', '协议端', installed ? (slRunning ? `运行中${sl.pid ? `（pid ${sl.pid}）` : ''}` : '未运行') : '未安装', installed && sl.dir ? sl.dir : '')}
+      ${row(ob.connected ? 'dot-on' : 'dot-off', 'OneBot 连接', ob.connected ? `已连接${ob.self ? `（${ob.self.nickname}）` : ''}` : '未连接')}
+      ${sl.webuiUrl ? `<div class="snowluma-state-row"><span>WebUI：</span><button class="btn btn-small" data-protocol-act="webui">${esc(sl.webuiUrl)}</button></div>` : ''}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn btn-small" data-protocol-act="qq-launch" ${!qqReady || qqRunning ? 'disabled' : ''}>启动便携 QQ</button>
+      <button class="btn btn-small btn-danger" data-protocol-act="qq-stop" ${!qqRunning ? 'disabled' : ''}>关闭 QQ</button>
+      <button class="btn btn-small btn-primary" data-protocol-act="sl-launch" ${slRunning ? 'disabled' : ''}>启动协议端</button>
+      <button class="btn btn-small btn-danger" data-protocol-act="sl-stop" ${!slRunning ? 'disabled' : ''}>关闭协议端</button>
+      <button class="btn btn-small" data-protocol-act="refresh">刷新状态</button>
+      <button class="btn btn-small" data-protocol-act="folder" ${!installed ? 'disabled' : ''}>打开目录</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-small btn-danger" data-protocol-act="uninstall" ${!installed ? 'disabled' : ''}>卸载协议端</button>
+      <span class="muted" id="protocol-hint" style="font-size:12px">卸载会先停进程再删除目录，不可恢复</span>
     </div>`;
 }
 
@@ -3245,5 +3273,40 @@ function renderMemoryBundleCard(c) {
       '</div>' +
       '<div id="membundle-preview" style="display:none;margin:8px 0"></div>' +
       '<div class="hint">导出同时在 <code>data/exports/</code> 留一份；导入默认「合并」（以 QQ 号 / 会话为键，时间新的覆盖），也可「覆盖」。时间筛选用的是每张卡的 updatedAt / lastActiveAt。</div>'
+  });
+}
+
+// 设置 → 服务 → 协议端管理：按钮走事件委托（渲染换 DOM 也不用重绑）
+if (typeof document !== 'undefined' && !window.__protocolActBound) {
+  window.__protocolActBound = true;
+  document.addEventListener('click', async (e) => {
+    const btn = e.target && e.target.closest && e.target.closest('[data-protocol-act]');
+    if (!btn || btn.disabled) return;
+    const act = btn.dataset.protocolAct;
+    const hint = document.getElementById('protocol-hint');
+    const setHint = (t, c) => { if (hint) { hint.textContent = t || ''; hint.style.color = c || ''; } };
+    const call = async (url) => {
+      try { return await api(url, { method: 'POST', body: '{}' }); }
+      catch (err) { return { ok: false, error: err.message || String(err) }; }
+    };
+    if (act === 'refresh') { if (typeof loadSettings === 'function') await loadSettings(); return; }
+    if (act === 'webui') { await call('/api/snowluma/open-webui'); return; }
+    if (act === 'folder') { await call('/api/snowluma/open-folder'); return; }
+    if (act === 'qq-launch') { setHint('启动中…'); const r = await call('/api/qq-portable/launch'); setHint(r.ok ? '已启动便携 QQ' : ('失败：' + (r.error || '')), r.ok ? 'var(--green)' : 'var(--red)'); }
+    if (act === 'qq-stop') { setHint('关闭中…'); const r = await call('/api/qq-portable/stop'); setHint(r.ok ? '已请求关闭 QQ' : ('失败：' + (r.error || '')), r.ok ? 'var(--green)' : 'var(--red)'); }
+    if (act === 'sl-launch') { setHint('启动中…'); const r = await call('/api/snowluma/launch'); setHint(r.alreadyRunning ? '已在运行' : (r.ok ? '已启动，稍等几秒' : ('失败：' + (r.error || ''))), r.ok || r.alreadyRunning ? 'var(--green)' : 'var(--red)'); }
+    if (act === 'sl-stop') { setHint('关闭中…'); const r = await call('/api/snowluma/stop'); setHint(r.ok ? '已请求关闭协议端' : ('失败：' + (r.error || '')), r.ok ? 'var(--green)' : 'var(--red)'); }
+    if (act === 'uninstall') {
+      const ok1 = typeof uiConfirm === 'function'
+        ? await uiConfirm({ title: '卸载协议端', message: '会先停止进程，然后删除整个协议端目录（不可恢复）。继续？', okText: '继续' })
+        : window.confirm('会停止并删除协议端目录（不可恢复），继续？');
+      if (!ok1) return;
+      setHint('卸载中…');
+      try {
+        const r2 = await api('/api/snowluma/uninstall', { method: 'POST', body: JSON.stringify({ confirm: true }) });
+        setHint(r2 && r2.removed ? ('已卸载：' + (r2.dir || '')) : (r2 && r2.error ? r2.error : '目录不存在，已视为未安装'), r2 && r2.removed ? 'var(--green)' : 'var(--red)');
+      } catch (err) { setHint('卸载失败：' + (err.message || err), 'var(--red)'); }
+    }
+    setTimeout(() => { if (typeof loadSettings === 'function') loadSettings(); }, 1200);
   });
 }
