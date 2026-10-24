@@ -1,13 +1,15 @@
 # QQ Agent（桌面端）
 
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Electron-lightgrey)
-![版本](https://img.shields.io/badge/version-v0.5.0-blue)
-![测试](https://img.shields.io/badge/tests-26%20suites%20(npm%20test)-brightgreen)
+![版本](https://img.shields.io/badge/version-v0.7.0-blue)
+![测试](https://img.shields.io/badge/tests-33%20suites%20(npm%20test)-brightgreen)
 ![许可](https://img.shields.io/badge/license-MIT-green)
 
 一个跑在你自己电脑上的 QQ 群聊机器人：装完双击启动，扫码登录，填个模型 Key 就能用。事件驱动 + 无状态会话架构，每次处理的 token 成本恒定可控；所有操作都在图形控制台里完成，不用碰命令行。
 
-> **这是一个 fork。** 上游是 [K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)，本仓库是 **[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**，当前版本 `v0.5.0`。
+接 QQ 有**两种方式**（v0.7.0 起）：原来的 SnowLuma（OneBot v11，玩法最全），或 **QQ 开放平台的官方机器人**（合规、不因协议违规被封号）。两者凭据、白名单、日志、记忆完全独立，在控制台「QQ 接口」页里二选一。
+
+> **这是一个 fork。** 上游是 [K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)，本仓库是 **[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**，当前版本 `v0.7.0`。
 > 上游功能一个没删。[这个 fork 改了什么](#这个-fork-改了什么) 一节是全部改动的清单，其余章节对上游和本 fork 同样适用。
 
 ## 这是什么
@@ -21,6 +23,7 @@
 | 花多少看多少 | 每次调用的 token 与成本精确记录，按天 / 按会话 / 按模型统计，缓存命中率、峰谷分时、图片计费口径都标出来 |
 | 零编程门槛 | 配置全在控制台点选：白名单从 QQ 里直接勾群，模型从目录里点选，不用查群号、不用写配置文件 |
 | 能指挥本机 DSH | QQ 里发 `/dsh <指令>`，交给本机 DeepSeek Harness 执行并回传结果（本 fork 加的第一件事） |
+| 两种方式接 QQ | **OneBot（SnowLuma）**：玩法最全；**官方机器人（QQ 开放平台）**：合规、无协议封号风险。凭据/白名单/日志/记忆互相独立 |
 
 **技术架构**（沿用上游，本 fork 未改动主干）
 
@@ -31,6 +34,32 @@
 5. 长期信息走记忆工具持久化，跨运行生效。
 
 整体组成：协议端走 OneBot v11 正向 WebSocket（默认配 SnowLuma，任何兼容实现可换）；大脑是任意 OpenAI 兼容 API；桌面壳是 Electron（托盘常驻、开机自启、关窗不退出、端口占用自动让位）；控制台是零框架原生 HTML/CSS/JS，明暗双主题。安全边界上，工具天然绑定会话（模型无法把消息发到别的群）、发送有白名单与限频、联网抓取带 SSRF 防护（DNS 校验 / IP 固定 / 手动跟重定向）。
+
+## 接入方式：OneBot 与官方机器人
+
+| | OneBot（SnowLuma） | 官方机器人（QQ 开放平台） |
+|---|---|---|
+| 协议 | 第三方 OneBot v11（非官方） | 官方开放平台 API |
+| 账号风险 | ⚠️ 违反《QQ 软件许可及服务协议》8.2.2(6)，可能**封 QQ 号** | ✅ 不因协议违规被封；风险只在内容合规 |
+| 玩法 | 全量群消息、主动发言、拍一拍、贴表情、改群名片 | 群/单聊收发、被动回复、主动发言（群主授权）、群管理（禁言/成员/黑名单） |
+| 缺口 | — | 无拍一拍 / 贴表情 / 改群名片 / 撤回他人消息（官方无接口） |
+| 前置 | 本机跑 QQ + SnowLuma | 开放平台创建机器人 → 个人认证 → 拉进自己是群主的群 |
+| 群消息范围 | 全部消息 | 默认只推 @；全量需群主在手机 QQ 授权「接收全量消息」 |
+| 主动消息 | 随时 | 需群主授权「主动推送消息」，1000 条/群/日；被动回复 5 分钟内有效 |
+
+**怎么配**：控制台 → 「QQ 接口」页 → 选通道 → 填配置 → 测试 → 设为当前通道 → 重启。
+
+- OneBot：WS 地址 / HTTP 地址 / 令牌 / 自动拉起
+- 官方机器人：AppID / AppSecret（只存本机，页面脱敏）/ 环境（正式·沙箱）/ 群消息模式（全量·仅 @）
+- 官方通道的 openid 不用手抄：卡片下方「最近收到的会话」点「加入白名单」
+
+**两套东西互不影响**：
+
+| 项 | OneBot | 官方机器人 |
+|---|---|---|
+| 白名单 | 群号 / QQ 号 | `group_openid` / `user_openid` |
+| 日志 | `data/logs/snowluma/` | `data/logs/qqbot/` |
+| 记忆 | `group:<群号>` | `group:<openid>`（`identityLinks` 预留映射，后续打通） |
 
 ## 下载安装
 
@@ -59,6 +88,9 @@
 | 11 | **人格切换感知插件** `persona-switch-notice`：模型能意识到自己刚被换了人格 | `plugins/persona-switch-notice/`，**默认关闭**，反应文本可留空 | v0.5.0 |
 | 12 | **DSH 侧插件（独立仓库）**：桥的本体，路由 `/__dsh-qq/message`、工具 `qq_send` / `qq_send_file`、隐私过滤、按会话权限白名单、agent 预设挂载 | [A-common-Chinese/dsh-qq](https://github.com/A-common-Chinese/dsh-qq) | v0.4.0 起 |
 | 13 | **合入上游** | 已并入上游 `11577ba..fdfd325` 的改动 | v0.5.0 |
+| 14 | **双通道接入**：新增官方 QQ 机器人通道（传输层抽象 + `src/transport/qqbot.js`），`transport.active` 切换，未配置时自动回落 OneBot | `src/transport/`、`src/app.js`、`src/config.js` | v0.7.0 |
+| 15 | **界面重构**：「SnowLuma」页改成「QQ 接口」（两张卡统一「连接配置 → 运行状态 → 运行日志 → 应用日志」+ ⓘ 说明弹窗）；顶栏通道胶囊 + 状态菜单；设置里只留跳转入口 | `ui/app/03-snowluma.js`、`ui/app/01-boot.js`、`ui/index.html`、`ui/app/06-settings-render.js` | v0.7.0 |
+| 16 | **双通道隔离**：白名单两套（`allow` / `allowQqbot`，openid 自动迁移）、日志分目录、顶栏就绪点按通道换语义 | `src/app.js`、`src/channel-log.js`、`src/routes.js` | v0.7.0 |
 
 ### 人设系统（v0.5.0 重点）
 
@@ -137,7 +169,58 @@ DSH 内容送往 QQ 时的出站过滤（`src/privacy.js`）：
 
 白名单会话（默认 `private:85946573`，改成你自己的 QQ 号）一个字不动；其它会话全过。支持自定义规则、文本类文件内容扫描（限文本扩展名且 ≤ 2 MB），命中只记规则名与次数的留痕。打码后什么都不剩，等同于拒发。
 
-> ⚠️ 通用风险：本项目通过非官方方式接入 QQ 协议，账号存在被风控 / 封禁的风险，建议用小号。SnowLuma 是独立第三方项目，受其自身 EULA 约束，本仓库不分发其代码；QQ 是腾讯专有软件，本仓库同样不分发 QQ 本体。使用者自行承担全部风险。
+> ⚠️ 风险按通道区分：**OneBot 通道**通过非官方方式接入 QQ 协议，账号存在被风控/封禁的风险，建议用小号；**官方机器人通道**不涉及协议违规，但需遵守平台内容规范（见下节「合规说明」）。SnowLuma 是独立第三方项目，受其自身 EULA 约束，本仓库不分发其代码；QQ 是腾讯专有软件，本仓库同样不分发 QQ 本体。使用者自行承担全部风险。
+
+## 合规说明（含「这算不算反代」）
+
+**结论：不算反向代理，也不是中转。** 这是「本地客户端直连官方 API」：每个部署者装在自己电脑上，填**自己的** API Key，程序在本机直接请求模型官方端点；安装包里不含任何 Key，也没有对外提供接入点。
+
+判定标准是三个问题：**谁的 key？有没有共享？有没有对外提供入口？**
+
+| 形态 | 判定 |
+|---|---|
+| 用户各自填自己的 Key，本机直连 | ✅ 正常客户端用法 |
+| 安装包内置 Key、多人共用一把 Key、托管额度池 | ❌ 违反《DeepSeek 开放平台服务协议》2.4（禁止共享/暴露 Key） |
+| 搭服务器用你的 Key 转发给别人用（真·反代/中转站） | ❌ 违规，且可能构成转售 |
+
+### DeepSeek 侧条款（[《DeepSeek 开放平台服务协议》](https://cdn.deepseek.com/policies/zh-CN/deepseek-open-platform-terms-of-service.html)，2026-04-29 生效）
+
+> **1.1** 您可以基于上述开放平台服务，将 DeepSeek 模型的能力集成于各种下游系统、应用或功能，用于预期的目的和具体的场景中，**向内外部的终端用户提供服务**。
+
+→ 把模型接进 QQ 机器人、服务群友，是被明确允许的下游集成。
+
+> **2.4** 您通过账号创建的 API key 是您调用开放平台 API 接口的必要凭证……**不要与他人共享或对外公开您的 API key，不要将其暴露在浏览器或其他客户端代码中**。
+
+→ 所以本项目：**安装包不带 Key**、**不提供托管/共享额度**，每个部署者自己填。
+
+> **3.3 / 3.4** 您应作为生成式人工智能服务提供者，承担相应法律责任；服务涉及具有舆论属性或者社会动员能力的，应当依法开展安全评估、算法备案等程序；**对终端用户的输入和输出进行审查**，建立关键词表、违法内容特征库等风险识别、过滤机制。
+
+→ 群里对外服务时，内容审查义务在部署者身上（本项目内置 `src/privacy.js` 出站过滤与安全模式可复用）。
+
+### 腾讯侧条款
+
+[《QQ开放平台服务协议》](https://q.qq.com/wiki/business/protocol/) **4.2 条**明确写了 AIGC 机器人：
+
+> 特别地，对于您在开放平台上创建的**具备生成式人工智能能力的机器人（AIGC 机器人）**……您可以选择使用腾讯提供的大模型服务，您也可以选择使用自身或第三方授权提供的大模型服务。**当您使用大模型服务时，您需充分承诺保障该服务已经获得提供服务所需的合法资质（包括但不限于已向相关主管部门完成生成式大语言模型服务上线备案或算法备案）**……并向您的用户做充分的告知和说明。
+
+同协议 **6.3 条**：
+
+> 您创建的机器人**不得编造、传播虚假信息**。发布或传播利用您创建的机器人服务制作生成的非真实信息时，**依法应当以显著方式予以标识**。
+
+→ 官方通道是平台正式支持的业务形态；义务集中在「模型服务有备案」「生成内容有标识」「不编造虚假信息」。
+
+对比 OneBot 通道，[《QQ 软件许可及服务协议》](https://ti.qq.com/agreement/index.html) **8.2.2(6)**：
+
+> 除非法律法规允许或腾讯书面许可，您不得……**通过非腾讯开发、授权的第三方软件、插件、外挂、系统，登录或使用本软件和/或本服务**。
+
+→ 这是 OneBot/SnowLuma 模式的根本风险：处罚对象是**你的 QQ 号**（8.3.1 明确可「中止、终止您对相应 QQ 号码的使用」）。
+
+### 本项目的边界
+
+- ✅ 安装包**不含任何 API Key / AppSecret**，全部由部署者填在本机
+- ✅ 不提供「共享 Key / 托管额度 / 中转转发」功能
+- ✅ 官方通道凭据只存本机 `data/config.json`，接口回传时脱敏（只回 `hasAppSecret`）
+- ⚠️ 群里对外服务时：请自行确保内容合规、有必要时标识 AI 生成；大规模公开运营/收费需自行完成备案等合规程序
 
 ## 快速开始
 
@@ -190,6 +273,11 @@ npm run setup    # 自动下载 SnowLuma + 固定版本便携 QQ
 
 | 版本 | 时间 | 内容 |
 |---|---|---|
+| **v0.7.0** | 2026-10-24 | **双通道**：新增官方 QQ 机器人通道（传输层抽象 / `src/transport/`；AppID+AppSecret 本地配置；被动回复自动带 msg_id；@ 判定兼容全量模式 mentions）。**界面重构**：「QQ 接口」页替代 SnowLuma 页（两卡统一连接配置/运行状态/运行日志/应用日志 + ⓘ 说明）；顶栏通道胶囊（绿=官方/蓝=OneBot）+ 状态详情菜单；设置里只留跳转入口。**双通道隔离**：白名单 `allow`/`allowQqbot` 两套（openid 自动迁移）、日志分 `snowluma/` 与 `qqbot/` 目录、存档支持 openid 会话。修复：@ 判定导致官方通道不回、存档 openid 会话打不开/消失、顶栏第 3 点不回填、QQ 接口页输入被打断。随包技能 `dsh-agent` 1.0.2 |
+| v0.6.5 | 2026-10-24 | 启动动画修复（"更新后不播"：标记改存版本号）；随包技能 1.0.1 |
+| v0.6.4 | 2026-10-24 | 人设卡重构（core 迁移、`{{owner}}` 占位符、内置卡查看/复制、共用段可选、core/voice 分开关）；用量图表（tokens 输入/输出拆分、悬浮提示修复、输出放大 ×N）；启动动画微调 |
+| v0.6.3 | 2026-10-24 | 启动动画（角色升起→停顿→左移出字 + 配音）；720×888 原生素材、去青边、去水印 |
+| v0.6.0–0.6.2 | 2026-10-22 | 工具全局开关保护、图片背景预设（小鲸鱼/指认/深海海报）、磨砂性能优化、新会话自动配人设 |
 | **v0.5.0** | 2026-10-21 | 人设系统重构（人格卡 / 控制台人设页 V2 / 表单式编辑器 / AI 生成卡 / 原版卡导入 / AI 味黑名单 / 未分配即静默）；记忆卡系统（通用 / 群聊 / 个人 / 话题，按需注入 + 1500 字预算 + 三层印象 + 关系网跳转，多张通用卡 + 人设挂靠）；自动更新阶段 1（读本 fork Releases + 下载安装包，12 小时缓存、sha256 校验，不自动安装）；隐私默认关闭（意见收集 / 金句上传入口禁用、匿名遥测出厂即关）；插件与技能支持删除进回收站；新插件 `persona-switch-notice`；合入上游 `11577ba..fdfd325`；安装包名规范为 `QQ-Agent-DSH-Setup-${version}.exe` |
 | v0.4.4 | 2026-10-13 | `/dsh 新会话` 重置 + 状态显示轮次与自动轮换阈值 + 轮换提示；DSH 结果只留摘要进提示词（修上下文被长报告撑满）；控制台加「结果进入提示词的字数上限」开关；按会话静默（只存档 / 只转发，0 token）；状态守卫审计日志去重；长自聊天消息回溯清理脚本 |
 | v0.4.0 | 2026-10-11 | fork 的第一批改动成形：DSH 桥、出站隐私过滤、在线状态守卫 `qq-presence`、按会话权限档位、定时开关与关机联动脚本、独立打包配方 |
@@ -201,14 +289,14 @@ npm run setup    # 自动下载 SnowLuma + 固定版本便携 QQ
 
 | 路径 | 内容 |
 |---|---|
-| `src/` | 核心逻辑（约 58 个模块）。关键文件：`app.js` 主循环与 ingest、`orchestrator.js` 会话编排、`prompt.js` 提示词组装、`personas.js` / `persona-import.js` / `persona-filter.js` 人设系统、`memory.js` / `memory-cards.js` / `memory-cards-prompt.js` 记忆与记忆卡、`dsh-bridge.js` DSH 桥、`privacy.js` 出站过滤、`presence.js` 状态守卫、`updater.js` 自动更新、`tools.js` 工具集、`routes.js` HTTP 接口、`config.js` 默认值与会话级解析 |
+| `src/` | 核心逻辑（约 62 个模块）。关键文件：`app.js` 主循环与 ingest、`orchestrator.js` 会话编排、`prompt.js` 提示词组装、`transport/`（传输层：`base.js` 接口与能力位、`onebot.js`、`qqbot.js` 官方机器人适配器、`index.js` 工厂）、`channel-log.js` 分通道日志、`personas.js` / `persona-import.js` / `persona-filter.js` 人设系统、`memory.js` / `memory-cards.js` / `memory-cards-prompt.js` 记忆与记忆卡、`dsh-bridge.js` DSH 桥、`privacy.js` 出站过滤、`presence.js` 状态守卫、`updater.js` 自动更新、`tools.js` 工具集、`routes.js` HTTP 接口、`config.js` 默认值与会话级解析 |
 | `ui/` | 控制台前端（零框架原生 JS，`ui/app/*.js` 分片加载）+ `ui/persona-plaza/`、`ui/plugin-market/`、`ui/skill-market/` |
 | `plugins/` | 随包发布的两个插件：`qq-presence`、`persona-switch-notice`；用户后装的插件也放这里 |
-| `skills/` | 不随仓库分发，是用户后装技能的落点（首次安装扩展时自动出现） |
+| `skills/` | 随包携带 `dsh-agent`（默认禁用，工具 `dsh_task`）；其余为用户后装技能的落点 |
 | `electron/` | 桌面壳：`main.js`、`preload.cjs` |
 | `doc/extend_development/` | 扩展开发与提示词管线文档，随安装包发布（控制台「让 AI 写插件」的提示词要读它） |
 | `scripts/` | 工具脚本：`setup.mjs`、`pack-qq-portable.mjs`、`sanitize-release.mjs`、`new-skill.mjs`、校验类脚本，以及 `qq-agent-scheduler/`（定时开关与关机联动的 PowerShell/VBS） |
-| `test/` | 26 个自测套件 + 覆盖测试入口，另含隐私规则专项 `privacy.test.mjs` / `privacy-patterns.test.mjs` |
+| `test/` | 33 个自测套件（含 `transport-test.mjs`、`qqbot-transport-test.mjs`）+ 覆盖测试入口，另含隐私规则专项 |
 | `data/` | 运行数据，整体不进版本库：`config.json`、`memory/`、`memory-cards/`、`messages/`、`sessions/`、`logs/`、`presence.json` / `presence.log`、`dsh-sessions.json`、`update-check.json`、`updates/`、`trash/extensions/` |
 | `build/` `assets/` | NSIS 自定义安装脚本 `installer.nsh`、图标 |
 | `dev-tools/` | 假 OneBot 端到端调试器 |
@@ -224,13 +312,13 @@ npx electron-builder --win nsis
 # 另附 electron-builder 生成的 latest.yml / blockmap；本 fork 的更新器走 GitHub Releases API，不依赖它们
 ```
 
-版本号与打包参数在 `package.json` 的 `build` 段（`artifactName: QQ-Agent-DSH-Setup-${version}.exe`，`asar: false`，装完就是可读可改的源码）。`electron-builder-dsh.yml` 是另一份配方，用独立 `appId` / `productName` 打出一个与上游正式版**并行安装、互不覆盖**的 `QQ-Agent-DSH-Setup.exe`；v0.5.0 的 Release 产物走的是上面 `package.json` 的配置，要用并行安装那份得自己指定 `--config electron-builder-dsh.yml`。
+版本号与打包参数在 `package.json` 的 `build` 段（`artifactName: QQ-Agent-DSH-Setup-${version}.exe`，`asar: false`，装完就是可读可改的源码）。`electron-builder-dsh.yml` 是另一份配方，用独立 `appId` / `productName` 打出一个与上游正式版**并行安装、互不覆盖**的 `QQ-Agent-DSH-Setup.exe`；v0.6.x 起本 fork 的 Release 产物统一走 `--config electron-builder-dsh.yml`（独立 appId，与上游并行安装）。
 
 本机的完整打包配方（pnpm 垫片、Electron 与 nsis/winCodeSign 走 npmmirror 预置缓存、装完之后的迁移顺序）写在 **[BUILD-DSH.md](BUILD-DSH.md)**，先读它再动手。
 
 重装前记得备份 `resources\app\plugins\`：后来在控制台装的社区插件不在本仓库里。
 
-测试：`npm test` 跑 26 个套件。其中 `test/setup-qq-version.mjs` 会去检测本机安装的 QQ，在没装 QQ 也没跑过 `npm run setup` 的机器上那 1 项会红，属环境缺失不是代码问题。`npm run test:wiring`（含在 `test:coverage` 里）需要额外装 jsdom：`npm i -D jsdom`，没装时该套件打印提示并自动跳过。
+测试：`npm test` 跑 33 个套件。其中 `test/setup-qq-version.mjs` 会去检测本机安装的 QQ，在没装 QQ 也没跑过 `npm run setup` 的机器上那 1 项会红，属环境缺失不是代码问题。`npm run test:wiring`（含在 `test:coverage` 里）需要额外装 jsdom：`npm i -D jsdom`，没装时该套件打印提示并自动跳过。
 
 ## 许可
 
@@ -241,5 +329,8 @@ npx electron-builder --win nsis
 - **[K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)** —— 本 fork 的上游：机器人本体、控制台、记忆与提示词体系都是他做的
 - **[Derpyu520/qq-bridge](https://github.com/Derpyu520/qq-bridge)** —— 上游的起点，「仿真群友」的思路来源
 - **SnowLuma** —— QQ 协议端（OneBot v11）提供者
+- **[OneBot](https://github.com/botuniverse/onebot)** 生态与各协议实现作者 —— 没有这套标准就没有"自己接 QQ"这条路
+- **腾讯 QQ 开放平台** —— 提供了官方机器人能力，让"不违反协议地接 QQ"成为可能
+- **DeepSeek（深度求索）** —— 模型与开放平台 API
 
 做这个 fork 的动机很朴素：平时就用 DSH，每天在 QQ 和终端之间来回切很烦，那就把指令直接丢进 QQ，让本机的 DSH 去跑。顺手做了几件一直想做的小事——出站隐私过滤、权限按会话收口、机器人被关掉时挂个「请勿打扰」。v0.5.0 这次动的是自己每天看的东西：人设和记忆。以后大概也只会在我自己用得上的地方继续加东西。
