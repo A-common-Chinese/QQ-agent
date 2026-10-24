@@ -136,9 +136,9 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
 
         <div id="sl-qqbot-card" class="sl-qb-card ${chan === 'qqbot' ? '' : 'hidden'}">
           <div class="sl-qb-head">
-            <span class="dot ${qb.configured ? 'dot-on' : 'dot-off'}"></span>
+            <span class="dot ${(s.qqbot?.connected ? 'dot-on' : 'dot-off')}"></span>
             <strong>官方机器人</strong>
-            <span class="muted">${qb.configured ? '已配置（' + esc(qb.appId || '') + '）' : '未配置'}</span>
+            <span class="muted">${qb.configured ? '已配置（' + esc(qb.appId || '') + '）' : '未配置'}${s.qqbot?.connected ? ' · 已连接' : ''}</span>
             <span class="muted" style="margin-left:auto">当前通道：${esc(tr.active || 'onebot')}</span>
           </div>
           <div class="sl-qb-grid">
@@ -174,6 +174,17 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
             · 主动发言需群主授权「主动推送消息」，配额 1000 条/群/日<br>
             · 个人主体只能把机器人加进自己当群主/管理员的群
           </div>
+        </div>
+
+        <div class="sl-chan-logs-wrap">
+          <div class="sl-chan-logs-head">
+            <b>运行日志（按通道分开）</b>
+            <button class="btn btn-small" data-sl-logtab="snowluma">SnowLuma</button>
+            <button class="btn btn-small" data-sl-logtab="qqbot">官方机器人</button>
+            <button class="btn btn-small" id="sl-chan-log-refresh">刷新</button>
+            <span class="muted" id="sl-chan-log-hint" style="font-size:12px"></span>
+          </div>
+          <pre class="snowluma-logs-view" id="sl-chan-log-pre">加载中…</pre>
         </div>
         <div class="sl-onebot-sentinel"></div>
 
@@ -271,17 +282,6 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           </div>
           <pre class="snowluma-logs-view" id="app-logs-view">${esc(appLogText)}</pre>
         </div>
-
-        <div class="sl-chan-logs-wrap">
-          <div class="sl-chan-logs-head">
-            <b>运行日志（按通道分开）</b>
-            <button class="btn btn-small" data-sl-logtab="snowluma">SnowLuma</button>
-            <button class="btn btn-small" data-sl-logtab="qqbot">官方机器人</button>
-            <button class="btn btn-small" id="sl-chan-log-refresh">刷新</button>
-            <span class="muted" id="sl-chan-log-hint" style="font-size:12px"></span>
-          </div>
-          <pre class="snowluma-logs-view" id="sl-chan-log-pre">加载中…</pre>
-        </div>
       </div>`;
 
     // 还原 QQ 接口表单的输入值与焦点
@@ -332,7 +332,13 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
     }
 
     // ── 运行日志（按通道分开）：SnowLuma / 官方机器人 各自一个查看窗口 ──
-    let logChan = (() => { try { return localStorage.getItem('qqa-sl-logtab') || (chan === 'qqbot' ? 'qqbot' : 'snowluma'); } catch { return 'snowluma'; } })();
+    let logChan = (() => {
+      try {
+        const saved = localStorage.getItem('qqa-sl-logtab');
+        if (saved) return saved;
+        return (tr.active === 'qqbot') ? 'qqbot' : 'snowluma';
+      } catch { return 'snowluma'; }
+    })();
     const chanLogPre = box.querySelector('#sl-chan-log-pre');
     const chanLogHint = box.querySelector('#sl-chan-log-hint');
     const markLogTab = () => {

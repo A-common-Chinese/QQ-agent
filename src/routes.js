@@ -74,7 +74,7 @@ function parseSectionsQuery(searchParams) {
 export function createRoutes(deps) {
   const conn = deps.transport || asTransport({ client: deps.onebot });
   const {
-    store, memory, sessions, onebot, transport, qqbotChats, orchestrator, sender,
+    store, memory, sessions, onebot, transport, qqbotChats, qqbotStatus, orchestrator, sender,
     emit, log,
     // app.js 内部的过程/状态
     localVersion, compareSemver, UPDATE_INFO_URL,
@@ -149,6 +149,17 @@ export function createRoutes(deps) {
           else onebotDiagnosis = onebot.lastConnectError ? `连接失败：${String(onebot.lastConnectError).slice(0, 120)}` : '连接中…';
         }
         return json(res, 200, {
+          qqbot: (() => {
+            const st = typeof qqbotStatus === 'function' ? (qqbotStatus() || {}) : {};
+            const qb = getConfig().transport?.qqbot || {};
+            const acc = Array.isArray(qb.accounts) ? qb.accounts[0] || {} : {};
+            return {
+              connected: st.connected === true,
+              error: st.error || '',
+              configured: Boolean(String(acc.appId || '').trim() && String(acc.appSecret || '').trim()),
+              active: String(getConfig().transport?.active || 'onebot')
+            };
+          })(),
           onebot: {
             connected: onebot.connected,
             everConnected: onebot.everConnected,

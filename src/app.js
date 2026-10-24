@@ -58,10 +58,15 @@ function allowed(kind, id, cfg, channel = 'onebot') {
   // 两套白名单：OneBot 用 allow（群号/QQ号），官方机器人用 allowQqbot（openid）
   const bucket = channel === 'qqbot' ? (cfg.allowQqbot || {}) : (cfg.allow || {});
   const denyBucket = channel === 'qqbot' ? (cfg.denyQqbot || {}) : (cfg.deny || {});
+  const same = (list) => {
+    if (channel !== 'qqbot') return list.map(String).includes(s);
+    const up = s.toUpperCase();
+    return list.map((x) => String(x).toUpperCase()).includes(up);
+  };
   const denyList = denyBucket?.[kind] ?? denyBucket?.[`${kind}s`] ?? [];
-  if (denyList.map(String).includes(s)) return false;
+  if (same(denyList)) return false;
   const allowList = bucket?.[kind] ?? bucket?.[`${kind}s`] ?? [];
-  if (allowList.length > 0) return allowList.map(String).includes(s);
+  if (allowList.length > 0) return same(allowList);
   return cfg.allowAllWhenEmpty === true;
 }
 
@@ -684,6 +689,8 @@ export function createApp({ log = console.log } = {}) {
 
   // OneBot 连接状态推送
   onebot.onStatus((status) => emit('onebot-status', status));
+  // 官方通道状态（给 /api/status 用）
+  let qqbotStatus = { connected: false, error: '', at: 0 };
 
   // ── 从 SnowLuma 配置自动同步 OneBot 令牌 ──
   // SnowLuma 给每个登录过的账号生成独立随机 token（config/onebot_<uin>.json），
@@ -1233,6 +1240,7 @@ export function createApp({ log = console.log } = {}) {
     try {
       transport.onMessage((evt) => { feedQqbotEvent(evt).catch?.((e) => log('[qqbot] ingest 失败:', e?.message ?? e)); });
       transport.onStatus((st) => {
+        qqbotStatus = { connected: !!st.connected, error: st.error || '', at: Date.now() };
         emit('qqbot-status', st);
         const msg = '[qqbot] 状态: ' + JSON.stringify(st);
         log(msg);
@@ -1506,6 +1514,7 @@ export function createApp({ log = console.log } = {}) {
   const apiRoutes = createRoutes({
     transport,
     qqbotChats,
+    qqbotStatus: () => qqbotStatus,
     store, memory, sessions, onebot, orchestrator, sender,
     emit, log,
     localVersion, compareSemver, UPDATE_INFO_URL,

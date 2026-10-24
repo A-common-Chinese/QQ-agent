@@ -14,7 +14,8 @@
 import WebSocket from 'ws';
 import { Transport } from './base.js';
 
-const API = 'https://api.bot.qq.com';
+// 2026-08 起官方把接口域名统一到 api.bot.qq.com（沙箱也用同一个域名，区别在凭据/客户端）
+const PROD_API = 'https://api.bot.qq.com';
 const TOKEN_URL = 'https://bots.qq.com/app/getAppAccessToken';
 const INTENT_GROUP_AND_C2C = 1 << 25;
 
@@ -88,9 +89,11 @@ export class QqBotTransport extends Transport {
     return this._token;
   }
 
+  apiBase() { return PROD_API; }
+
   async _api(method, path, body = null) {
     const token = await this.token();
-    const res = await this._fetch(API + path, {
+    const res = await this._fetch(this.apiBase() + path, {
       method,
       headers: { authorization: `QQBot ${token}`, 'content-type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined
@@ -154,11 +157,13 @@ export class QqBotTransport extends Transport {
     const gw = await this._api('GET', '/gateway/bot');
     const url = gw?.url;
     if (!url) throw new Error('没有拿到 WS 网关地址');
+    this._log('[qqbot] 网关：' + String(url).replace(/\?.*$/, ''));
     await new Promise((resolve, reject) => {
       const ws = new this._WS(url);
       this._ws = ws;
       const token = this._token;
       ws.on('open', () => {
+        this._log(`[qqbot] WS 已打开，发送 identify（intents=${this.intents}）`);
         ws.send(JSON.stringify({ op: 2, d: { token: `QQBot ${token}`, intents: this.intents, shard: [0, 1], properties: {} } }));
         this._emitStatus({ connected: true });
         resolve();
@@ -177,13 +182,28 @@ export class QqBotTransport extends Transport {
           return;
         }
         if (pkt.op === 0 && pkt.t) {
-          if (pkt.t === 'GROUP_AT_MESSAGE_CREATE' || pkt.t === 'GROUP_MESSAGE_CREATE' || pkt.t === 'C2C_MESSAGE_CREATE') {
+          const msgTypes = ['GROUP_AT_MESSAGE_CREATE', 'GROUP_MESSAGE_CREATE', 'C2C_MESSAGE_CREATE'];
+          if (msgTypes.includes(pkt.t)) {
             this._emitMessage(this.normalizeEvent(pkt.t, pkt.d));
+          } else {
+            // READY / RESUMED / 审核事件等：只记日志（排查"没收到消息"时很关键）
+            this._log(`[qqbot] 收到事件 ${pkt.t}`);
           }
         }
+        if (pkt.op === 11) this._log('[qqbot] 心跳 ACK');
+        if (pkt.op === 9) this._log('[qqbot] 无效会话（op9），需要重新 identify');
+        if (pkt.op === 7) this._log('[qqbot] 服务端要求重连（op7）');
       });
-      ws.on('error', (e) => { this._emitStatus({ connected: false, error: String(e?.message || e) }); reject(e); });
-      ws.on('close', () => { clearInterval(this._heartbeat); this._emitStatus({ connected: false }); });
+      ws.on('error', (e) => {
+        this._log('[qqbot] WS 错误：' + String(e?.message || e));
+        this._emitStatus({ connected: false, error: String(e?.message || e) });
+        reject(e);
+      });
+      ws.on('close', (code, reason) => {
+        clearInterval(this._heartbeat);
+        this._log(`[qqbot] WS 关闭：code=${code} reason=${String(reason || '')}`);
+        this._emitStatus({ connected: false, code, reason: String(reason || '') });
+      });
     });
   }
 
