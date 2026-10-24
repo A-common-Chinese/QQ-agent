@@ -247,6 +247,18 @@ export const DEFAULT_CONFIG = {
   personaShared: { core: '', voice: '' },
   // 新会话（白名单里第一次说话的好友/群）自动分配的人格卡 id；空 = 用内置卡/第一张卡
   personaDefaultId: '',
+  // 接入方式（P2 起）：onebot = 现在的 SnowLuma/NapCat；qqbot = 官方 QQ 机器人
+  // accounts 是数组，P2 先只用第 1 个，留扩展位；appSecret 会被 GET /api/config 脱敏删除
+  transport: {
+    active: 'onebot',                 // onebot | qqbot | both
+    qqbot: {
+      enabled: false,
+      intents: 0,                     // 0 = 由适配器按群/单聊事件自动取
+      accounts: [
+        { name: '', appId: '', appSecret: '', env: 'production', groupMode: 'all' }
+      ]
+    }
+  },
   // 接入白名单
   allow: { groups: [], private: [] },
   deny: { groups: [], private: [] },

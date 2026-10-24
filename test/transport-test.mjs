@@ -44,7 +44,7 @@ check('能力位：全量消息/主动/拍一拍/文件', () => {
 });
 check('能力位缺省来自 DEFAULT_CAPABILITIES', () => assert.equal(typeof DEFAULT_CAPABILITIES.canPoke, 'boolean'));
 check('未知通道抛错', () => assert.throws(() => createTransport({ type: 'nope', client }), /未知的传输通道/));
-check('qqbot 通道明确未实现', () => assert.throws(() => createTransport({ type: 'qqbot', client }), /尚未实现|P2/));
+check('qqbot 通道未配置时报错（P2 已实现适配器）', () => assert.throws(() => createTransport({ type: 'qqbot', client }), /未配置|尚未实现|P2/));
 check('TRANSPORT_KINDS 含两种通道', () => assert.deepEqual(TRANSPORT_KINDS, ['onebot', 'qqbot']));
 
 await checkAsync('sendText 透传参数', async () => {

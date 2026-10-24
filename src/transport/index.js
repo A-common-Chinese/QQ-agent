@@ -11,6 +11,8 @@ export const TRANSPORT_LABELS = { onebot: 'QQ 接口（OneBot / SnowLuma）', qq
  * @param {'onebot'|'qqbot'} opts.type
  * @param {object} opts.client  OneBotClient（onebot 通道必填）
  */
+import { QqBotTransport } from './qqbot.js';
+
 const CACHE = new WeakMap();
 
 /**
@@ -29,10 +31,16 @@ export function asTransport({ client = null, transport = null } = {}) {
 export function createTransport({ type = 'onebot', client = null, config = {} } = {}) {
   if (type === 'onebot') return new OneBotTransport({ client });
   if (type === 'qqbot') {
-    throw new Error('QQ 官方机器人通道尚未实现（P2）：请先在设置里继续使用 OneBot 通道');
+    const qb = config?.qqbot || {};
+    const account = Array.isArray(qb.accounts) ? qb.accounts[0] : null;
+    if (!account || !String(account.appId || '').trim()) {
+      throw new Error('QQ 官方机器人未配置：请先在「设置 → QQ 接口」里填入 AppID / AppSecret');
+    }
+    return new QqBotTransport({ account, intents: qb.intents || 0 });
   }
   throw new Error(`未知的传输通道：${type}`);
 }
 
 export { Transport, DEFAULT_CAPABILITIES, UnsupportedError } from './base.js';
 export { OneBotTransport } from './onebot.js';
+export { QqBotTransport, parseChatKey, toChatKey } from './qqbot.js';
