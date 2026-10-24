@@ -2250,32 +2250,20 @@ function renderDesktopSection(c) {
 }
 
 function renderOnebotSection(c) {
+  // 连接配置已迁移到「QQ 接口」页签（OneBot 卡片内），这里只留一个入口
   return `
     <h3 id="settings-onebot">OneBot（SnowLuma）</h3>
-    <div class="hint" style="margin-bottom:10px">SnowLuma 的启动、关闭与日志已移动到顶部「SnowLuma」页签。此处只保留连接配置。</div>
-    <div class="field"><label>SnowLuma 程序目录（留空 = 自动使用项目内 snowluma/ 文件夹）</label>
-      <div style="display:flex;gap:8px">
-        <input type="text" id="cfg-snowlumadir" value="${esc(c.snowluma.dir || '')}" style="flex:1" />
-        <button class="btn btn-small" id="open-snowluma-btn">打开文件夹</button>
+    <div class="health-card" style="margin-top:8px">
+      <div class="h-title">配置已迁移到「QQ 接口」页</div>
+      <div class="hint">OneBot 的地址 / 令牌 / 启动与日志，现在都放在顶部「QQ 接口」页签里的
+        <b>OneBot（SnowLuma）</b> 卡片中；这里保留入口，点下面的按钮直接过去。</div>
+      <div style="margin-top:10px">
+        <button class="btn btn-primary" data-jump="qq-interface">打开 QQ 接口</button>
       </div>
-      <div class="hint" id="snowluma-hint"></div></div>
-    <div class="checkbox-row"><input type="checkbox" id="cfg-snowlumalaunch" ${c.snowluma.autoLaunch ? 'checked' : ''} />
-      <label for="cfg-snowlumalaunch">QQ Agent 启动时自动拉起 SnowLuma（未运行时）</label></div>
-    <div class="field-row">
-      <div class="field"><label>WebSocket 地址（收消息）</label><input type="text" id="cfg-wsurl" value="${esc(c.snowluma.wsUrl)}" /></div>
-      <div class="field"><label>HTTP 地址（发消息）</label><input type="text" id="cfg-httpurl" value="${esc(c.snowluma.httpUrl)}" /></div>
-      <div class="field"><label>WebSocket 令牌</label>
-        <div style="display:flex;gap:8px">
-          <input type="password" id="cfg-obtoken" value="${esc(c.snowluma?.hasAccessToken ? '******' : '')}" placeholder="输入新令牌可替换；留空保持不变" autocomplete="new-password" style="flex:1" />
-          <button class="btn btn-small" id="cfg-obtoken-toggle" type="button">显示</button>
-        </div></div>
-      <div class="field"><label>HTTP 令牌（与 WS 不同时填；SnowLuma 默认分开）</label>
-        <div style="display:flex;gap:8px">
-          <input type="password" id="cfg-obhttptoken" value="${esc(c.snowluma?.hasHttpAccessToken ? '******' : '')}" placeholder="输入新令牌可替换；留空保持不变" autocomplete="new-password" style="flex:1" />
-          <button class="btn btn-small" id="cfg-obhttptoken-toggle" type="button">显示</button>
-        </div></div>
-    </div>
-    <div class="hint">改完 OneBot 地址需要重启应用生效；模型/人设/白名单即时生效。</div>`;
+      <div class="hint" style="margin-top:8px">当前：<span class="muted">${esc(c.snowluma?.wsUrl || '')}</span> ·
+        <span class="muted">${esc(c.snowluma?.httpUrl || '')}</span> ·
+        ${c.snowluma?.hasAccessToken ? '令牌已保存' : '<span style="color:var(--orange)">未设置令牌</span>'}</div>
+    </div>`;
 }
 
 /**

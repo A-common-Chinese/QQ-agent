@@ -95,7 +95,8 @@ function wired(el) {
       '[data-fwd]',                                     // 转发白名单 chip
       '[data-safe]', '[data-silentat]', '[data-silent-unassigned]',  // 安全模式 / 静默@
       '[data-cm-add]', '[data-cm-del]', '[data-cm-cmd]', '[data-cm-dur]',  // 禁言口令列表
-      '[data-cmdmute-release]',                         // 解除禁言按钮
+      '[data-cmdmute-release]',
+    '[data-jump]',   // 通用跳转（设置→QQ 接口 等）                         // 解除禁言按钮
       '[data-tag-box]', '[data-tag-del]',               // 白名单/静默会话标签块
       '[data-tag-input]',
       '[data-membundle]', '[data-membundle-section]',   // 记忆导出/导入

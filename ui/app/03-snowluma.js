@@ -64,13 +64,15 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
     }
   } catch { /* 忽略 */ }
   try {
-    const [status, logs, qqLogs, appLogsData, trStatus] = await Promise.all([
+    const [status, logs, qqLogs, appLogsData, trStatus, cfgData] = await Promise.all([
       api('/api/status'),
       api('/api/snowluma/logs'),
       api('/api/qq-portable/logs'),
       api('/api/logs?limit=120').catch(() => ({ logs: [], level: 'info' })),
-      api('/api/transport/status').catch(() => null)
+      api('/api/transport/status').catch(() => null),
+      api('/api/config').catch(() => null)
     ]);
+    const slCfg = (cfgData && cfgData.snowluma) || {};
     const s = status;
     const box = $('#snowluma-page');
     let chan = 'onebot';
@@ -198,6 +200,29 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
         </div>
 
         <div class="sl-onebot-sentinel"></div>
+
+        <div class="sl-ob-config">
+          <h3 style="margin-top:20px">OneBot 连接配置</h3>
+          <div class="hint" style="margin-bottom:10px">改完地址/令牌需要重启应用生效；启动与日志见本卡片上方。</div>
+          <div class="field"><label>SnowLuma 程序目录（留空 = 自动使用项目内 snowluma/ 文件夹）</label>
+            <input type="text" id="sl-ob-dir" value="${esc(slCfg.dir || '')}" /></div>
+          <div class="field-row">
+            <div class="field"><label>WebSocket 地址（收消息）</label><input type="text" id="sl-ob-ws" value="${esc(slCfg.wsUrl || '')}" /></div>
+            <div class="field"><label>HTTP 地址（发消息）</label><input type="text" id="sl-ob-http" value="${esc(slCfg.httpUrl || '')}" /></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>WebSocket 令牌</label>
+              <input type="password" id="sl-ob-token" value="${esc(slCfg.hasAccessToken ? '******' : '')}" placeholder="输入新令牌可替换；留空保持不变" autocomplete="new-password" /></div>
+            <div class="field"><label>HTTP 令牌（与 WS 不同时填）</label>
+              <input type="password" id="sl-ob-httptoken" value="${esc(slCfg.hasHttpAccessToken ? '******' : '')}" placeholder="输入新令牌可替换；留空保持不变" autocomplete="new-password" /></div>
+          </div>
+          <div class="checkbox-row"><input type="checkbox" id="sl-ob-autolaunch" ${slCfg.autoLaunch ? 'checked' : ''} />
+            <label for="sl-ob-autolaunch">QQ Agent 启动时自动拉起 SnowLuma（未运行时）</label></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+            <button class="btn btn-small btn-primary" id="sl-ob-save">保存 OneBot 配置</button>
+            <span class="muted" id="sl-ob-hint" style="font-size:12px"></span>
+          </div>
+        </div>
 
         <div class="sl-log-block">
           <div class="hint sl-log-head">运行日志（仅保留最近 500 行）</div>
@@ -344,6 +369,46 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       } catch (e) { qbLogPre.textContent = '读取失败：' + (e.message || e); }
     };
     fillQbLog();
+
+    // OneBot 连接配置保存
+    const obSave = box.querySelector('#sl-ob-save');
+    if (obSave) {
+      ['sl-ob-dir', 'sl-ob-ws', 'sl-ob-http', 'sl-ob-token', 'sl-ob-httptoken', 'sl-ob-autolaunch'].forEach((id) => {
+        const el = box.querySelector('#' + id);
+        if (el) el.addEventListener('change', () => {
+          const hint = box.querySelector('#sl-ob-hint');
+          if (hint) { hint.textContent = '有未保存的改动，记得点「保存 OneBot 配置」'; hint.style.color = 'var(--orange)'; }
+        });
+      });
+      const obHint = (text, color) => {
+        const el = box.querySelector('#sl-ob-hint');
+        if (el) { el.textContent = text || ''; el.style.color = color || ''; }
+      };
+      obSave.addEventListener('click', async () => {
+        obSave.disabled = true;
+        const val = (id) => (box.querySelector('#' + id) || {}).value || '';
+        const wsToken = val('sl-ob-token').trim();
+        const httpToken = val('sl-ob-httptoken').trim();
+        const payload = {
+          snowluma: {
+            dir: val('sl-ob-dir').trim(),
+            autoLaunch: !!(box.querySelector('#sl-ob-autolaunch') || {}).checked,
+            wsUrl: val('sl-ob-ws').trim(),
+            httpUrl: val('sl-ob-http').trim(),
+            ...(wsToken && wsToken !== '******' ? { accessToken: wsToken } : {}),
+            ...(httpToken && httpToken !== '******' ? { httpAccessToken: httpToken } : {})
+          }
+        };
+        try {
+          await api('/api/config', { method: 'PATCH', body: JSON.stringify(payload) });
+          obHint('已保存 ✅（地址/令牌改动需重启生效）', 'var(--green)');
+          loadSnowlumaPage({ quiet: true });
+        } catch (e) {
+          obHint('保存失败：' + (e.message || e), 'var(--red)');
+        }
+        obSave.disabled = false;
+      });
+    }
 
     // 通道切换
     box.querySelectorAll('[data-sl-chan]').forEach((b) => {

@@ -995,3 +995,15 @@ try {
     };
   }
 } catch { /* ignore */ }
+
+// 通用跳转：<button data-jump="qq-interface"> → 顶部 QQ 接口页签
+if (typeof document !== 'undefined' && !window.__jumpBound) {
+  window.__jumpBound = true;
+  document.addEventListener('click', (e) => {
+    const el = e.target && e.target.closest && e.target.closest('[data-jump]');
+    if (!el) return;
+    e.preventDefault();
+    const to = el.dataset.jump;
+    if (to === 'qq-interface' && typeof switchTab === 'function') switchTab('snowluma');
+  });
+}
