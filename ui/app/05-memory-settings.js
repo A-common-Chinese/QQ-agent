@@ -1020,7 +1020,6 @@ function renderHealthCard() {
     box.innerHTML = cards.map(pill).join('') +
       '<span class="subnav-sep"></span>' +
       (compress ? pill(compress) : '') +
-    '<button class="mem-subtab" data-mem="layers" title="查看分层记忆（小时摘要 / 语义卡 / 印象）">分层记忆</button>' +
       '<span class="subnav-note">压缩只改"注入给模型的内容"，不动原始记忆</span>';
   };
 
@@ -1160,12 +1159,7 @@ function renderHealthCard() {
         memLoadDetail().then(async () => { if (state.tab === 'memory') await loadMemoryView(); });
         return;
       }
-      if (act === 'layers') {
-      const key = (st.sel && st.sel.chatKey) || (st.chatSel && st.chatSel.chatKey) || '';
-      openMemoryLayers(key);
-      return;
-    }
-    if (act === 'subtab') {
+      if (act === 'subtab') {
         const sub = el.dataset.sub;
         st.sub = sub;
         // 「压缩」不需要先选会话：直接渲染压缩面板（不进 memLoadDetail，
@@ -2375,89 +2369,68 @@ function renderHealthCard() {
     });
   }
 
-// ── 分层记忆（只读）：小时摘要 / 语义卡 / 印象 ──────────────────────────
-async function openMemoryLayers(chatKey) {
-  const key = String(chatKey || '').trim();
-  if (!key) {
-    // 没选中会话 → 先给一个会话选择列表（别默默拿第一个群）
-    let list = [];
+
+// ── 记忆批量整理：配置 + 手动触发 + 进度 ──────────────────────────────
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function' && !window.__memBatchBound) {
+  window.__memBatchBound = true;
+  const fillBatchBar = async () => {
+    const hours = document.getElementById('mem-batch-hours');
+    const max = document.getElementById('mem-batch-max');
+    if (!hours || !max) return;
     try {
-      const l = await api('/api/memory-cards');
-      list = (l.groups || []).map((g) => ({ chatKey: g.chatKey, name: g.name || g.chatKey }));
+      const cfg = state.config || (await api('/api/config'));
+      state.config = cfg;
+      const mc = cfg.memoryCards || {};
+      hours.value = Math.round((Number(mc.batchIntervalMs) || 6 * 3600 * 1000) / 3600000);
+      max.value = Number(mc.batchMaxChats) || 20;
     } catch { /* 忽略 */ }
-    const shell0 = modelModalShell({
-      head: '分层记忆：选择会话',
-      body: `<div class="hint" style="max-height:60vh;overflow:auto">
-        ${list.length ? list.map((it) => `<div style="margin:6px 0"><button class="btn btn-small" data-layers-pick="${esc(it.chatKey)}">${esc(it.name)}</button>
-          <span class="muted" style="font-size:12px;margin-left:6px">${esc(it.chatKey)}</span></div>`).join('') : '<div class="muted">还没有任何会话卡</div>'}
-      </div>`,
-      foot: '<button class="btn" id="layers-cancel">取消</button>'
-    });
-    shell0.querySelector('#layers-cancel').addEventListener('click', () => closeModelModal(shell0));
-    shell0.querySelectorAll('[data-layers-pick]').forEach((b) => {
-      b.addEventListener('click', () => {
-        const k = b.dataset.layersPick;
-        closeModelModal(shell0);
-        openMemoryLayers(k);
-      });
-    });
-    return;
-  }
-  const shell = modelModalShell({
-    head: '分层记忆' + (key ? '：' + esc(key) : ''),
-    body: '<div id="layers-body" class="hint" style="font-size:13px;line-height:1.75;max-height:62vh;overflow:auto">加载中…</div>',
-    foot: '<button class="btn btn-primary" id="layers-ok">关闭</button>'
+  };
+  setTimeout(() => { try { fillBatchBar(); } catch { /* 忽略 */ } }, 400);
+  const setStatus = (t) => { const el = document.getElementById('mem-batch-status'); if (el) el.textContent = t || ''; };
+  ['mem-batch-hours', 'mem-batch-max'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && !el.__memBound) { el.__memBound = true; el.addEventListener('change', () => setStatus('有未保存的配置')); }
   });
-  shell.querySelector('#layers-ok').addEventListener('click', () => closeModelModal(shell));
-  const body = shell.querySelector('#layers-body');
-  if (!key) { body.textContent = '没有可查看的会话：先在「群卡」里选一个会话。'; return; }
-  try {
-    const d = await api('/api/memory-layers?chatKey=' + encodeURIComponent(key) + '&limit=40');
-    const chunks = d.chunks || [];
-    const cards = d.semanticCards || [];
-    const imps = d.impressions || [];
-    const fmt = (ts) => { try { return new Date(Number(ts) || 0).toLocaleString('zh-CN', { hour12: false }); } catch { return ''; } };
-    body.innerHTML = `
-      <div style="margin-bottom:10px"><b>自动记忆卡</b>：
-        ${d.lastAutoCardsAt ? '上次自动更新 ' + esc(fmt(d.lastAutoCardsAt)) : '<span class="muted">还没有自动更新过（会话结束后会尝试）</span>'}
-        <button class="btn btn-small" id="layers-refresh-cards" style="margin-left:8px">立即更新</button>
-        <span class="muted" id="layers-refresh-hint" style="font-size:12px"></span>
-      </div>
-      <div style="margin-bottom:10px"><b>小时摘要（${chunks.length}）</b>
-        ${chunks.length ? chunks.map((c) => `
-          <div style="margin:6px 0;padding:8px 10px;background:var(--bg2);border-radius:8px">
-            <div class="muted" style="font-size:12px">${esc(c.hourKey || c.title || '')}${c.keywords && c.keywords.length ? ' · ' + esc(c.keywords.join(' ')) : ''}</div>
-            <div>${esc(String(c.summary || '').slice(0, 400))}</div>
-          </div>`).join('') : '<div class="muted">（暂无）</div>'}
-      </div>
-      <div style="margin-bottom:10px"><b>语义卡（${cards.length}）</b>
-        ${cards.length ? cards.map((c) => `
-          <div style="margin:6px 0;padding:8px 10px;background:var(--bg2);border-radius:8px">
-            <div><span class="muted">[${esc(c.type || '')}]</span> <b>${esc(String(c.title || '').slice(0, 60))}</b></div>
-            <div class="muted" style="font-size:12.5px">${esc(String(c.detail || '').slice(0, 240))}</div>
-          </div>`).join('') : '<div class="muted">（暂无）</div>'}
-      </div>
-      <div><b>印象（${imps.length}）</b>
-        ${imps.length ? imps.map((i) => `<div style="margin:4px 0">· <b>${esc(i.target || '')}</b>：${esc(String(i.content || '').slice(0, 200))}</div>`).join('') : '<div class="muted">（暂无；模型调用「记录印象」或记忆整理后会出现）</div>'}
-      </div>`;
-    const refreshBtn = body.querySelector('#layers-refresh-cards');
-    if (refreshBtn) {
-      refreshBtn.addEventListener('click', async () => {
-        const hint = body.querySelector('#layers-refresh-hint');
-        refreshBtn.disabled = true;
-        if (hint) hint.textContent = '更新中（会调一次模型）…';
-        try {
-          const r = await api('/api/memory-cards/auto', { method: 'POST', body: JSON.stringify({ chatKey: key }) });
-          if (hint) hint.textContent = r.ok ? '已更新 ✅' : ('失败：' + (r.error || ''));
-          closeModelModal(shell);
-          setTimeout(() => openMemoryLayers(key), 400);
-        } catch (e) {
-          if (hint) hint.textContent = '失败：' + (e?.message || e);
-          refreshBtn.disabled = false;
-        }
-      });
+  document.addEventListener('click', async (e) => {
+    const save = e.target && e.target.closest && e.target.closest('#mem-batch-save');
+    if (save) {
+      const h = Number((document.getElementById('mem-batch-hours') || {}).value) || 6;
+      const m = Number((document.getElementById('mem-batch-max') || {}).value) || 20;
+      try {
+        state.config = await api('/api/config', {
+          method: 'POST',
+          body: JSON.stringify({ memoryCards: { batchIntervalMs: h * 3600 * 1000, batchMaxChats: m } })
+        });
+        setStatus('已保存 ✅');
+      } catch (err) { setStatus('保存失败：' + (err.message || err)); }
+      return;
     }
-  } catch (e) {
-    body.textContent = '加载失败：' + (e?.message || e);
+    const run = e.target && e.target.closest && e.target.closest('#mem-batch-run');
+    if (run) { runMemoryBatchNow(run); }
+  });
+  async function runMemoryBatchNow(btn) {
+    btn.disabled = true;
+    setStatus('整理中…');
+    try {
+      await api('/api/memory-cards/batch', { method: 'POST', body: JSON.stringify({ force: true }) });
+      const poll = async () => {
+        try {
+          const st = await api('/api/memory-cards/batch/status');
+          if (st.running) {
+            setStatus(`整理中 ${st.done}/${st.total}${st.current ? '：' + String(st.current).slice(0, 18) : ''}`);
+            setTimeout(poll, 1500);
+          } else {
+            const r = st.result || {};
+            setStatus(`完成：${r.done || 0}/${r.total || 0} 个会话${r.failed ? '（失败 ' + r.failed + '）' : ''}`);
+            btn.disabled = false;
+            if (typeof loadMemoryView === 'function') { try { await loadMemoryView(); } catch { /* 忽略 */ } }
+          }
+        } catch { setTimeout(poll, 2500); }
+      };
+      setTimeout(poll, 1200);
+    } catch (err) {
+      setStatus('启动失败：' + (err.message || err));
+      btn.disabled = false;
+    }
   }
 }

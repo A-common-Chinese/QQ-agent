@@ -1436,6 +1436,22 @@ export function createRoutes(deps) {
     },
     // ── 记忆卡（群聊 / 个人 / 基本事实）────────────────────────────
     {
+      method: 'POST', pattern: '/api/memory-cards/batch',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        try {
+          const r = orchestrator.startMemoryBatchNow({ force: body.force !== false });
+          return json(res, 200, r);
+        } catch (e) {
+          return json(res, 500, { ok: false, error: String(e?.message ?? e) });
+        }
+      }
+    },
+    {
+      method: 'GET', pattern: '/api/memory-cards/batch/status',
+      handler: async ({ res, json }) => json(res, 200, { ok: true, ...orchestrator.memoryBatchStatus() })
+    },
+    {
       method: 'POST', pattern: '/api/memory-cards/auto',
       handler: async ({ req, res, json }) => {
         const body = await readBody(req).catch(() => ({}));

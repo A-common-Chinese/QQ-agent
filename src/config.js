@@ -60,7 +60,12 @@ export const DEFAULT_CONFIG = {
     presenceWindow: true,   // 在场判定：用"最近 N 条出现过的人"
     presenceMention: true,  // 在场判定：用"被点名的人"
     flashbackCount: 2,      // 随机闪回几张话题卡（0=关）
-    impressionScope: 'auto' // auto=通用+本会话 / all=全部 / model=只给通留给模型自己查
+    impressionScope: 'auto',
+    // 记忆卡批量整理（一次性处理所有有新消息的会话）
+    batchEnabled: true,
+    batchIntervalMs: 6 * 60 * 60 * 1000,   // 6 小时
+    batchMaxChats: 20,                     // 单次最多处理多少个会话（控制成本）
+    autoUpdate: true // auto=通用+本会话 / all=全部 / model=只给通留给模型自己查
   },
   api: {
     // 出厂留空：这是作者本机的网关地址，对其他人毫无意义，

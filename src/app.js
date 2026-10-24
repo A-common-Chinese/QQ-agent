@@ -13,6 +13,7 @@ import { QqBotTransport } from './transport/qqbot.js';
 import { OneBotClient, segmentsToText, extractMediaFromSegments, expandForwardNodes } from './onebot.js';
 import { isAtMe } from './prompt.js';
 import { ChatStore } from './store.js';
+import { ensureGroupCard } from './memory-cards.js';
 import { MemoryStore } from './memory.js';
 import { StickerManager } from './sticker-manager.js';
 import { SendQueue } from './sender.js';
@@ -1005,6 +1006,13 @@ export function createApp({ log = console.log } = {}) {
       log(`[ingest] 忽略自己的文件回显：${String(text).slice(0, 40)}`);
       return;
     }
+    // A：白名单会话一出现就先建一张空卡（记忆页可见；内容由定时批量整理补）
+    try {
+      if (allowed(kind, id, getConfig(), channel)) {
+        ensureGroupCard(`${kind}:${id}`, kind === 'private' ? senderName : '');
+      }
+    } catch { /* 建卡失败不影响消息 */ }
+
     const entry = store.appendIncoming(`${kind}:${id}`, {
       mid: event.message_id,
       ts: event.time ? Math.round(Number(event.time) * 1000) : Date.now(),

@@ -105,6 +105,25 @@ export function upsertPerson(qq, patch = {}) {
   return { ok: true, card: next, created: !getPerson(id) ? false : true };
 }
 
+/** 会话出现时先建一张空卡，保证记忆页能看到这个会话（内容由批量整理补） */
+export function ensureGroupCard(chatKey, name = '') {
+  const key = String(chatKey || '').trim();
+  if (!key) return { ok: false, error: 'missing_chatKey' };
+  const file = path.join(dirOf(key), 'group.json');
+  if (read(file)) return { ok: true, existing: true };
+  const card = {
+    chatKey: key,
+    name: String(name || key),
+    summary: '',
+    facts: [],
+    topics: [],
+    members: [],
+    updatedAt: new Date().toISOString()
+  };
+  writeAtomic(file, card);
+  return { ok: true, existing: false, card };
+}
+
 /** 群/私聊卡：不存在就建（自动生成用），存在则合并字段 */
 export function upsertGroup(chatKey, patch = {}) {
   const key = String(chatKey || '').trim();

@@ -2380,3 +2380,10 @@ body.skin-bg-on .view { background: transparent; }
 .sl-adv[open] > summary::before { content: '▾ '; }
 .sl-adv > summary::-webkit-details-marker { display: none; }
 .sl-adv[open] { padding-bottom: 16px; }
+
+/* 记忆页：批量整理配置条 */
+.mem-batch-bar { padding: 8px 12px; border-bottom: 1px solid var(--bd); background: var(--bg2); font-size: 12px; }
+.mem-batch-bar .mb-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.mem-batch-bar .mb-row:last-child { margin-bottom: 0; }
+.mem-batch-bar input { width: 56px; padding: 2px 6px; }
+.mem-batch-bar label { color: var(--tx2); }

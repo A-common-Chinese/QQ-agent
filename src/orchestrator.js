@@ -8,7 +8,9 @@
 //
 // 同一会话（群/私聊）同时最多一个运行；运行期间新消息只写 JSON（未读），不叠加触发。
 // 不同会话之间并行，受 maxConcurrentRuns 全局限流。
-import { getConfig, storeConfigForChat, personaForChat, isSilentChat } from './config.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { getConfig, storeConfigForChat, personaForChat, isSilentChat, DATA_DIR } from './config.js';
 import { vendorOfConfig } from './model-prices.js';
 import { randInt } from './util.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier } from './prompt.js';
@@ -670,8 +672,7 @@ export class Orchestrator {
 
     // 记忆自动整理（后台静默，绝不阻塞/影响聊天主流程）
     this.#maybeConsolidateMemory(chatKey);
-    // 记忆卡自动更新（按会话 6 小时冷却，独立于整理）
-    this.#maybeAutoCards(chatKey);
+
   }
 
   /**
@@ -1489,6 +1490,72 @@ export class Orchestrator {
    * 交给整理模型，产出「群卡 + 个人卡」的稳定信息并 upsert 落盘。
    * 失败静默，绝不影响聊天。
    */
+  /**
+   * 批量整理记忆卡：一次性处理所有「上次整理后有新消息」的会话（按最新排序、限量）。
+   * 定时器由 startMemoryBatchLoop 驱动；也可手动调用（force=true 全量）。
+   */
+  async runMemoryBatch({ force = false, maxChats = 0 } = {}) {
+    const cfg = getConfig();
+    if (!force && cfg.memoryCards?.batchEnabled === false) return { ok: false, skipped: 'disabled' };
+    if (!cfg.api?.baseUrl || !cfg.api?.model) return { ok: false, skipped: 'no-model' };
+    if (this.paused || this.aborted) return { ok: false, skipped: 'paused' };
+    const stateFile = path.join(DATA_DIR, 'memory-cards', '_batch-state.json');
+    let lastRunAt = 0;
+    try { lastRunAt = Number(JSON.parse(fs.readFileSync(stateFile, 'utf8')).lastRunAt || 0); } catch { /* 首次 */ }
+    const cap = Math.max(1, Number(maxChats || cfg.memoryCards?.batchMaxChats || 20));
+    const all = (this.store.listChats ? this.store.listChats() : [])
+      .map((k) => ({ k, ts: Number(this.store.getChatMeta(k)?.lastTs) || 0 }))
+      .filter((x) => force || x.ts > lastRunAt)
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, cap);
+    let done = 0; let failed = 0;
+    this.memoryBatch = { running: true, done: 0, total: all.length, failed: 0, current: '', startedAt: Date.now(), result: null };
+    for (const { k } of all) {
+      if (this.paused || this.aborted) break;
+      if (isSilentChat(k)) continue;
+      this.memoryBatch.current = k;
+      try {
+        // 一条流水线：先整理印象（有阈值判断，没到就跳过），再写/更新记忆卡
+        try { await this.consolidateMemoryForChat(k, {}); } catch { /* 印象整理失败不影响写卡 */ }
+        await this.#autoUpdateCards(k);
+        done += 1;
+        this.memoryBatch.done = done;
+      } catch { failed += 1; this.memoryBatch.failed = failed; }
+    }
+    this.memoryBatch = { running: false, done, total: all.length, failed, current: '', startedAt: this.memoryBatch.startedAt, result: { done, failed, total: all.length, at: Date.now() } };
+    try {
+      fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+      fs.writeFileSync(stateFile, JSON.stringify({ lastRunAt: Date.now(), done, failed, total: all.length }, null, 2), 'utf8');
+    } catch { /* 忽略 */ }
+    console.log(`[memory] 批量整理完成：${done} 个会话，失败 ${failed}，候选 ${all.length}`);
+    return { ok: true, done, failed, total: all.length };
+  }
+
+  /** 批量整理进度（给 UI 轮询） */
+  memoryBatchStatus() {
+    const st = this.memoryBatch || null;
+    return st ? { ...st } : { running: false, done: 0, total: 0, failed: 0, current: '', result: null };
+  }
+
+  /** 后台启动一次批量整理（不阻塞请求） */
+  startMemoryBatchNow({ force = true } = {}) {
+    if (this.memoryBatch && this.memoryBatch.running) return { ok: true, alreadyRunning: true };
+    this.runMemoryBatch({ force })
+      .catch((e) => console.error('[memory] 批量整理失败:', e?.message ?? e));
+    return { ok: true, started: true };
+  }
+
+  /** 启动定时批量整理（6 小时；启动 90 秒后先跑一次，无新消息会快速跳过） */
+  startMemoryBatchLoop() {
+    if (this.memoryBatchTimer) return;
+    const interval = Math.max(30 * 60 * 1000, Number(getConfig().memoryCards?.batchIntervalMs) || 6 * 60 * 60 * 1000);
+    const tick = () => { this.runMemoryBatch().catch((e) => console.error('[memory] 批量整理失败:', e?.message ?? e)); };
+    this.memoryBatchTimer = setInterval(tick, interval);
+    if (this.memoryBatchTimer.unref) this.memoryBatchTimer.unref();
+    const t0 = setTimeout(tick, 90 * 1000);
+    if (t0.unref) t0.unref();
+  }
+
   /** 手动触发：立即为某个会话生成/刷新记忆卡（跳过冷却） */
   async updateMemoryCardsNow(chatKey) {
     const cfg = getConfig();
@@ -1502,31 +1569,6 @@ export class Orchestrator {
     } finally {
       this.consolidating.delete('cards:' + chatKey);
     }
-  }
-
-  #maybeAutoCards(chatKey) {
-    try {
-      const cfg = getConfig();
-      if (cfg.memoryCards?.autoUpdate === false) return;
-      if (!cfg.api?.baseUrl || !cfg.api?.model) return;
-      if (isSilentChat(chatKey)) return;
-      if (this.paused || this.aborted) return;
-      if (this.consolidating.has('cards:' + chatKey)) return;
-      const minInterval = Math.max(30 * 60 * 1000,
-        Number(cfg.memoryCards?.autoIntervalMs) || 6 * 60 * 60 * 1000);
-      if (Date.now() - lastAutoCardsAt(chatKey) < minInterval) return;
-      // 延迟 30s 再跑：绝不和会话收尾/drain 抢 LLM 请求，也避免测试里多打请求
-      const t = setTimeout(() => {
-        try {
-          if (this.paused || this.aborted) return;
-          this.consolidating.add('cards:' + chatKey);
-          this.#autoUpdateCards(chatKey)
-            .catch((e) => console.error('[memory] 自动更新记忆卡失败:', e?.message ?? e))
-            .finally(() => this.consolidating.delete('cards:' + chatKey));
-        } catch { /* 忽略 */ }
-      }, 30000);
-      if (t && typeof t.unref === 'function') t.unref();
-    } catch { /* 锦上添花 */ }
   }
 
   async #autoUpdateCards(chatKey) {

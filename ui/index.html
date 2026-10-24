@@ -164,6 +164,17 @@
         <section id="view-memory" class="view">
           <aside id="memory-list" class="list-pane">
             <div class="list-head muted">记忆</div>
+            <div id="mem-batch-bar" class="mem-batch-bar">
+              <div class="mb-row"><b>记忆整理</b><span class="muted" id="mem-batch-status"></span></div>
+              <div class="mb-row">
+                <label>每 <input id="mem-batch-hours" type="number" min="1" max="72" step="1" /> 小时</label>
+                <label>最多 <input id="mem-batch-max" type="number" min="1" max="100" step="1" /> 个会话</label>
+              </div>
+              <div class="mb-row">
+                <button class="btn btn-small" id="mem-batch-save">保存</button>
+                <button class="btn btn-small btn-primary" id="mem-batch-run">立即整理全部</button>
+              </div>
+            </div>
             <div id="memory-items"></div>
             <div class="list-resizer" id="memory-list-resizer" title="拖动调整侧栏宽度"></div>
           </aside>
