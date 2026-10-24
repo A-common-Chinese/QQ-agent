@@ -129,106 +129,86 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
 
     box.innerHTML = `
       <div class="snowluma-page-card">
-        <h2>QQ 接口</h2>
+        <h2 style="display:flex;align-items:center;gap:10px">QQ 接口
+          <button class="btn btn-small sl-info-btn" id="sl-interface-info" title="接入方式对比 / 能力说明">ⓘ 说明</button>
+        </h2>
         <div class="sl-chan-switch">
           <button class="sl-chan ${chan === 'onebot' ? 'on' : ''}" data-sl-chan="onebot">OneBot（SnowLuma）</button>
           <button class="sl-chan ${chan === 'qqbot' ? 'on' : ''}" data-sl-chan="qqbot">官方机器人（QQ 开放平台）</button>
         </div>
-        <div class="hint" style="margin:-4px 0 12px">两种接入方式<strong>只能选一种</strong>（可留空另一种）；切换后需重启应用生效。官方通道不能拍一拍/贴表情/改群名片，且群内消息需要群主授权。</div>
+        <div class="hint" style="margin:-4px 0 12px">两种接入方式只能选一种（可留空另一种）；切换后需重启应用生效。点右上角「ⓘ 说明」看能力对比。</div>
 
         <div id="sl-qqbot-card" class="sl-qb-card ${chan === 'qqbot' ? '' : 'hidden'}">
-          <div class="sl-qb-head">
-            <span class="dot ${(s.qqbot?.connected ? 'dot-on' : 'dot-off')}"></span>
-            <strong>官方机器人</strong>
-            <span class="muted">${qb.configured ? '已配置（' + esc(qb.appId || '') + '）' : '未配置'}${s.qqbot?.connected ? ' · 已连接' : ''}</span>
-            <span class="muted" style="margin-left:auto">当前通道：${esc(tr.active || 'onebot')}</span>
-          </div>
-          <div class="sl-qb-grid">
-            <label class="field"><span>AppID</span><input id="sl-qb-appid" type="text" value="${esc(qb.appId || '')}" placeholder="在 QQ 开放平台机器人管理端查看" /></label>
-            <label class="field"><span>AppSecret</span><input id="sl-qb-secret" type="password" value="" placeholder="${qb.hasAppSecret ? '已保存（留空表示不修改）' : '机器人密钥，只存在本机'}" /></label>
-            <label class="field"><span>环境</span><select id="sl-qb-env">
-              <option value="production"${qb.env !== 'sandbox' ? ' selected' : ''}>正式环境</option>
-              <option value="sandbox"${qb.env === 'sandbox' ? ' selected' : ''}>沙箱环境</option>
-            </select></label>
-            <label class="field"><span>群消息模式</span><select id="sl-qb-groupmode">
-              <option value="all"${qb.groupMode !== 'at' ? ' selected' : ''}>全量（需群主在手机 QQ 授权「接收全量消息」）</option>
-              <option value="at"${qb.groupMode === 'at' ? ' selected' : ''}>仅被 @</option>
-            </select></label>
-          </div>
-          <div class="sl-qb-actions">
-            <button class="btn btn-small btn-primary" id="sl-qb-save">保存</button>
-            <button class="btn btn-small" id="sl-qb-test">测试鉴权</button>
-            <button class="btn btn-small" id="sl-qb-active">设为当前通道</button>
-            <span id="sl-qb-status" class="muted" style="font-size:12px"></span>
-          </div>
-          <div class="sl-qb-chats-wrap">
-            <div class="sl-qb-chats-head">
-              <b>最近收到的会话</b>
-              <span class="muted">官方给的是 openid（不是群号/QQ 号），这里直接点「加入白名单」即可</span>
+          <h3>连接配置</h3>
+            <div class="sl-qb-grid">
+              <label class="field"><span>AppID</span><input id="sl-qb-appid" type="text" value="${esc(qb.appId || '')}" placeholder="在 QQ 开放平台机器人管理端查看" /></label>
+              <label class="field"><span>AppSecret</span><input id="sl-qb-secret" type="password" value="" placeholder="${qb.hasAppSecret ? '已保存（留空表示不修改）' : '机器人密钥，只存在本机'}" /></label>
+              <label class="field"><span>环境</span><select id="sl-qb-env">
+                <option value="production"${qb.env !== 'sandbox' ? ' selected' : ''}>正式环境</option>
+                <option value="sandbox"${qb.env === 'sandbox' ? ' selected' : ''}>沙箱环境</option>
+              </select></label>
+              <label class="field"><span>群消息模式</span><select id="sl-qb-groupmode">
+                <option value="all"${qb.groupMode !== 'at' ? ' selected' : ''}>全量（需群主在手机 QQ 授权「接收全量消息」）</option>
+                <option value="at"${qb.groupMode === 'at' ? ' selected' : ''}>仅被 @</option>
+              </select></label>
             </div>
-            <div id="sl-qb-chats" class="sl-qb-chats"><span class="muted">加载中…</span></div>
-            <div class="hint" style="margin-top:6px">看不到内容？机器人进群后需要有人 <b>@ 它</b>（或群主授权「接收全量消息」）才会推送消息；消息到达时日志里也会打一行 <code>[qqbot] 收到 group:xxxx（昵称）：…</code>，openid 就在里面。</div>
-          </div>
-          <div class="hint" style="margin-top:10px">
-          <div class="sl-qb-log-wrap">
-            <div class="hint" style="margin-bottom:4px">官方机器人运行日志（<code>data/logs/qqbot/</code>）</div>
-            <pre class="snowluma-logs-view" id="sl-qb-log" style="max-height:180px">加载中…</pre>
-          </div>
-            <b>与 OneBot 的区别</b>：官方通道合规、不会因协议封号，但<br>
-            · 不能拍一拍、贴表情、改群名片、撤回他人消息（官方无接口，相关工具会自动隐藏）<br>
-            · 群消息默认只收 @；要收全部消息需群主在手机 QQ 里授权「接收全量消息」<br>
-            · 主动发言需群主授权「主动推送消息」，配额 1000 条/群/日<br>
-            · 个人主体只能把机器人加进自己当群主/管理员的群
-          </div>
-        </div>
-
-
-        <!-- 应用日志：logger.js 的内存环形缓冲 + data/logs/ 落盘文件。 -->
-        <div class="sl-log-block sl-app-logs">
-          <div class="hint sl-log-head">
-            <span>应用日志（最近 ${appLogs.length} 条，同时落盘到 data/logs/）</span>
-            <label class="sl-log-level">
-              <span class="muted">落盘级别</span>
-              <select id="app-log-level" title="低于该级别的日志不写入磁盘">
-                ${['debug', 'info', 'warn', 'error'].map((v) =>
-                  `<option value="${v}" ${appLogLevel === v ? 'selected' : ''}>${v}</option>`).join('')}
-              </select>
-            </label>
-            <button class="btn btn-small" id="app-logs-refresh-btn" title="重新拉取最近日志">刷新</button>
-          </div>
-          <pre class="snowluma-logs-view" id="app-logs-view">${esc(appLogText)}</pre>
-        </div>
-
-        <div class="sl-onebot-sentinel"></div>
-
-        <div class="sl-ob-config">
-          <h3 style="margin-top:20px">OneBot 连接配置</h3>
-          <div class="hint" style="margin-bottom:10px">改完地址/令牌需要重启应用生效；启动与日志见本卡片上方。</div>
-          <div class="field"><label>SnowLuma 程序目录（留空 = 自动使用项目内 snowluma/ 文件夹）</label>
-            <input type="text" id="sl-ob-dir" value="${esc(slCfg.dir || '')}" /></div>
-          <div class="field-row">
-            <div class="field"><label>WebSocket 地址（收消息）</label><input type="text" id="sl-ob-ws" value="${esc(slCfg.wsUrl || '')}" /></div>
-            <div class="field"><label>HTTP 地址（发消息）</label><input type="text" id="sl-ob-http" value="${esc(slCfg.httpUrl || '')}" /></div>
-          </div>
-          <div class="field-row">
-            <div class="field"><label>WebSocket 令牌</label>
-              <input type="password" id="sl-ob-token" value="${esc(slCfg.hasAccessToken ? '******' : '')}" placeholder="输入新令牌可替换；留空保持不变" autocomplete="new-password" /></div>
-            <div class="field"><label>HTTP 令牌（与 WS 不同时填）</label>
-              <input type="password" id="sl-ob-httptoken" value="${esc(slCfg.hasHttpAccessToken ? '******' : '')}" placeholder="输入新令牌可替换；留空保持不变" autocomplete="new-password" /></div>
-          </div>
-          <div class="checkbox-row"><input type="checkbox" id="sl-ob-autolaunch" ${slCfg.autoLaunch ? 'checked' : ''} />
-            <label for="sl-ob-autolaunch">QQ Agent 启动时自动拉起 SnowLuma（未运行时）</label></div>
-          <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-            <button class="btn btn-small btn-primary" id="sl-ob-save">保存 OneBot 配置</button>
-            <span class="muted" id="sl-ob-hint" style="font-size:12px"></span>
+            <div class="sl-qb-actions">
+              <button class="btn btn-small btn-primary" id="sl-qb-save">保存</button>
+              <button class="btn btn-small" id="sl-qb-test">测试鉴权</button>
+              <button class="btn btn-small" id="sl-qb-active">设为当前通道</button>
+              <span id="sl-qb-status" class="muted" style="font-size:12px"></span>
+            </div>
+            <div class="sl-qb-chats-wrap">
+              <div class="sl-qb-chats-head">
+                <b>最近收到的会话</b>
+                <span class="muted">官方给的是 openid（不是群号/QQ 号），这里直接点「加入白名单」即可</span>
+              </div>
+              <div id="sl-qb-chats" class="sl-qb-chats"><span class="muted">加载中…</span></div>
+              <div class="hint" style="margin-top:6px">看不到内容？机器人进群后需要有人 <b>@ 它</b>（或群主授权「接收全量消息」）才会推送消息；消息到达时日志里也会打一行 <code>[qqbot] 收到 group:xxxx（昵称）：…</code>，openid 就在里面。</div>
+            </div>
+          <h3>运行状态</h3>
+            <div class="sl-qb-head">
+              <span class="dot ${(s.qqbot?.connected ? 'dot-on' : 'dot-off')}"></span>
+              <strong>官方机器人</strong>
+              <span class="muted">${qb.configured ? '已配置（' + esc(qb.appId || '') + '）' : '未配置'}${s.qqbot?.connected ? ' · 已连接' : ''}</span>
+              <span class="muted" style="margin-left:auto">当前通道：${esc(tr.active || 'onebot')}</span>
+            </div>
+          <h3>运行日志</h3>
+            <div class="sl-qb-log-wrap">
+              <div class="hint" style="margin-bottom:4px">官方机器人运行日志（<code>data/logs/qqbot/</code>）</div>
+              <pre class="snowluma-logs-view" id="sl-qb-log" style="max-height:180px">加载中…</pre>
+            </div>
+          <h3>应用日志</h3>
+          <div class="sl-log-block sl-app-logs">
+            <div class="hint sl-log-head"><span>应用日志（最近 ${appLogs.length} 条）</span><button class="btn btn-small" id="app-logs-refresh-qb" title="重新拉取">刷新</button></div>
+            <pre class="snowluma-logs-view" id="app-logs-view-qb">${esc(appLogText)}</pre>
           </div>
         </div>
 
-        <div class="sl-log-block">
-          <div class="hint sl-log-head">运行日志（仅保留最近 500 行）</div>
-          <pre class="snowluma-logs-view" id="sl-logs-view">${esc(logText)}</pre>
-        </div>
-
+        <div id="sl-onebot-card" class="${chan === 'onebot' ? '' : 'hidden'}">
+          <div class="sl-onebot-sentinel"></div>
+          <h3>连接配置</h3>
+          <div class="sl-ob-config">
+            <div class="field"><label>SnowLuma 程序目录（留空 = 自动使用项目内 snowluma/ 文件夹）</label>
+              <input type="text" id="sl-ob-dir" value="${esc(slCfg.dir || '')}" /></div>
+            <div class="field-row">
+              <div class="field"><label>WebSocket 地址（收消息）</label><input type="text" id="sl-ob-ws" value="${esc(slCfg.wsUrl || '')}" /></div>
+              <div class="field"><label>HTTP 地址（发消息）</label><input type="text" id="sl-ob-http" value="${esc(slCfg.httpUrl || '')}" /></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>WebSocket 令牌</label>
+                <input type="password" id="sl-ob-token" value="${esc(slCfg.hasAccessToken ? '******' : '')}" placeholder="输入新令牌可替换；留空保持不变" autocomplete="new-password" /></div>
+              <div class="field"><label>HTTP 令牌（与 WS 不同时填）</label>
+                <input type="password" id="sl-ob-httptoken" value="${esc(slCfg.hasHttpAccessToken ? '******' : '')}" placeholder="输入新令牌可替换；留空保持不变" autocomplete="new-password" /></div>
+            </div>
+            <div class="checkbox-row"><input type="checkbox" id="sl-ob-autolaunch" ${slCfg.autoLaunch ? 'checked' : ''} />
+              <label for="sl-ob-autolaunch">QQ Agent 启动时自动拉起 SnowLuma（未运行时）</label></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+              <button class="btn btn-small btn-primary" id="sl-ob-save">保存 OneBot 配置</button>
+              <span class="muted" id="sl-ob-hint" style="font-size:12px"></span>
+            </div>
+          </div>
+          <h3>运行状态</h3>
         <!-- 一键启动区域（核心入口） -->
         ${!onebotConnected ? `
         <div class="quick-start-section" style="background:var(--bg);border:none;border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:var(--raise-sm)">
@@ -247,7 +227,6 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           </button>
           <span id="quick-start-hint" class="muted" style="font-size:12px;margin-left:12px"></span>
         </div>` : ''}
-
         <!-- 便携 QQ 内核状态 -->
         <div class="snowluma-qq-section">
           <div class="snowluma-state-row">
@@ -270,7 +249,6 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
             <pre class="snowluma-logs-view" id="qq-logs-view" style="max-height:120px">${esc(qqLogText)}</pre>
           </div>` : ''}
         </div>
-
         <hr class="sl-sep">
 
         <!-- SnowLuma 状态 -->
@@ -303,6 +281,28 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
             <span id="sl-hint" class="muted" style="font-size:12px"></span>
           </div>
         </div>
+          <h3>运行日志</h3>
+        <div class="sl-log-block">
+          <div class="hint sl-log-head">运行日志（仅保留最近 500 行）</div>
+          <pre class="snowluma-logs-view" id="sl-logs-view">${esc(logText)}</pre>
+        </div>
+          <h3>应用日志</h3>
+        <!-- 应用日志：logger.js 的内存环形缓冲 + data/logs/ 落盘文件。 -->
+        <div class="sl-log-block sl-app-logs">
+          <div class="hint sl-log-head">
+            <span>应用日志（最近 ${appLogs.length} 条，同时落盘到 data/logs/）</span>
+            <label class="sl-log-level">
+              <span class="muted">落盘级别</span>
+              <select id="app-log-level" title="低于该级别的日志不写入磁盘">
+                ${['debug', 'info', 'warn', 'error'].map((v) =>
+                  `<option value="${v}" ${appLogLevel === v ? 'selected' : ''}>${v}</option>`).join('')}
+              </select>
+            </label>
+            <button class="btn btn-small" id="app-logs-refresh-btn" title="重新拉取最近日志">刷新</button>
+          </div>
+          <pre class="snowluma-logs-view" id="app-logs-view">${esc(appLogText)}</pre>
+        </div>
+        </div>
       </div>`;
 
     // 还原 QQ 接口表单的输入值与焦点
@@ -318,13 +318,33 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       }
     }
 
-    // QQ 接口：官方机器人模式下隐藏下面的 OneBot 内容
-    const cardEl = box.querySelector('.snowluma-page-card');
-    const sentinel = cardEl && cardEl.querySelector('.sl-onebot-sentinel');
-    if (sentinel && chan === 'qqbot') {
-      let el = sentinel.nextElementSibling;
-      while (el) { el.style.display = 'none'; el = el.nextElementSibling; }
+    // 说明弹窗（原「与 OneBot 的区别」长文本）
+    const infoBtn = box.querySelector('#sl-interface-info');
+    if (infoBtn) {
+      infoBtn.addEventListener('click', () => {
+        const overlay = modelModalShell({
+          head: 'QQ 接口：两种接入方式',
+          body: `
+            <div class="hint" style="font-size:13px;line-height:1.8">
+              <b>OneBot（SnowLuma）</b><br>
+              · 玩法最全：能收全部群消息、主动发言、拍一拍、贴表情、改群名片<br>
+              · 走非官方协议，理论上有封号风险<br>
+              · 需要本机运行 QQ + SnowLuma<br><br>
+              <b>官方机器人（QQ 开放平台）</b><br>
+              · 合规、不会被封协议号；个人主体只能加自己是群主/管理员的群<br>
+              · 不能拍一拍 / 贴表情 / 改群名片 / 撤回他人消息（官方无接口）<br>
+              · 群消息默认只推 @ 的；收全部消息需群主在手机 QQ 授权「接收全量消息」<br>
+              · 主动发言需群主授权「主动推送消息」，配额 1000 条/群/日；被动回复 5 分钟内有效<br>
+              · 文本里的 @ 是 &lt;@openid&gt;，后台会自动清理<br><br>
+              <b>切换</b>：两套白名单/日志/记忆互相独立；切换通道后需重启应用生效。
+            </div>`,
+          foot: '<button class="btn btn-primary" id="sl-info-ok">知道了</button>'
+        });
+        overlay.querySelector('#sl-info-ok').addEventListener('click', () => closeModelModal(overlay));
+      });
     }
+    const appRefreshQb = box.querySelector('#app-logs-refresh-qb');
+    if (appRefreshQb) appRefreshQb.addEventListener('click', () => loadSnowlumaPage());
     // 最近收到的官方通道会话（openid → 一键加白名单）
     const chatsBox = box.querySelector('#sl-qb-chats');
     if (chatsBox) {

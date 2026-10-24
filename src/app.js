@@ -1268,6 +1268,7 @@ export function createApp({ log = console.log } = {}) {
       });
       await transport.start();
       log('[qqbot] 官方机器人通道已连接');
+      transport.fetchSelf?.().catch(() => {});
       try { channelLog('qqbot', '[qqbot] 官方机器人通道已连接'); } catch { /* 忽略 */ }
     } catch (error) {
       log('[qqbot] 连接失败：', error?.message ?? error);

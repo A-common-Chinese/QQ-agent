@@ -55,6 +55,8 @@ export class QqBotTransport extends Transport {
     this._tokenExp = 0;
     this._seq = new Map();      // msg_id -> msg_seq
     this._lastMsg = new Map();  // chatKey -> { id, at } 最近一条用户消息（被动回复窗口 5 分钟）
+    this._selfId = '';
+    this._selfName = '';
     this._statusFns = [];
     this._messageFns = [];
     this._ws = null;
@@ -62,8 +64,22 @@ export class QqBotTransport extends Transport {
     this._lastSeq = 0;
   }
 
-  get selfId() { return this.account?.botId || ''; }
-  get selfNickname() { return this.account?.name || ''; }
+  get selfId() { return this._selfId || this.account?.botId || ''; }
+  get selfNickname() { return this._selfName || this.account?.name || ''; }
+
+  /** 拉一次 bot 自身信息（昵称/ID），失败不影响收发 */
+  async fetchSelf() {
+    try {
+      const me = await this._api('GET', '/users/@me');
+      this._selfId = String(me?.id || '');
+      this._selfName = String(me?.username || '');
+      this._log('[qqbot] bot 身份：' + this._selfName);
+      return { id: this._selfId, name: this._selfName };
+    } catch (e) {
+      this._log('[qqbot] 拉取 bot 身份失败：' + String(e?.message ?? e));
+      return null;
+    }
+  }
   get connected() { return !!this._ws && this._ws.readyState === 1; }
 
   onStatus(fn) { if (typeof fn === 'function') this._statusFns.push(fn); }

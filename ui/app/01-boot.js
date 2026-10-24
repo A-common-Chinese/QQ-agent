@@ -10,9 +10,16 @@ async function refreshStatus() {
     dot.className = 'dot ' + (s.onebot.connected ? 'dot-on' : (s.onebot.everConnected ? 'dot-wait' : 'dot-off'));
     // 未连接时展示后端诊断（2026-09-19）：区分「SnowLuma 没起 / 没登录账号 / 令牌不匹配」，
     // 不再让用户面对一句干巴巴的"未连接"猜原因。
-    label.textContent = s.onebot.connected
-      ? `OneBot 已连接${s.onebot.self ? `（${s.onebot.self.nickname}）` : ''}`
-      : (s.onebot.diagnosis || 'OneBot 未连接');
+    const qbSt = s.qqbot || {};
+    const qbActive = qbSt.connected === true && (qbSt.active === 'qqbot' || s.onebot.connected !== true);
+    if (qbActive) {
+      label.textContent = `开放平台 已连接${qbSt.selfNickname ? `（${qbSt.selfNickname}）` : ''}`;
+      dot.className = 'dot dot-on';
+    } else {
+      label.textContent = s.onebot.connected
+        ? `OneBot 已连接${s.onebot.self ? `（${s.onebot.self.nickname}）` : ''}`
+        : (s.onebot.diagnosis || 'OneBot 未连接');
+    }
     label.title = s.onebot.connected ? '' : (s.onebot.error || '');
     $('#model-label').textContent = `模型：${s.orchestrator.model || '未设置'}`;
     const u = s.usage;

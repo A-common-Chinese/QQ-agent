@@ -156,6 +156,7 @@ export function createRoutes(deps) {
             return {
               connected: st.connected === true,
               error: st.error || '',
+              selfNickname: transport && transport.kind === 'qqbot' ? (transport.selfNickname || '') : '',
               configured: Boolean(String(acc.appId || '').trim() && String(acc.appSecret || '').trim()),
               active: String(getConfig().transport?.active || 'onebot')
             };
