@@ -74,7 +74,7 @@ function parseSectionsQuery(searchParams) {
 export function createRoutes(deps) {
   const conn = deps.transport || asTransport({ client: deps.onebot });
   const {
-    store, memory, sessions, onebot, transport, orchestrator, sender,
+    store, memory, sessions, onebot, transport, qqbotChats, orchestrator, sender,
     emit, log,
     // app.js 内部的过程/状态
     localVersion, compareSemver, UPDATE_INFO_URL,
@@ -1954,6 +1954,29 @@ export function createRoutes(deps) {
       }
     },
     // ── 接入方式（QQ 接口：OneBot / 官方机器人） ─────────────────────
+    {
+      method: 'GET', pattern: '/api/transport/qqbot/chats',
+      handler: async ({ res, json }) => {
+        const list = qqbotChats instanceof Map ? [...qqbotChats.values()] : [];
+        list.sort((a, b) => (b.at || 0) - (a.at || 0));
+        return json(res, 200, { ok: true, chats: list.slice(0, 30) });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/transport/qqbot/chats/allow',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const kind = String(body.kind || '').trim();
+        const id = String(body.id || '').trim();
+        if (!['group', 'private'].includes(kind) || !id) return json(res, 400, { ok: false, error: '参数不合法' });
+        const cfg = getConfig();
+        const allow = { groups: [...(cfg.allow?.groups || [])], private: [...(cfg.allow?.private || [])] };
+        const key = kind === 'group' ? 'groups' : 'private';
+        if (!allow[key].includes(id)) allow[key].push(id);
+        updateConfig({ allow });
+        return json(res, 200, { ok: true, allow });
+      }
+    },
     {
       method: 'GET', pattern: '/api/transport/status',
       handler: async ({ res, json }) => {

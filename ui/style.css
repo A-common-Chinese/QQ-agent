@@ -2319,3 +2319,10 @@ body.skin-bg-on .view { background: transparent; }
 .sl-qb-grid .field > span { font-size: 12px; color: var(--tx3); }
 .sl-qb-grid input, .sl-qb-grid select { width: 100%; }
 .sl-qb-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+/* QQ 接口：最近收到的官方通道会话 */
+.sl-qb-chats-wrap { margin-top: 14px; border-top: 1px dashed var(--bd); padding-top: 10px; }
+.sl-qb-chats-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; font-size: 13px; }
+.sl-qb-chats { display: flex; flex-direction: column; gap: 6px; }
+.sl-qb-chat { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.sl-qb-chat-key { font-family: var(--mono, ui-monospace, monospace); color: var(--tx2); }

@@ -159,6 +159,14 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
             <button class="btn btn-small" id="sl-qb-active">设为当前通道</button>
             <span id="sl-qb-status" class="muted" style="font-size:12px"></span>
           </div>
+          <div class="sl-qb-chats-wrap">
+            <div class="sl-qb-chats-head">
+              <b>最近收到的会话</b>
+              <span class="muted">官方给的是 openid（不是群号/QQ 号），这里直接点「加入白名单」即可</span>
+            </div>
+            <div id="sl-qb-chats" class="sl-qb-chats"><span class="muted">加载中…</span></div>
+            <div class="hint" style="margin-top:6px">看不到内容？机器人进群后需要有人 <b>@ 它</b>（或群主授权「接收全量消息」）才会推送消息；消息到达时日志里也会打一行 <code>[qqbot] 收到 group:xxxx（昵称）：…</code>，openid 就在里面。</div>
+          </div>
           <div class="hint" style="margin-top:10px">
             <b>与 OneBot 的区别</b>：官方通道合规、不会因协议封号，但<br>
             · 不能拍一拍、贴表情、改群名片、撤回他人消息（官方无接口，相关工具会自动隐藏）<br>
@@ -285,6 +293,33 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       let el = sentinel.nextElementSibling;
       while (el) { el.style.display = 'none'; el = el.nextElementSibling; }
     }
+    // 最近收到的官方通道会话（openid → 一键加白名单）
+    const chatsBox = box.querySelector('#sl-qb-chats');
+    if (chatsBox) {
+      api('/api/transport/qqbot/chats').then((r) => {
+        const list = (r && r.chats) || [];
+        if (!list.length) {
+          chatsBox.innerHTML = '<span class="muted">还没收到消息。机器人进群并有人 @ 它之后，这里会列出会话 openid。</span>';
+          return;
+        }
+        chatsBox.innerHTML = list.map((c) => '<div class="sl-qb-chat">'
+          + '<span class="sl-qb-chat-key">' + esc(c.chatKey) + '</span>'
+          + '<span class="muted">' + esc(c.nickname || '') + '</span>'
+          + '<button class="btn btn-small" data-sl-qb-allow data-kind="' + esc(c.kind) + '" data-id="' + esc(c.id) + '">加入白名单</button>'
+          + '</div>').join('');
+        chatsBox.querySelectorAll('[data-sl-qb-allow]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            try {
+              const rr = await api('/api/transport/qqbot/chats/allow', { method: 'POST', body: JSON.stringify({ kind: btn.dataset.kind, id: btn.dataset.id }) });
+              btn.textContent = rr && rr.ok ? '已加入 ✓' : '失败';
+            } catch { btn.textContent = '失败'; }
+            btn.disabled = false;
+          });
+        });
+      }).catch(() => { chatsBox.innerHTML = '<span class="muted">读取失败</span>'; });
+    }
+
     // 通道切换
     box.querySelectorAll('[data-sl-chan]').forEach((b) => {
       b.addEventListener('click', () => {

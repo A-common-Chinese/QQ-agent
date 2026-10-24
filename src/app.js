@@ -1186,6 +1186,9 @@ export function createApp({ log = console.log } = {}) {
     maybeSilentAt({ chatKey: `${isGroup ? 'group' : 'private'}:${id}`, entry, orchestrator, log }).catch(() => {});
   }
 
+  /** 官方通道最近收到的会话（openid 不好找，这里给 UI/日志直接用） */
+  const qqbotChats = new Map();
+
   /** 官方机器人事件 → 伪 OneBot 事件，复用现有 ingestMessage 管线（chatKey 用 openid） */
   function feedQqbotEvent(evt) {
     try {
@@ -1202,7 +1205,19 @@ export function createApp({ log = console.log } = {}) {
         sender: { user_id: evt.userId || (isGroup ? '' : evt.chatId), nickname: evt.nickname || '', card: '' },
         _qqbot: evt
       };
-      return ingestMessage(isGroup ? 'group' : 'private', String(isGroup ? evt.chatId : evt.chatId), pseudo);
+      const ck = `${isGroup ? 'group' : 'private'}:${evt.chatId}`;
+      qqbotChats.set(ck, {
+        kind: isGroup ? 'group' : 'private',
+        id: String(evt.chatId),
+        chatKey: ck,
+        nickname: String(evt.nickname || ''),
+        userId: String(evt.userId || ''),
+        at: Date.now(),
+        text: String(evt.text || '').slice(0, 60)
+      });
+      if (qqbotChats.size > 30) { const first = qqbotChats.keys().next().value; qqbotChats.delete(first); }
+      log(`[qqbot] 收到 ${ck}（${evt.nickname || '?'}）：${String(evt.text || '').slice(0, 40)}`);
+      return ingestMessage(isGroup ? 'group' : 'private', String(evt.chatId), pseudo);
     } catch (error) {
       log('[qqbot] 事件处理出错:', error?.message ?? error);
     }
@@ -1478,6 +1493,7 @@ export function createApp({ log = console.log } = {}) {
   // 路由 handler 通过闭包取用这些依赖，handleHttp 只负责匹配分发。
   const apiRoutes = createRoutes({
     transport,
+    qqbotChats,
     store, memory, sessions, onebot, orchestrator, sender,
     emit, log,
     localVersion, compareSemver, UPDATE_INFO_URL,
