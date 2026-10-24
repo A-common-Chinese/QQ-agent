@@ -55,6 +55,14 @@ function scheduleSnowlumaReload(opts = {}) {
 }
 
 async function loadSnowlumaPage({ quiet = false } = {}) {
+  // 正在输入时不要整页重建（SSE 状态推送 400ms 一次，重建会把输入框清空/丢焦点）
+  try {
+    const active = document.activeElement;
+    if (quiet && active && active.closest && active.closest('#snowluma-page')
+      && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) {
+      return;
+    }
+  } catch { /* 忽略 */ }
   try {
     const [status, logs, qqLogs, appLogsData, trStatus] = await Promise.all([
       api('/api/status'),
@@ -104,6 +112,14 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
     const prevScroll = oldPre
       ? { top: oldPre.scrollTop, atBottom: oldPre.scrollTop + oldPre.clientHeight >= oldPre.scrollHeight - 40 }
       : null;
+    // 记住 QQ 接口表单里正在编辑的值与焦点（重建后原样还原）
+    const EDIT_IDS = ['sl-qb-appid', 'sl-qb-secret', 'sl-qb-env', 'sl-qb-groupmode'];
+    const editState = {};
+    for (const id of EDIT_IDS) {
+      const el = box.querySelector('#' + id);
+      if (!el) continue;
+      editState[id] = { value: el.value, focused: document.activeElement === el };
+    }
     const oldAppPre = box.querySelector('#app-logs-view');
     const prevAppScroll = oldAppPre
       ? { top: oldAppPre.scrollTop, atBottom: oldAppPre.scrollTop + oldAppPre.clientHeight >= oldAppPre.scrollHeight - 40 }
@@ -248,6 +264,19 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           <pre class="snowluma-logs-view" id="app-logs-view">${esc(appLogText)}</pre>
         </div>
       </div>`;
+
+    // 还原 QQ 接口表单的输入值与焦点
+    for (const [id, st] of Object.entries(editState)) {
+      const el = box.querySelector('#' + id);
+      if (!el) continue;
+      if (st.value !== el.value && st.focused) {
+        el.value = st.value;
+        try { el.setSelectionRange(el.value.length, el.value.length); } catch { /* select 不支持 */ }
+        el.focus();
+      } else if (st.focused) {
+        el.focus();
+      }
+    }
 
     // QQ 接口：官方机器人模式下隐藏下面的 OneBot 内容
     const cardEl = box.querySelector('.snowluma-page-card');

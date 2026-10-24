@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { getConfig, updateConfig, ROOT, DATA_DIR, silentReason, ensurePersonaAssignment } from './config.js';
 import { checkForUpdate as updateCheck, getDownloadState as updateStatus, downloadUpdate as updateDownload } from './updater.js';
 import { createTransport } from './transport/index.js';
+import { QqBotTransport } from './transport/qqbot.js';
 import { OneBotClient, segmentsToText, extractMediaFromSegments, expandForwardNodes } from './onebot.js';
 import { isAtMe } from './prompt.js';
 import { ChatStore } from './store.js';
@@ -647,8 +648,16 @@ export function createApp({ log = console.log } = {}) {
     httpToken: cfg.snowluma?.httpAccessToken || cfg.snowluma?.accessToken,
     onEvent: (event) => handleOneBotEvent(event).catch((error) => log('[ingest] 处理事件出错:', error?.message ?? error))
   });
-  // 传输层（P1）：onebot 适配器先包住现有客户端；官方 QQ Bot 通道在 P2 接入
-  const transport = createTransport({ type: 'onebot', client: onebot });
+  // ── 接入通道（P2）：active=onebot 走 SnowLuma；active=qqbot 走官方机器人 ──
+  const trCfg = cfg.transport || {};
+  const qbAccount = Array.isArray(trCfg.qqbot?.accounts) ? trCfg.qqbot.accounts[0] : null;
+  const qqbotConfigured = Boolean(String(qbAccount?.appId || '').trim() && String(qbAccount?.appSecret || '').trim());
+  const activeChannel = String(trCfg.active || 'onebot');
+  const useQqbot = activeChannel === 'qqbot' && qqbotConfigured;
+  if (activeChannel === 'qqbot' && !qqbotConfigured) log('[transport] active=qqbot 但 AppID/AppSecret 未配置，回退到 OneBot');
+  const transport = useQqbot
+    ? new QqBotTransport({ account: qbAccount, intents: trCfg.qqbot?.intents || 0, log })
+    : createTransport({ type: 'onebot', client: onebot });
   const stickers = new StickerManager(onebot, transport);
   const sender =   new SendQueue({
     onebot, transport, store,
@@ -1177,8 +1186,44 @@ export function createApp({ log = console.log } = {}) {
     maybeSilentAt({ chatKey: `${isGroup ? 'group' : 'private'}:${id}`, entry, orchestrator, log }).catch(() => {});
   }
 
+  /** 官方机器人事件 → 伪 OneBot 事件，复用现有 ingestMessage 管线（chatKey 用 openid） */
+  function feedQqbotEvent(evt) {
+    try {
+      const isGroup = evt?.kind === 'group';
+      const pseudo = {
+        post_type: 'message',
+        message_type: isGroup ? 'group' : 'private',
+        self_id: '',
+        group_id: isGroup ? evt.chatId : undefined,
+        user_id: isGroup ? (evt.userId || '') : evt.chatId,
+        message_id: evt.messageId,
+        raw_message: evt.text,
+        message: [{ type: 'text', data: { text: evt.text } }],
+        sender: { user_id: evt.userId || (isGroup ? '' : evt.chatId), nickname: evt.nickname || '', card: '' },
+        _qqbot: evt
+      };
+      return ingestMessage(isGroup ? 'group' : 'private', String(isGroup ? evt.chatId : evt.chatId), pseudo);
+    } catch (error) {
+      log('[qqbot] 事件处理出错:', error?.message ?? error);
+    }
+  }
+
+  /** 启动官方机器人通道（失败只记日志，不阻塞控制台） */
+  async function startQqbotChannel() {
+    try {
+      transport.onMessage((evt) => { feedQqbotEvent(evt).catch?.((e) => log('[qqbot] ingest 失败:', e?.message ?? e)); });
+      transport.onStatus((st) => { emit('qqbot-status', st); log('[qqbot] 状态:', JSON.stringify(st)); });
+      await transport.start();
+      log('[qqbot] 官方机器人通道已连接');
+    } catch (error) {
+      log('[qqbot] 连接失败：', error?.message ?? error);
+      setTimeout(() => { startQqbotChannel(); }, 15000).unref?.();
+    }
+  }
+
   async function handleOneBotEvent(event) {
     if (!event || typeof event !== 'object') return;
+    if (useQqbot) return;   // 当前走官方机器人通道，OneBot 事件一律忽略
     if (event.post_type === 'message' || event.post_type === 'message_sent') {
       // 自己发的消息（message_sent / self_id 相同）不触发处理（发送时已自行记录）
       if (String(event.user_id ?? event.sender?.user_id ?? '') === onebot.selfId) return;
@@ -1716,7 +1761,12 @@ try {
       onebot.httpUrl = String(c.snowluma?.httpUrl || onebot.httpUrl).replace(/\/+$/, '');
       // accessToken/httpToken 已由 applyTokens 直接挂到实例（候选[0]）
     }
-    await onebot.connect();
+    if (useQqbot) {
+      // 官方通道：不等 OneBot，直接连官方 WS 网关
+      startQqbotChannel();
+    } else {
+      await onebot.connect();
+    }
 
     // ── OneBot 端口就绪轮询（2026-09-19）────────────────────────────────────
     // WS 3001 只有「QQ 登录 → Hook 检出 → OneBot 实例拉起」后才监听。常见时序：
