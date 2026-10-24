@@ -2323,14 +2323,14 @@ export function createRoutes(deps) {
       }
     },
     {
-      method: 'GET', pattern: /^\/api\/memory-files\/(group|private)_(\d+)$/,
+      method: 'GET', pattern: /^\/api\/memory-files\/(group|private)_([0-9A-Za-z]+)$/,
       handler: async ({ res, json, match }) => {
         const chatKey = `${match[1]}:${match[2]}`;
         return json(res, 200, { ...memory.query(chatKey), members: memory.members(chatKey) });
       }
     },
     {
-      method: 'PUT', pattern: /^\/api\/memory-files\/(group|private)_(\d+)\/members\/(\d+)$/,
+      method: 'PUT', pattern: /^\/api\/memory-files\/(group|private)_([0-9A-Za-z]+)\/members\/(\d+)$/,
       handler: async ({ req, res, json, match }) => {
         const chatKey = `${match[1]}:${match[2]}`;
         const body = await bodyOf(req);
@@ -2349,7 +2349,7 @@ export function createRoutes(deps) {
       }
     },
     {
-      method: 'DELETE', pattern: /^\/api\/memory-files\/(group|private)_(\d+)\/members\/(\d+)$/,
+      method: 'DELETE', pattern: /^\/api\/memory-files\/(group|private)_([0-9A-Za-z]+)\/members\/(\d+)$/,
       handler: async ({ res, json, match }) => {
         const chatKey = `${match[1]}:${match[2]}`;
         memory.removeMember(chatKey, match[3]);
@@ -2359,7 +2359,7 @@ export function createRoutes(deps) {
     },
     {
       // 删除整个会话的记忆（记忆页「删除本会话记忆」按钮）
-      method: 'DELETE', pattern: /^\/api\/memory-files\/(group|private)_(\d+)$/,
+      method: 'DELETE', pattern: /^\/api\/memory-files\/(group|private)_([0-9A-Za-z]+)$/,
       handler: async ({ res, json, match }) => {
         const chatKey = `${match[1]}:${match[2]}`;
         memory.removeChat(chatKey);
@@ -2397,7 +2397,7 @@ export function createRoutes(deps) {
 
     // ── 存档消息 ─────────────────────────────────────────────────────
     {
-      method: 'GET', pattern: /^\/api\/chats\/(group|private)_(\d+)\/messages$/,
+      method: 'GET', pattern: /^\/api\/chats\/(group|private)_([0-9A-Za-z]+)\/messages$/,
       handler: async ({ res, json, url, match }) => {
         const chatKey = `${match[1]}:${match[2]}`;
         const limit = Math.min(1048576, Math.max(1, Number(url.searchParams.get('limit')) || 1048576));
@@ -2465,11 +2465,11 @@ export function createRoutes(deps) {
       }
     },
     {
-      method: 'POST', pattern: /^\/api\/chats\/(group|private)_(\d+)\/wake$/,
+      method: 'POST', pattern: /^\/api\/chats\/(group|private)_([0-9A-Za-z]+)\/wake$/,
       handler: async ({ res, json }) => json(res, 410, { error: '已移除：不触发的消息现在会立即标为已读，无需手动唤醒' })
     },
     {
-      method: 'POST', pattern: /^\/api\/chats\/(group|private)_(\d+)\/test-send$/,
+      method: 'POST', pattern: /^\/api\/chats\/(group|private)_([0-9A-Za-z]+)\/test-send$/,
       handler: async ({ req, res, json, match }) => {
         const body = await readBody(req);
         const text = String(body.text ?? '').trim();
@@ -2634,7 +2634,7 @@ export function createRoutes(deps) {
       }
     },
     {
-      method: 'POST', pattern: /^\/api\/chats\/(group|private)_(\d+)\/mark-read$/,
+      method: 'POST', pattern: /^\/api\/chats\/(group|private)_([0-9A-Za-z]+)\/mark-read$/,
       handler: async ({ res, json, match }) => json(res, 200, { ok: true, marked: store.drainUnread(`${match[1]}:${match[2]}`).length })
     },
     {
@@ -2662,7 +2662,7 @@ export function createRoutes(deps) {
     },
     {
       // 清空某会话的全部消息（整体清除存档）
-      method: 'POST', pattern: /^\/api\/chats\/(group|private)_(\d+)\/clear$/,
+      method: 'POST', pattern: /^\/api\/chats\/(group|private)_([0-9A-Za-z]+)\/clear$/,
       handler: async ({ res, json, match }) => {
         const chatKey = `${match[1]}:${match[2]}`;
         const removed = store.clearChat(chatKey);
@@ -2672,7 +2672,7 @@ export function createRoutes(deps) {
     },
     {
       // 仅屏蔽（不删除）：把某会话全部未读标记为已读，不再触发回复
-      method: 'POST', pattern: /^\/api\/chats\/(group|private)_(\d+)\/mute$/,
+      method: 'POST', pattern: /^\/api\/chats\/(group|private)_([0-9A-Za-z]+)\/mute$/,
       handler: async ({ res, json, match }) => {
         const chatKey = `${match[1]}:${match[2]}`;
         const marked = store.muteUnread(chatKey);
@@ -2682,7 +2682,7 @@ export function createRoutes(deps) {
     },
     {
       // 部分清除：删除指定本地 id 的消息
-      method: 'POST', pattern: /^\/api\/chats\/(group|private)_(\d+)\/delete-messages$/,
+      method: 'POST', pattern: /^\/api\/chats\/(group|private)_([0-9A-Za-z]+)\/delete-messages$/,
       handler: async ({ req, res, json, match }) => {
         const chatKey = `${match[1]}:${match[2]}`;
         const body = await bodyOf(req);
