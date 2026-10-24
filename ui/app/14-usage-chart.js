@@ -17,7 +17,7 @@
     axis: 'auto',       // auto | manual
     axisMax: '',
     split: 'both',      // tokens 指标下：both | input | output
-    outMul: 5,          // 柱状并排时"输出"的放大倍数（输入输出悬殊时便于对比）
+    outMul: 50,         // 柱状并排时"输出"的放大倍数（输入输出悬殊时便于对比）
     data: null,
     loading: false,
     error: '',
@@ -32,7 +32,7 @@
       if (saved.axis === 'manual' || saved.axis === 'auto') S.axis = saved.axis;
       if (saved.axisMax !== undefined) S.axisMax = String(saved.axisMax || '');
       if (['both', 'input', 'output'].includes(saved.split)) S.split = saved.split;
-      if (Number(saved.outMul) > 0) S.outMul = Math.min(1000, Math.max(1, Number(saved.outMul)));
+      if (Number(saved.outMul) > 0 && Number(saved.outMul) !== 5) S.outMul = Math.min(1000, Math.max(1, Number(saved.outMul)));
     }
   } catch { /* 忽略 */ }
 
