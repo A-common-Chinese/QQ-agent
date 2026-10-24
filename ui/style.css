@@ -2331,3 +2331,6 @@ body.skin-bg-on .view { background: transparent; }
 .sl-chan-logs-wrap { margin-top: 16px; border-top: 1px dashed var(--bd); padding-top: 12px; }
 .sl-chan-logs-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; font-size: 13px; }
 .sl-chan-logs-head .btn.on { background: var(--ac); border-color: var(--ac); color: #fff; }
+
+/* QQ 接口：官方机器人卡片内的运行日志 */
+.sl-qb-log-wrap { margin-top: 12px; border-top: 1px dashed var(--bd); padding-top: 10px; }

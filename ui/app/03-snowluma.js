@@ -168,6 +168,10 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
             <div class="hint" style="margin-top:6px">看不到内容？机器人进群后需要有人 <b>@ 它</b>（或群主授权「接收全量消息」）才会推送消息；消息到达时日志里也会打一行 <code>[qqbot] 收到 group:xxxx（昵称）：…</code>，openid 就在里面。</div>
           </div>
           <div class="hint" style="margin-top:10px">
+          <div class="sl-qb-log-wrap">
+            <div class="hint" style="margin-bottom:4px">官方机器人运行日志（<code>data/logs/qqbot/</code>）</div>
+            <pre class="snowluma-logs-view" id="sl-qb-log" style="max-height:180px">加载中…</pre>
+          </div>
             <b>与 OneBot 的区别</b>：官方通道合规、不会因协议封号，但<br>
             · 不能拍一拍、贴表情、改群名片、撤回他人消息（官方无接口，相关工具会自动隐藏）<br>
             · 群消息默认只收 @；要收全部消息需群主在手机 QQ 里授权「接收全量消息」<br>
@@ -176,17 +180,29 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           </div>
         </div>
 
-        <div class="sl-chan-logs-wrap">
-          <div class="sl-chan-logs-head">
-            <b>运行日志（按通道分开）</b>
-            <button class="btn btn-small" data-sl-logtab="snowluma">SnowLuma</button>
-            <button class="btn btn-small" data-sl-logtab="qqbot">官方机器人</button>
-            <button class="btn btn-small" id="sl-chan-log-refresh">刷新</button>
-            <span class="muted" id="sl-chan-log-hint" style="font-size:12px"></span>
+
+        <!-- 应用日志：logger.js 的内存环形缓冲 + data/logs/ 落盘文件。 -->
+        <div class="sl-log-block sl-app-logs">
+          <div class="hint sl-log-head">
+            <span>应用日志（最近 ${appLogs.length} 条，同时落盘到 data/logs/）</span>
+            <label class="sl-log-level">
+              <span class="muted">落盘级别</span>
+              <select id="app-log-level" title="低于该级别的日志不写入磁盘">
+                ${['debug', 'info', 'warn', 'error'].map((v) =>
+                  `<option value="${v}" ${appLogLevel === v ? 'selected' : ''}>${v}</option>`).join('')}
+              </select>
+            </label>
+            <button class="btn btn-small" id="app-logs-refresh-btn" title="重新拉取最近日志">刷新</button>
           </div>
-          <pre class="snowluma-logs-view" id="sl-chan-log-pre">加载中…</pre>
+          <pre class="snowluma-logs-view" id="app-logs-view">${esc(appLogText)}</pre>
         </div>
+
         <div class="sl-onebot-sentinel"></div>
+
+        <div class="sl-log-block">
+          <div class="hint sl-log-head">运行日志（仅保留最近 500 行）</div>
+          <pre class="snowluma-logs-view" id="sl-logs-view">${esc(logText)}</pre>
+        </div>
 
         <!-- 一键启动区域（核心入口） -->
         ${!onebotConnected ? `
@@ -262,26 +278,6 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
             <span id="sl-hint" class="muted" style="font-size:12px"></span>
           </div>
         </div>
-        <div class="sl-log-block">
-          <div class="hint sl-log-head">运行日志（仅保留最近 500 行）</div>
-          <pre class="snowluma-logs-view" id="sl-logs-view">${esc(logText)}</pre>
-        </div>
-
-        <!-- 应用日志：logger.js 的内存环形缓冲 + data/logs/ 落盘文件。 -->
-        <div class="sl-log-block sl-app-logs">
-          <div class="hint sl-log-head">
-            <span>应用日志（最近 ${appLogs.length} 条，同时落盘到 data/logs/）</span>
-            <label class="sl-log-level">
-              <span class="muted">落盘级别</span>
-              <select id="app-log-level" title="低于该级别的日志不写入磁盘">
-                ${['debug', 'info', 'warn', 'error'].map((v) =>
-                  `<option value="${v}" ${appLogLevel === v ? 'selected' : ''}>${v}</option>`).join('')}
-              </select>
-            </label>
-            <button class="btn btn-small" id="app-logs-refresh-btn" title="重新拉取最近日志">刷新</button>
-          </div>
-          <pre class="snowluma-logs-view" id="app-logs-view">${esc(appLogText)}</pre>
-        </div>
       </div>`;
 
     // 还原 QQ 接口表单的输入值与焦点
@@ -331,47 +327,23 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       }).catch(() => { chatsBox.innerHTML = '<span class="muted">读取失败</span>'; });
     }
 
-    // ── 运行日志（按通道分开）：SnowLuma / 官方机器人 各自一个查看窗口 ──
-    let logChan = (() => {
+    // 官方机器人卡片内的运行日志（只读 data/logs/qqbot/）
+    const qbLogPre = box.querySelector('#sl-qb-log');
+    const fillQbLog = async () => {
+      if (!qbLogPre) return;
       try {
-        const saved = localStorage.getItem('qqa-sl-logtab');
-        if (saved) return saved;
-        return (tr.active === 'qqbot') ? 'qqbot' : 'snowluma';
-      } catch { return 'snowluma'; }
-    })();
-    const chanLogPre = box.querySelector('#sl-chan-log-pre');
-    const chanLogHint = box.querySelector('#sl-chan-log-hint');
-    const markLogTab = () => {
-      box.querySelectorAll('[data-sl-logtab]').forEach((b) => b.classList.toggle('on', b.dataset.slLogtab === logChan));
-    };
-    const fillChanLog = async () => {
-      if (!chanLogPre) return;
-      try {
-        const r = await api('/api/logs/channel?channel=' + encodeURIComponent(logChan) + '&limit=200');
+        const r = await api('/api/logs/channel?channel=qqbot&limit=200');
         const rows = (r && r.logs) || [];
-        chanLogPre.textContent = rows.length
+        qbLogPre.textContent = rows.length
           ? rows.map((l) => {
             const t = new Date(l.at).toLocaleTimeString('zh-CN', { hour12: false });
             return `[${t}]${l.stream === 'stderr' ? ' ⚠' : ''} ${l.text}`;
           }).join('\n')
-          : '（这个通道还没有日志）';
-        chanLogPre.scrollTop = chanLogPre.scrollHeight;
-        if (chanLogHint) chanLogHint.textContent = logChan === 'qqbot' ? 'data/logs/qqbot/' : 'data/logs/snowluma/';
-      } catch (e) {
-        chanLogPre.textContent = '读取失败：' + (e.message || e);
-      }
-      markLogTab();
+          : '（还没有日志）';
+        qbLogPre.scrollTop = qbLogPre.scrollHeight;
+      } catch (e) { qbLogPre.textContent = '读取失败：' + (e.message || e); }
     };
-    box.querySelectorAll('[data-sl-logtab]').forEach((b) => {
-      b.addEventListener('click', () => {
-        logChan = b.dataset.slLogtab;
-        try { localStorage.setItem('qqa-sl-logtab', logChan); } catch { /* 忽略 */ }
-        fillChanLog();
-      });
-    });
-    const chanLogRefresh = box.querySelector('#sl-chan-log-refresh');
-    if (chanLogRefresh) chanLogRefresh.addEventListener('click', () => fillChanLog());
-    fillChanLog();
+    fillQbLog();
 
     // 通道切换
     box.querySelectorAll('[data-sl-chan]').forEach((b) => {
