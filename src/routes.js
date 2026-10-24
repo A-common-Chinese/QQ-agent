@@ -74,7 +74,7 @@ function parseSectionsQuery(searchParams) {
 export function createRoutes(deps) {
   const conn = deps.transport || asTransport({ client: deps.onebot });
   const {
-    store, memory, sessions, onebot, transport, qqbotChats, qqbotStatus, orchestrator, sender,
+    store, memory, sessions, onebot, transport, qqbotChats, qqbotStatus, simulateQqbotEvent, orchestrator, sender,
     emit, log,
     // app.js 内部的过程/状态
     localVersion, compareSemver, UPDATE_INFO_URL,
@@ -1993,6 +1993,33 @@ export function createRoutes(deps) {
         next[kind] = next[kind].filter((x) => String(x) !== id);
         updateConfig({ allowQqbot: next });
         return json(res, 200, { ok: true, allowQqbot: next });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/transport/qqbot/simulate',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const cfg = getConfig();
+        const g = (cfg.allowQqbot?.groups || [])[0];
+        if (!g) return json(res, 400, { ok: false, error: 'allowQqbot 里还没有群 openid' });
+        if (typeof simulateQqbotEvent !== 'function') return json(res, 500, { ok: false, error: '模拟入口未接线' });
+        const text = String(body.text || '（本地模拟消息）');
+        const evt = {
+          kind: 'group',
+          chatId: String(body.chatId || g),
+          messageId: 'SIM-' + Date.now(),
+          userId: 'SIM-USER',
+          nickname: '本地模拟',
+          text,
+          atMe: true,
+          raw: {}
+        };
+        try {
+          await simulateQqbotEvent(evt);
+          return json(res, 200, { ok: true, injected: evt.chatKey || ('group:' + evt.chatId), text });
+        } catch (error) {
+          return json(res, 500, { ok: false, error: String(error?.message ?? error) });
+        }
       }
     },
     // ── 接入方式（QQ 接口：OneBot / 官方机器人） ─────────────────────

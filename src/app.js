@@ -861,7 +861,11 @@ export function createApp({ log = console.log } = {}) {
 
   async function ingestMessage(kind, id, event, channel = 'onebot') {
     const cfgNow = getConfig();
-    if (!allowed(kind, id, cfgNow, channel)) return; // 白名单外的聊天完全不记录
+    const _ok = allowed(kind, id, cfgNow, channel);
+    if (!_ok) {
+      if (channel === 'qqbot') log(`[qqbot] 白名单拒绝 ${kind}:${id}（allowQqbot 群数=${(cfgNow.allowQqbot?.groups || []).length}）`);
+      return; // 白名单外的聊天完全不记录
+    }
 
     const segments = Array.isArray(event.message) ? event.message : null;
     const senderId = String(event.sender?.user_id ?? event.user_id ?? '');
@@ -880,9 +884,11 @@ export function createApp({ log = console.log } = {}) {
     let text;
     const atMarks = [];   // @ 段收集（qq + 渲染原文）：档位判定的权威依据（2026-09-26）
     if (segments) {
+      const isQqbot = channel === 'qqbot';
       text = await segmentsToText(segments, {
-        resolveReply: (mid) => resolveReply(mid),
-        resolveAtName: (qq) => kind === 'group' ? resolveAtName(id, qq) : null,
+        // 官方通道没有 OneBot 的群成员/引用查询，跳过（否则会抛错导致整条消息被丢弃）
+        resolveReply: (mid) => (isQqbot ? null : resolveReply(mid)),
+        resolveAtName: (qq) => (isQqbot || kind !== 'group' ? null : resolveAtName(id, qq)),
         onAt: (m) => atMarks.push(m),
         // 语音转写（`media.transcribe`）要用它去 get_record 取音频
         onebot
@@ -896,7 +902,7 @@ export function createApp({ log = console.log } = {}) {
     // res_id（转发卡片里那个 id）会过期，报 "payload is empty"。
     // 媒体里的 url 此时是新鲜的，一并收进 media（取图/金句都能用）。
     // 展开失败时占位符留在存档里，模型可用 read_forward 工具稍后重试。
-    if (segments && (text.includes('[合并转发') || text.includes('[转发消息')) && event.message_id != null) {
+    if (channel !== 'qqbot' && segments && (text.includes('[合并转发') || text.includes('[转发消息')) && event.message_id != null) {
       try {
         const r = await transport.call('get_forward_msg', { message_id: Number(event.message_id) });
         const nodes = Array.isArray(r?.messages) ? r.messages : (Array.isArray(r?.data?.messages) ? r.data.messages : []);
@@ -921,13 +927,17 @@ export function createApp({ log = console.log } = {}) {
     //           仍是事实上的召唤，不能把它的语义改掉；
     //   atNames 记录渲染进 text 的 @ 片段原文，关键词判定据此剔除。
     const selfIdNow = onebot.selfId || '';
-    const atMe = atMarks.length
+    // 官方通道：GROUP_AT_MESSAGE_CREATE 本身就代表"被 @"，不能靠文本里的 <@xxx> 占位符猜
+    const qqbotEvt = channel === 'qqbot' ? (event._qqbot || null) : null;
+    const atMe = qqbotEvt
+      ? (qqbotEvt.atMe === true || /<@!?all>/i.test(String(qqbotEvt.text || '')))
+      : (atMarks.length
       ? atMarks.some((m) => m.qq !== 'all' && selfIdNow && String(m.qq) === String(selfIdNow))
       : isAtMe(text, {
         selfId: selfIdNow,
         selfNickname: onebot.selfNickname,
         botName: getConfig().persona?.botName || ''
-      });
+      }));
     const atNames = atMarks.map((m) => String(m?.text || '')).filter(Boolean);
 
     // ── 指令禁言：群内任何人 @机器人 + 发送指定指令 → 该群暂时固定 1 档（仅艾特）──
@@ -953,6 +963,7 @@ export function createApp({ log = console.log } = {}) {
       atNames
     });
     emit('chat-update', `${kind}:${id}`);
+
     // DSH 桥（确定性，2026-10-10）：/dsh 前缀的命令不进大模型，直接交给本机
     // DeepSeek Harness 执行。认领后立即标已读并结束本轮 —— 不这么做的话这条消息
     // 会留在未读里，被后面的 drain 当成积压喂给模型，变成"模型再答一遍"。
@@ -967,7 +978,14 @@ export function createApp({ log = console.log } = {}) {
       if (_autoCard) log(`[人格] 新会话 ${kind}:${id} 自动分配默认卡：${_autoCard}`);
     } catch { /* 分配失败不影响主流程 */ }
     // 逐条触发判定：把刚入库的条目交给编排器（entry 让它能精确标这一条已读）
-    orchestrator.onIncoming(`${kind}:${id}`, entry);
+    const _onIn = orchestrator.onIncoming(`${kind}:${id}`, entry);
+    if (_onIn && typeof _onIn.catch === 'function') {
+      _onIn.catch((e) => {
+        const msg = '[qqbot] orchestrator.onIncoming 失败：' + String(e?.message ?? e);
+        log(msg);
+        try { channelLog('qqbot', msg); } catch { /* 忽略 */ }
+      });
+    }
     // 静默会话不回复时留一条可解释的日志（同一会话 10 分钟内只记一次，避免刷屏）
     try {
       const _reason = silentReason(`${kind}:${id}`);
@@ -1212,8 +1230,9 @@ export function createApp({ log = console.log } = {}) {
         group_id: isGroup ? evt.chatId : undefined,
         user_id: isGroup ? (evt.userId || '') : evt.chatId,
         message_id: evt.messageId,
-        raw_message: evt.text,
-        message: [{ type: 'text', data: { text: evt.text } }],
+        // 官方文本里的 @ 是 <@openid> 占位符，模型不需要看原始 openid
+        raw_message: String(evt.text || '').replace(/<@!?[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+        message: [{ type: 'text', data: { text: String(evt.text || '').replace(/<@!?[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() } }],
         sender: { user_id: evt.userId || (isGroup ? '' : evt.chatId), nickname: evt.nickname || '', card: '' },
         _qqbot: evt
       };
@@ -1229,7 +1248,8 @@ export function createApp({ log = console.log } = {}) {
       });
       if (qqbotChats.size > 30) { const first = qqbotChats.keys().next().value; qqbotChats.delete(first); }
       { const msg = `[qqbot] 收到 ${ck}（${evt.nickname || '?'}）：${String(evt.text || '').slice(0, 40)}`; log(msg); try { channelLog('qqbot', msg); } catch { /* 忽略 */ } }
-      return ingestMessage(isGroup ? 'group' : 'private', String(evt.chatId), pseudo, 'qqbot');
+      return ingestMessage(isGroup ? 'group' : 'private', String(evt.chatId), pseudo, 'qqbot')
+        .catch((e) => { const msg = '[qqbot] ingest 失败：' + String(e?.message ?? e); log(msg); try { channelLog('qqbot', msg); } catch { /* 忽略 */ } });
     } catch (error) {
       log('[qqbot] 事件处理出错:', error?.message ?? error);
     }
@@ -1514,6 +1534,7 @@ export function createApp({ log = console.log } = {}) {
   const apiRoutes = createRoutes({
     transport,
     qqbotChats,
+    simulateQqbotEvent: (evt) => feedQqbotEvent(evt),
     qqbotStatus: () => qqbotStatus,
     store, memory, sessions, onebot, orchestrator, sender,
     emit, log,

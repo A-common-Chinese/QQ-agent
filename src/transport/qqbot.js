@@ -122,7 +122,14 @@ export class QqBotTransport extends Transport {
     const body = { content, msg_type: 0 };
     if (msgId) { body.msg_id = msgId; body.msg_seq = seq; }
     const path = kind === 'group' ? `/v2/groups/${encodeURIComponent(id)}/messages` : `/v2/users/${encodeURIComponent(id)}/messages`;
-    return this._api('POST', path, body);
+    try {
+      const r = await this._api('POST', path, body);
+      this._log(`[qqbot] 已发送 → ${kind}:${id}${msgId ? '（被动 msg_id=' + String(msgId).slice(0, 12) + '…）' : '（主动消息）'}`);
+      return r;
+    } catch (e) {
+      this._log(`[qqbot] 发送失败 → ${kind}:${id}（${msgId ? '被动' : '主动'}）：${String(e?.message ?? e)}`);
+      throw e;
+    }
   }
 
   async recall(kind, id, messageId) {
