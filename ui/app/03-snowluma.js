@@ -139,7 +139,9 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           ${slInstalled ? `<button class="sl-chan ${chan === 'onebot' ? 'on' : ''}" data-sl-chan="onebot">OneBot（SnowLuma）</button>` : ''}
           <button class="sl-chan ${chan === 'qqbot' ? 'on' : ''}" data-sl-chan="qqbot">官方机器人（QQ 开放平台）</button>
         </div>
-        <div class="hint" style="margin:-4px 0 12px">两种接入方式只能选一种（可留空另一种）；切换后需重启应用生效。点右上角「ⓘ 说明」看能力对比。</div>
+        <div class="hint" style="margin:-4px 0 12px">两种接入方式只能选一种（可留空另一种）；切换后需重启应用生效。点右上角「ⓘ 说明」看能力对比。
+          ${!slInstalled ? `<br><span style="color:var(--tx3)">未检测到 OneBot 协议端：目前只有官方通道。想用 OneBot 请自行安装 SnowLuma / NapCat / LLOneBot，然后到 <b>设置 → 服务 → 协议端管理</b> 检测。</span> <button class="btn btn-small" id="sl-redetect" style="margin-left:6px">重新检测</button>` : ''}
+        </div>
 
         <div id="sl-qqbot-card" class="sl-qb-card ${chan === 'qqbot' ? '' : 'hidden'}">
           <h3>连接配置</h3>
@@ -188,21 +190,6 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           </div>
         </div>
 
-        ${!slInstalled ? `
-        <div class="sl-qb-card" style="margin-top:14px">
-          <h3>还没有 OneBot 协议端（可选）</h3>
-          <div class="hint" style="line-height:1.8">
-            现在只有一个通道：<b>官方机器人（QQ 开放平台）</b>，不需要协议端，合规、无协议封号风险。<br>
-            想要 OneBot 的完整玩法（全量消息 / 拍一拍 / 贴表情 / 群名片），需要自己准备一个
-            <b>OneBot v11 协议端</b>（SnowLuma、NapCat、LLOneBot 任选），装好并登录 QQ 后回到这里填地址与令牌。
-          </div>
-          <div class="hint" style="margin-top:6px">
-            本项目<b>不代管</b>协议端的安装/登录，也不随包分发第三方程序；装好后点下面「重新检测」。
-          </div>
-          <div style="display:flex;gap:8px;margin-top:10px">
-            <button class="btn btn-small" id="sl-redetect">重新检测</button>
-          </div>
-        </div>` : ''}
         <div id="sl-onebot-card" class="${chan === 'onebot' && slInstalled ? '' : 'hidden'}">
           <div class="sl-onebot-sentinel"></div>
           <h3>连接配置</h3>
@@ -223,9 +210,10 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
               <label for="sl-ob-autolaunch">QQ Agent 启动时自动拉起 SnowLuma（未运行时）</label></div>
             <div class="checkbox-row"><input type="checkbox" id="sl-ob-autoreadtoken" ${slCfg.autoReadToken ? 'checked' : ''} />
               <label for="sl-ob-autoreadtoken">自动从本机协议端读取令牌（默认关；会读取第三方程序的账号目录，介意就别开）</label></div>
-            <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
               <button class="btn btn-small btn-primary" id="sl-ob-save">保存 OneBot 配置</button>
-              <span class="muted" id="sl-ob-hint" style="font-size:12px"></span>
+              <button class="btn btn-small" id="sl-ob-active" ${tr.active === 'onebot' ? 'disabled' : ''}>${tr.active === 'onebot' ? '当前通道' : '设为当前通道'}</button>
+              <span class="muted" id="sl-ob-hint" style="font-size:12px">${tr.active === 'onebot' ? '' : '切到 OneBot 通道（需重启生效）'}</span>
             </div>
             <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
               <button class="btn btn-small btn-danger" id="sl-sl-uninstall">卸载协议端</button>
@@ -426,6 +414,24 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           obHint('保存失败：' + (e.message || e), 'var(--red)');
         }
         obSave.disabled = false;
+      });
+    }
+
+    // OneBot：设为当前通道
+    const obActive = box.querySelector('#sl-ob-active');
+    if (obActive) {
+      obActive.addEventListener('click', async () => {
+        const hint = box.querySelector('#sl-ob-hint');
+        const setHint = (t, c) => { if (hint) { hint.textContent = t || ''; hint.style.color = c || ''; } };
+        obActive.disabled = true;
+        try {
+          await api('/api/transport/active', { method: 'POST', body: JSON.stringify({ active: 'onebot' }) });
+          setHint('已设为 OneBot 通道，重启应用后生效 ✅', 'var(--green)');
+          obActive.textContent = '当前通道';
+        } catch (e) {
+          setHint('设置失败：' + (e.message || e), 'var(--red)');
+          obActive.disabled = false;
+        }
       });
     }
 
