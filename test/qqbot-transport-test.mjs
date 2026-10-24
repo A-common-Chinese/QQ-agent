@@ -67,6 +67,15 @@ await check('被动回复：msg_seq 递增', async () => {
   assert.equal(sends[0][2].msg_seq, 1);
   assert.equal(sends[1][2].msg_seq, 2);
 });
+await check('自动被动回复：没显式给 msg_id 时用最近一条用户消息', async () => {
+  const log = [];
+  const t = new QqBotTransport({ account: acc, fetchImpl: fakeFetch(log) });
+  t._lastMsg.set('qqbot:group:G1', { id: 'ROBOT1_in', at: Date.now() });
+  await t.sendText('group', 'G1', 'hi');
+  const send = log.find(([u]) => u.includes('/v2/groups/G1/messages'));
+  assert.equal(send[2].msg_id, 'ROBOT1_in');
+  assert.equal(send[2].msg_seq, 1);
+});
 await check('单聊走 /v2/users/…', async () => {
   const log = [];
   const t = new QqBotTransport({ account: acc, fetchImpl: fakeFetch(log) });

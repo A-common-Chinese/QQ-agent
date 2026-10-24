@@ -54,6 +54,7 @@ export class QqBotTransport extends Transport {
     this._token = '';
     this._tokenExp = 0;
     this._seq = new Map();      // msg_id -> msg_seq
+    this._lastMsg = new Map();  // chatKey -> { id, at } 最近一条用户消息（被动回复窗口 5 分钟）
     this._statusFns = [];
     this._messageFns = [];
     this._ws = null;
@@ -109,7 +110,13 @@ export class QqBotTransport extends Transport {
   async sendText(kind, id, text, { replyToMessageId = null } = {}) {
     const content = String(text ?? '');
     if (!content) return {};
-    const msgId = replyToMessageId ? String(replyToMessageId) : '';
+    // 官方通道：优先用调用方给的 msg_id；没给就用"该会话最近一条用户消息"
+    // 走被动回复（被动回复不需要「主动推送消息」权限，5 分钟内有效）
+    let msgId = replyToMessageId ? String(replyToMessageId) : '';
+    if (!msgId) {
+      const rec = this._lastMsg.get(toChatKey(kind, id));
+      if (rec && Date.now() - rec.at < 5 * 60 * 1000) msgId = rec.id;
+    }
     const seq = msgId ? (this._seq.get(msgId) || 0) + 1 : 0;
     if (msgId) this._seq.set(msgId, seq);
     const body = { content, msg_type: 0 };
@@ -184,7 +191,9 @@ export class QqBotTransport extends Transport {
         if (pkt.op === 0 && pkt.t) {
           const msgTypes = ['GROUP_AT_MESSAGE_CREATE', 'GROUP_MESSAGE_CREATE', 'C2C_MESSAGE_CREATE'];
           if (msgTypes.includes(pkt.t)) {
-            this._emitMessage(this.normalizeEvent(pkt.t, pkt.d));
+            const evt = this.normalizeEvent(pkt.t, pkt.d);
+            if (evt.chatKey && evt.messageId) this._lastMsg.set(evt.chatKey, { id: evt.messageId, at: Date.now() });
+            this._emitMessage(evt);
           } else {
             // READY / RESUMED / 审核事件等：只记日志（排查"没收到消息"时很关键）
             this._log(`[qqbot] 收到事件 ${pkt.t}`);
