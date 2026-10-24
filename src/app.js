@@ -2719,6 +2719,9 @@ async function buildUsageSeries({ range = '7', bucket = '', seriesBy = 'model', 
   // 序列：默认按模型（用量页只用模型维度；按会话留给以后）
   const labelOf = (r) => (seriesBy === 'chat' ? String(r.chatKey || '(未知)') : String(r.modelKey || r.model || '(未知)'));
   const map = new Map();     // seriesKey -> values[]
+  // tokens 拆分：同一条序列同时记 prompt / completion，图表可以分两条线或并排柱
+  const pmap = new Map();
+  const cmap = new Map();
   const idx = new Map(buckets.map((b, i) => [b.key, i]));
   for (const b of buckets) { /* 占位：保证空桶也参与 */ }
   for (const r of rows) {
@@ -2728,9 +2731,19 @@ async function buildUsageSeries({ range = '7', bucket = '', seriesBy = 'model', 
     let arr = map.get(key);
     if (!arr) { arr = new Array(buckets.length).fill(0); map.set(key, arr); }
     arr[bi] += valueOf(r);
+    let pa = pmap.get(key);
+    if (!pa) { pa = new Array(buckets.length).fill(0); pmap.set(key, pa); }
+    pa[bi] += Number(r.promptTokens) || 0;
+    let ca = cmap.get(key);
+    if (!ca) { ca = new Array(buckets.length).fill(0); cmap.set(key, ca); }
+    ca[bi] += Number(r.completionTokens) || 0;
   }
   const series = [...map.entries()]
-    .map(([key, values]) => ({ key, label: key, values }))
+    .map(([key, values]) => ({
+      key, label: key, values,
+      prompt: pmap.get(key) || new Array(buckets.length).fill(0),
+      completion: cmap.get(key) || new Array(buckets.length).fill(0)
+    }))
     .sort((a, b) => b.values.reduce((x, y) => x + y, 0) - a.values.reduce((x, y) => x + y, 0));
   const total = series.reduce((s, x) => s + x.values.reduce((a, b) => a + b, 0), 0);
   const pie = series.map((s) => {

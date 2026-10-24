@@ -2280,3 +2280,21 @@ body.skin-bg-on .view { background: transparent; }
   font-size: 12px; color: var(--tx3); letter-spacing: .04em; pointer-events: none;
 }
 .skin-boot-btn.on { border-color: var(--ac); color: var(--ac); }
+
+/* 用量图表自绘悬浮提示（替代原生 <title>：原生提示在密集点位下会卡在旧数据上） */
+.uc-tip {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--bd);
+  background: var(--bg1);
+  color: var(--tx);
+  font-size: 12px;
+  line-height: 1.55;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  max-width: 230px;
+  white-space: nowrap;
+}
+.uc-tip .uc-tip-no { margin-left: 6px; color: var(--tx3); font-size: 11px; }

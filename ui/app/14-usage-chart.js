@@ -16,6 +16,7 @@
     model: 'auto',      // auto | <modelKey>
     axis: 'auto',       // auto | manual
     axisMax: '',
+    split: 'both',      // tokens 指标下：both | input | output
     data: null,
     loading: false,
     error: '',
@@ -29,12 +30,13 @@
       if (typeof saved.model === 'string') S.model = saved.model;
       if (saved.axis === 'manual' || saved.axis === 'auto') S.axis = saved.axis;
       if (saved.axisMax !== undefined) S.axisMax = String(saved.axisMax || '');
+      if (['both', 'input', 'output'].includes(saved.split)) S.split = saved.split;
     }
   } catch { /* 忽略 */ }
 
   function persist() {
     try {
-      localStorage.setItem(CHART_KEY, JSON.stringify({ chart: S.chart, metric: S.metric, model: S.model, axis: S.axis, axisMax: S.axisMax }));
+      localStorage.setItem(CHART_KEY, JSON.stringify({ chart: S.chart, metric: S.metric, model: S.model, axis: S.axis, axisMax: S.axisMax, split: S.split }));
     } catch { /* 忽略 */ }
   }
 
@@ -108,8 +110,24 @@
       }
       return { key: best, value: bv };
     });
-    const yMax = S.axis === 'manual' ? Math.max(0.0001, Number(S.axisMax) || 0) : niceMax(Math.max(...totals, 0));
-    return { buckets, series, shown, totals, dominant, yMax, n };
+    // tokens 拆分：按"显示哪个"决定参与计算的值（输入/输出/两者）
+    let inTotals = null, outTotals = null;
+    let draw = totals;
+    if (S.metric === 'tokens') {
+      inTotals = new Array(n).fill(0);
+      outTotals = new Array(n).fill(0);
+      for (const s of shown) {
+        for (let i = 0; i < n; i += 1) {
+          inTotals[i] += Number(s.prompt?.[i]) || 0;
+          outTotals[i] += Number(s.completion?.[i]) || 0;
+        }
+      }
+      const pick = (i) => (S.split === 'input' ? inTotals[i] : S.split === 'output' ? outTotals[i] : inTotals[i] + outTotals[i]);
+      draw = buckets.map((_, i) => pick(i));
+    }
+    const peak = Math.max(...draw, 0);
+    const yMax = S.axis === 'manual' ? Math.max(0.0001, Number(S.axisMax) || 0) : niceMax(peak);
+    return { buckets, series, shown, totals, inTotals, outTotals, draw, dominant, yMax, n };
   }
 
   // ── SVG 绘制 ──────────────────────────────────────────────────────────
@@ -145,7 +163,43 @@
     return out;
   }
 
+  const IN_COLOR = '#2f6fd0';
+  const OUT_COLOR = '#d9731a';
+  const showInput = () => S.metric !== 'tokens' || S.split !== 'output';
+  const showOutput = () => S.metric !== 'tokens' || S.split !== 'input';
+
+  /** tokens 指标：输入/输出两条线（颜色不同），今天那段虚线、启用计数中标记 */
+  function tokenLineSvg(v) {
+    const n = v.n;
+    const partialFrom = v.buckets.findIndex((b) => b.partial);
+    let out = '';
+    const drawLine = (vals, color) => {
+      const pts = vals.map((t, i) => [xOf(i, n), yOf(t, v.yMax)]);
+      const solidEnd = partialFrom > 0 ? partialFrom - 1 : n - 1;
+      if (solidEnd >= 1) {
+        out += `<polyline points="${pts.slice(0, solidEnd + 1).map((p) => p.map((x) => x.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="${color}" stroke-width="2"></polyline>`;
+      }
+      if (partialFrom > 0 && partialFrom < n) {
+        const [x1, y1] = pts[partialFrom - 1];
+        const [x2, y2] = pts[partialFrom];
+        out += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${color}" stroke-width="2" stroke-dasharray="7 5"></line>`;
+      }
+      for (let i = 0; i < n; i += 1) {
+        const [x, y] = pts[i];
+        if (v.buckets[i].partial) {
+          out += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="3 3"></circle>`;
+        } else {
+          out += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.6" fill="#fff" stroke="${color}" stroke-width="2"></circle>`;
+        }
+      }
+    };
+    if (showInput()) drawLine(v.inTotals, IN_COLOR);
+    if (showOutput()) drawLine(v.outTotals, OUT_COLOR);
+    return out;
+  }
+
   function lineSvg(v) {
+    if (S.metric === 'tokens') return tokenLineSvg(v);
     const n = v.n;
     const pts = v.totals.map((t, i) => [xOf(i, n), yOf(t, v.yMax)]);
     let out = '';
@@ -176,7 +230,6 @@
       } else {
         out += markerSvg(x, y, shape, color, false);
       }
-      out += `<title>${esc(v.buckets[i].label)} · ${fmtNum(v.totals[i])}${METRIC_UNIT[S.metric]}</title>`;
     }
     return out;
   }
@@ -187,7 +240,37 @@
     return (v.series.findIndex((s) => s.key === key));
   }
 
+  /** tokens 指标：每天两根柱（输入 / 输出）并排 */
+  function tokenBarSvg(v) {
+    const n = v.n;
+    const slot = plotW / Math.max(1, n);
+    const pairW = Math.min(46, Math.max(10, slot * 0.72));
+    const bw = Math.max(3, (pairW - 3) / 2);
+    let out = '';
+    for (let i = 0; i < n; i += 1) {
+      const base0 = PAD.t + plotH;
+      const cx = PAD.l + slot * i + slot / 2;
+      const bars = [];
+      if (showInput()) bars.push({ val: v.inTotals[i], color: IN_COLOR, x: cx - pairW / 2 });
+      if (showOutput()) bars.push({ val: v.outTotals[i], color: OUT_COLOR, x: cx - pairW / 2 + bw + 3 });
+      let top = base0;
+      for (const b of bars) {
+        const h = Math.min((b.val / v.yMax) * plotH, plotH);
+        if (h > 0.4) {
+          const y = base0 - h;
+          top = Math.min(top, y);
+          out += `<rect x="${b.x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" fill="${b.color}"${v.buckets[i].partial ? ' fill-opacity="0.45"' : ''} rx="1"></rect>`;
+        }
+      }
+      if (v.buckets[i].partial) {
+        out += `<rect x="${(cx - pairW / 2 - 2).toFixed(1)}" y="${(top - 2).toFixed(1)}" width="${(pairW + 4).toFixed(1)}" height="${(base0 - top + 2).toFixed(1)}" fill="none" stroke="var(--tx2)" stroke-width="1.5" stroke-dasharray="5 4"></rect>`;
+      }
+    }
+    return out;
+  }
+
   function barSvg(v) {
+    if (S.metric === 'tokens') return tokenBarSvg(v);
     const n = v.n;
     const slot = plotW / Math.max(1, n);
     const bw = Math.min(30, Math.max(6, slot * 0.55));
@@ -228,7 +311,6 @@
         out += `<path d="M${(cx - 9).toFixed(1)},${y + 8} l4,-6 l4,6 l4,-6 l4,6" fill="none" stroke="var(--err)" stroke-width="1.5"></path>`;
         out += `<text x="${cx.toFixed(1)}" y="${y - 4}" text-anchor="middle" font-size="10" fill="var(--err)">${fmtNum(total)}</text>`;
       }
-      out += `<title>${esc(v.buckets[i].label)} · ${fmtNum(total)}${METRIC_UNIT[S.metric]}</title>`;
     }
     return out;
   }
@@ -266,6 +348,9 @@
     return '<div class="uc-bar">'
       + '<span class="uc-lbl">图表</span>' + seg('chart', [['line', '折线'], ['bar', '柱状']], S.chart, 'uc-chart')
       + '<span class="uc-lbl">指标</span>' + seg('metric', [['cost', '花费'], ['tokens', 'tokens'], ['runs', '请求数']], S.metric, 'uc-metric')
+      + (S.metric === 'tokens'
+        ? '<span class="uc-lbl">显示</span>' + seg('split', [['both', '输入+输出'], ['input', '仅输入'], ['output', '仅输出']], S.split, 'uc-split')
+        : '')
       + '<span class="uc-lbl">模型</span>'
       + `<select class="uc-select" id="uc-model"><option value="auto"${S.model === 'auto' ? ' selected' : ''}>自动（按当天主导）</option>`
       + models.map((m) => `<option value="${esc(m)}"${S.model === m ? ' selected' : ''}>${esc(shortLabel(m))}</option>`).join('')
@@ -278,6 +363,7 @@
   }
 
   function render() {
+    hideTip();
     const box = $('#usage-chart');
     if (!box) return;
     if (S.loading && !S.data) {
@@ -304,6 +390,7 @@
       + '<div class="uc-pie-legend">' + (S.data.pie || []).filter((p) => p.value > 0).slice(0, 8).map((p) => `<div class="uc-pl"><i style="background:${colorOf(p.key)}"></i><span class="uc-pl-name">${esc(shortLabel(p.key))}</span><span class="uc-pl-pct">${(p.share * 100).toFixed(1)}%</span></div>`).join('') + '</div>'
       + '</div></div>';
     bind();
+    attachTip(box, v);
   }
 
   /** 图头图例：每个模型对应什么颜色 + 什么形状（折线图用形状区分"当天主导模型"） */
@@ -324,6 +411,13 @@
   }
 
   function legendHtml() {
+    if (S.metric === 'tokens') {
+      const items = [];
+      if (showInput()) items.push('<span class="uc-lg"><i style="background:' + IN_COLOR + '"></i>输入 token</span>');
+      if (showOutput()) items.push('<span class="uc-lg"><i style="background:' + OUT_COLOR + '"></i>输出 token</span>');
+      items.push('<span class="uc-lg uc-lg-dash"><i></i>今天（累计中）</span>');
+      return items.join('');
+    }
     const series = (S.data && S.data.series) || [];
     const shownList = S.model === 'auto' ? series : series.filter((s) => s.key === S.model);
     const items = shownList.slice(0, 8).map((s) => {
@@ -337,6 +431,60 @@
     return items.join('');
   }
 
+  /** 悬浮提示：自己画，跟随鼠标；渲染前统一清掉，避免残留卡在别的天数上 */
+  function hideTip() {
+    document.querySelectorAll('.uc-tip').forEach((t) => t.remove());
+  }
+  if (!window.__ucTipGlobalBound && typeof window.addEventListener === 'function') {
+    window.__ucTipGlobalBound = true;
+    window.addEventListener('scroll', hideTip, { passive: true });
+    window.addEventListener('blur', hideTip);
+  }
+
+  function attachTip(box, v) {
+    hideTip();
+    const plot = box.querySelector('.uc-plot');
+    const svg = plot && plot.querySelector('svg');
+    if (!svg) return;
+    const tip = document.createElement('div');
+    tip.className = 'uc-tip';
+    tip.style.display = 'none';
+    document.body.appendChild(tip);
+    const idxAt = (clientX) => {
+      const r = svg.getBoundingClientRect();
+      const rel = (clientX - r.left) / Math.max(1, r.width);
+      const xInView = rel * W;
+      if (S.chart === 'bar') {
+        const slot = plotW / Math.max(1, v.n);
+        return Math.floor((xInView - PAD.l) / slot);
+      }
+      return Math.round(((xInView - PAD.l) / plotW) * Math.max(1, v.n - 1));
+    };
+    const html = (i) => {
+      const b = v.buckets[i];
+      const rows = [];
+      if (S.metric === 'tokens') {
+        if (showInput()) rows.push('<span style="color:' + IN_COLOR + '">●</span> 输入 ' + fmtNum(v.inTotals[i]));
+        if (showOutput()) rows.push('<span style="color:' + OUT_COLOR + '">●</span> 输出 ' + fmtNum(v.outTotals[i]));
+        if (S.split === 'both') rows.push('合计 ' + fmtNum(v.inTotals[i] + v.outTotals[i]));
+      } else {
+        rows.push(METRIC_LABEL[S.metric] + ' ' + fmtNum(v.totals[i]) + METRIC_UNIT[S.metric]);
+      }
+      return '<b>' + esc(b.label) + '</b>' + (b.partial ? '<span class="uc-tip-no">累计中</span>' : '') + '<br>' + rows.join('<br>');
+    };
+    svg.addEventListener('pointermove', (e) => {
+      const i = idxAt(e.clientX);
+      if (i < 0 || i >= v.n) { tip.style.display = 'none'; return; }
+      tip.innerHTML = html(i);
+      tip.style.display = 'block';
+      const x = Math.min(window.innerWidth - 240, e.clientX + 14);
+      const y = Math.min(window.innerHeight - 96, e.clientY + 14);
+      tip.style.left = x + 'px';
+      tip.style.top = y + 'px';
+    });
+    svg.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
+  }
+
   function bind() {
     const box = $('#usage-chart');
     if (!box) return;
@@ -347,6 +495,7 @@
     box.querySelectorAll('[data-uc-axis]').forEach((el) => el.addEventListener('click', () => {
       S.axis = el.dataset.ucAxis; persist(); render();
     }));
+    box.querySelectorAll('[data-uc-split]').forEach((el) => el.addEventListener('click', () => { S.split = el.dataset.ucSplit; persist(); render(); }));
     box.querySelector('#uc-model')?.addEventListener('change', (e) => { S.model = e.currentTarget.value; persist(); render(); });
     box.querySelector('#uc-axis-max')?.addEventListener('change', (e) => {
       S.axisMax = String(e.currentTarget.value || ''); persist(); render();
