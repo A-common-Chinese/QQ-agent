@@ -170,8 +170,9 @@
 
   /** 柱状并排时输出的放大倍数（折线不受影响，看的是趋势） */
   function outMul() {
-    // 只有"输入+输出"同时显示时才放大；单独看输出时用真实值，免得误读
-    if (S.metric !== 'tokens' || S.chart !== 'bar' || S.split !== 'both') return 1;
+    // 只有"输入+输出"同时显示时才放大（柱状、折线都适用）；
+    // 单独看输出时用真实值，免得误读
+    if (S.metric !== 'tokens' || S.split !== 'both') return 1;
     const n = Number(S.outMul);
     return Number.isFinite(n) && n > 0 ? Math.min(1000, Math.max(1, n)) : 1;
   }
@@ -206,7 +207,7 @@
       }
     };
     if (showInput()) drawLine(v.inTotals, IN_COLOR);
-    if (showOutput()) drawLine(v.outTotals, OUT_COLOR);
+    if (showOutput()) drawLine(v.outTotals.map((n) => n * outMul()), OUT_COLOR);
     return out;
   }
 
@@ -362,7 +363,7 @@
       + '<span class="uc-lbl">指标</span>' + seg('metric', [['cost', '花费'], ['tokens', 'tokens'], ['runs', '请求数']], S.metric, 'uc-metric')
       + (S.metric === 'tokens'
         ? '<span class="uc-lbl">显示</span>' + seg('split', [['both', '输入+输出'], ['input', '仅输入'], ['output', '仅输出']], S.split, 'uc-split')
-          + (S.chart === 'bar' && S.split === 'both'
+          + (S.split === 'both'
             ? '<span class="uc-lbl">输出放大 ×</span><input class="uc-input" id="uc-out-mul" type="number" min="1" max="1000" step="1" value="' + esc(String(S.outMul)) + '" />'
             : '')
         : '')
