@@ -846,7 +846,7 @@ function switchTab(name) {
 // ── 2026-10 UI 改版：外壳（左侧主栏 / 顶栏标题 / 顶部二级菜单）───────────
 const PAGE_TITLES = {
   sessions: '会话', chats: '存档', memory: '记忆', usage: '用量',
-  skills: '技能', plugins: '插件', snowluma: 'SnowLuma', settings: '设置'
+  skills: '技能', plugins: '插件', snowluma: 'QQ 接口', settings: '设置'
 };
 
 /**

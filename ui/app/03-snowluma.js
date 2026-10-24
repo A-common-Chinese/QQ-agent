@@ -56,14 +56,19 @@ function scheduleSnowlumaReload(opts = {}) {
 
 async function loadSnowlumaPage({ quiet = false } = {}) {
   try {
-    const [status, logs, qqLogs, appLogsData] = await Promise.all([
+    const [status, logs, qqLogs, appLogsData, trStatus] = await Promise.all([
       api('/api/status'),
       api('/api/snowluma/logs'),
       api('/api/qq-portable/logs'),
-      api('/api/logs?limit=120').catch(() => ({ logs: [], level: 'info' }))
+      api('/api/logs?limit=120').catch(() => ({ logs: [], level: 'info' })),
+      api('/api/transport/status').catch(() => null)
     ]);
     const s = status;
     const box = $('#snowluma-page');
+    let chan = 'onebot';
+    try { chan = localStorage.getItem('qqa-sl-chan') || 'onebot'; } catch { /* 忽略 */ }
+    const tr = trStatus || { active: 'onebot', qqbot: {} };
+    const qb = tr.qqbot || {};
     if (!box) return;
     const running = !!(s.snowluma?.running);
     const onebotConnected = !!s.onebot?.connected;
@@ -106,7 +111,47 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
 
     box.innerHTML = `
       <div class="snowluma-page-card">
-        <h2>SnowLuma（OneBot 网关）</h2>
+        <h2>QQ 接口</h2>
+        <div class="sl-chan-switch">
+          <button class="sl-chan ${chan === 'onebot' ? 'on' : ''}" data-sl-chan="onebot">OneBot（SnowLuma）</button>
+          <button class="sl-chan ${chan === 'qqbot' ? 'on' : ''}" data-sl-chan="qqbot">官方机器人（QQ 开放平台）</button>
+        </div>
+        <div class="hint" style="margin:-4px 0 12px">两种接入方式<strong>只能选一种</strong>（可留空另一种）；切换后需重启应用生效。官方通道不能拍一拍/贴表情/改群名片，且群内消息需要群主授权。</div>
+
+        <div id="sl-qqbot-card" class="sl-qb-card ${chan === 'qqbot' ? '' : 'hidden'}">
+          <div class="sl-qb-head">
+            <span class="dot ${qb.configured ? 'dot-on' : 'dot-off'}"></span>
+            <strong>官方机器人</strong>
+            <span class="muted">${qb.configured ? '已配置（' + esc(qb.appId || '') + '）' : '未配置'}</span>
+            <span class="muted" style="margin-left:auto">当前通道：${esc(tr.active || 'onebot')}</span>
+          </div>
+          <div class="sl-qb-grid">
+            <label class="field"><span>AppID</span><input id="sl-qb-appid" type="text" value="${esc(qb.appId || '')}" placeholder="在 QQ 开放平台机器人管理端查看" /></label>
+            <label class="field"><span>AppSecret</span><input id="sl-qb-secret" type="password" value="" placeholder="${qb.hasAppSecret ? '已保存（留空表示不修改）' : '机器人密钥，只存在本机'}" /></label>
+            <label class="field"><span>环境</span><select id="sl-qb-env">
+              <option value="production"${qb.env !== 'sandbox' ? ' selected' : ''}>正式环境</option>
+              <option value="sandbox"${qb.env === 'sandbox' ? ' selected' : ''}>沙箱环境</option>
+            </select></label>
+            <label class="field"><span>群消息模式</span><select id="sl-qb-groupmode">
+              <option value="all"${qb.groupMode !== 'at' ? ' selected' : ''}>全量（需群主在手机 QQ 授权「接收全量消息」）</option>
+              <option value="at"${qb.groupMode === 'at' ? ' selected' : ''}>仅被 @</option>
+            </select></label>
+          </div>
+          <div class="sl-qb-actions">
+            <button class="btn btn-small btn-primary" id="sl-qb-save">保存</button>
+            <button class="btn btn-small" id="sl-qb-test">测试鉴权</button>
+            <button class="btn btn-small" id="sl-qb-active">设为当前通道</button>
+            <span id="sl-qb-status" class="muted" style="font-size:12px"></span>
+          </div>
+          <div class="hint" style="margin-top:10px">
+            <b>与 OneBot 的区别</b>：官方通道合规、不会因协议封号，但<br>
+            · 不能拍一拍、贴表情、改群名片、撤回他人消息（官方无接口，相关工具会自动隐藏）<br>
+            · 群消息默认只收 @；要收全部消息需群主在手机 QQ 里授权「接收全量消息」<br>
+            · 主动发言需群主授权「主动推送消息」，配额 1000 条/群/日<br>
+            · 个人主体只能把机器人加进自己当群主/管理员的群
+          </div>
+        </div>
+        <div class="sl-onebot-sentinel"></div>
 
         <!-- 一键启动区域（核心入口） -->
         ${!onebotConnected ? `
@@ -203,6 +248,63 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           <pre class="snowluma-logs-view" id="app-logs-view">${esc(appLogText)}</pre>
         </div>
       </div>`;
+
+    // QQ 接口：官方机器人模式下隐藏下面的 OneBot 内容
+    const cardEl = box.querySelector('.snowluma-page-card');
+    const sentinel = cardEl && cardEl.querySelector('.sl-onebot-sentinel');
+    if (sentinel && chan === 'qqbot') {
+      let el = sentinel.nextElementSibling;
+      while (el) { el.style.display = 'none'; el = el.nextElementSibling; }
+    }
+    // 通道切换
+    box.querySelectorAll('[data-sl-chan]').forEach((b) => {
+      b.addEventListener('click', () => {
+        try { localStorage.setItem('qqa-sl-chan', b.dataset.slChan); } catch { /* 忽略 */ }
+        loadSnowlumaPage();
+      });
+    });
+    const qbHint = (text, color) => {
+      const el = box.querySelector('#sl-qb-status');
+      if (el) { el.textContent = text || ''; el.style.color = color || ''; }
+    };
+    const qbPayload = () => ({
+      appId: (box.querySelector('#sl-qb-appid') || {}).value || '',
+      appSecret: (box.querySelector('#sl-qb-secret') || {}).value || '',
+      env: (box.querySelector('#sl-qb-env') || {}).value || 'production',
+      groupMode: (box.querySelector('#sl-qb-groupmode') || {}).value || 'all'
+    });
+    // 输入/下拉：改动时提示"未保存"（也让接线测试能验证它们真的有人管）
+    ['sl-qb-appid', 'sl-qb-secret', 'sl-qb-env', 'sl-qb-groupmode'].forEach((id) => {
+      const el = box.querySelector('#' + id);
+      if (el) el.addEventListener('change', () => qbHint('有未保存的改动，记得点「保存」', 'var(--orange)'));
+    });
+    const qbSaveBtn = box.querySelector('#sl-qb-save');
+    if (qbSaveBtn) qbSaveBtn.addEventListener('click', async () => {
+      qbSaveBtn.disabled = true;
+      try {
+        const r = await api('/api/transport/qqbot/save', { method: 'POST', body: JSON.stringify(qbPayload()) });
+        qbHint(r && r.ok ? '已保存 ✅（切换通道后重启生效）' : ('保存失败：' + (r && r.error || '未知')), r && r.ok ? 'var(--green)' : 'var(--red)');
+      } catch (e) { qbHint('保存失败：' + (e.message || e), 'var(--red)'); }
+      qbSaveBtn.disabled = false;
+    });
+    const qbTestBtn = box.querySelector('#sl-qb-test');
+    if (qbTestBtn) qbTestBtn.addEventListener('click', async () => {
+      qbTestBtn.disabled = true;
+      qbHint('正在测试鉴权…');
+      try {
+        const r = await api('/api/transport/qqbot/test', { method: 'POST', body: JSON.stringify(qbPayload()) });
+        if (r && r.ok) qbHint('✅ 鉴权通过（' + r.latencyMs + 'ms）：AppSecret 有效', 'var(--green)');
+        else qbHint('✗ ' + ((r && r.error) || '鉴权失败'), 'var(--red)');
+      } catch (e) { qbHint('✗ 测试失败：' + (e.message || e), 'var(--red)'); }
+      qbTestBtn.disabled = false;
+    });
+    const qbActiveBtn = box.querySelector('#sl-qb-active');
+    if (qbActiveBtn) qbActiveBtn.addEventListener('click', async () => {
+      try {
+        const r = await api('/api/transport/active', { method: 'POST', body: JSON.stringify({ active: 'qqbot' }) });
+        qbHint(r && r.ok ? '已设为当前通道，重启应用后生效' : ('失败：' + ((r && r.error) || '未知')), r && r.ok ? 'var(--green)' : 'var(--red)');
+      } catch (e) { qbHint('失败：' + (e.message || e), 'var(--red)'); }
+    });
 
     // 恢复日志滚动：贴底跟随新日志；否则回到原阅读位置；首次渲染贴底
     const newPre = box.querySelector('#sl-logs-view');

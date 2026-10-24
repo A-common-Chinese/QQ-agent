@@ -1953,6 +1953,99 @@ export function createRoutes(deps) {
         return json(res, 200, r);
       }
     },
+    // ── 接入方式（QQ 接口：OneBot / 官方机器人） ─────────────────────
+    {
+      method: 'GET', pattern: '/api/transport/status',
+      handler: async ({ res, json }) => {
+        const cfg = getConfig();
+        const tr = cfg.transport || {};
+        const qb = tr.qqbot || {};
+        const account = Array.isArray(qb.accounts) ? qb.accounts[0] || {} : {};
+        return json(res, 200, {
+          ok: true,
+          active: String(tr.active || 'onebot'),
+          onebot: {
+            connected: onebot.connected === true,
+            wsUrl: String(cfg.snowluma?.wsUrl || ''),
+            httpUrl: String(cfg.snowluma?.httpUrl || ''),
+            hasToken: Boolean(cfg.snowluma?.accessToken || cfg.snowluma?.httpAccessToken)
+          },
+          qqbot: {
+            configured: Boolean(String(account.appId || '').trim() && String(account.appSecret || '').trim()),
+            appId: String(account.appId || ''),
+            hasAppSecret: Boolean(String(account.appSecret || '').trim()),
+            env: String(account.env || 'production'),
+            groupMode: String(account.groupMode || 'all'),
+            enabled: qb.enabled === true,
+            capabilities: { canPoke: false, canReact: false, canGroupCard: false, canMute: false, canKick: false, markdown: true, media: true }
+          }
+        });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/transport/active',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const active = String(body.active || '').trim();
+        if (!['onebot', 'qqbot', 'both'].includes(active)) return json(res, 400, { ok: false, error: 'active 只能是 onebot / qqbot / both' });
+        updateConfig({ transport: { active } });
+        return json(res, 200, { ok: true, active, note: '通道切换需要重启应用后生效' });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/transport/qqbot/save',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const cfg = getConfig();
+        const qb = cfg.transport?.qqbot || {};
+        const old = (Array.isArray(qb.accounts) ? qb.accounts[0] : null) || {};
+        const appId = String(body.appId ?? old.appId ?? '').trim();
+        const typedSecret = String(body.appSecret ?? '').trim();
+        const account = {
+          ...old,
+          name: String(body.name ?? old.name ?? '').slice(0, 40),
+          appId,
+          // 空 = 保持原值（前端拿到的是掩码，不覆盖已保存的 Secret）
+          appSecret: typedSecret || String(old.appSecret || ''),
+          env: ['production', 'sandbox'].includes(String(body.env)) ? String(body.env) : (old.env || 'production'),
+          groupMode: ['all', 'at'].includes(String(body.groupMode)) ? String(body.groupMode) : (old.groupMode || 'all')
+        };
+        if (!appId) return json(res, 400, { ok: false, error: 'AppID 不能为空' });
+        updateConfig({ transport: { qqbot: { accounts: [account] } } });
+        return json(res, 200, { ok: true, qqbot: { appId, hasAppSecret: Boolean(account.appSecret), env: account.env, groupMode: account.groupMode } });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/transport/qqbot/test',
+      handler: async ({ req, res, json }) => {
+        const body = await readBody(req).catch(() => ({}));
+        const cfg = getConfig();
+        const qb = cfg.transport?.qqbot || {};
+        const old = (Array.isArray(qb.accounts) ? qb.accounts[0] : null) || {};
+        const account = {
+          ...old,
+          appId: String(body.appId ?? old.appId ?? '').trim(),
+          appSecret: String(body.appSecret ?? '').trim() || String(old.appSecret || ''),
+          env: String(body.env || old.env || 'production'),
+          groupMode: String(body.groupMode || old.groupMode || 'all')
+        };
+        if (!account.appId || !account.appSecret) return json(res, 400, { ok: false, error: '请先填 AppID 和 AppSecret' });
+        const t0 = Date.now();
+        try {
+          const { QqBotTransport } = await import('./transport/qqbot.js');
+          const t = new QqBotTransport({ account });
+          const token = await t.token();     // 只验鉴权，不建 WS（避免真连上后与正式实例抢事件）
+          return json(res, 200, {
+            ok: true,
+            latencyMs: Date.now() - t0,
+            tokenTail: String(token).slice(-6),
+            note: '鉴权通过（AppSecret 有效）'
+          });
+        } catch (error) {
+          return json(res, 200, { ok: false, latencyMs: Date.now() - t0, error: String(error?.message ?? error) });
+        }
+      }
+    },
     {
       method: 'GET', pattern: '/api/command-mute',
       handler: async ({ res, json }) => {

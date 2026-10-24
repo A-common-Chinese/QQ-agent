@@ -2303,3 +2303,19 @@ body.skin-bg-on .view { background: transparent; }
 .health-card-wrap { padding: 10px 18px 0; }
 .health-card-wrap.hidden { display: none; }
 .health-card-wrap .health-card { max-width: 1080px; margin: 0; }
+
+/* ── QQ 接口页：通道切换 + 官方机器人卡片 ── */
+.sl-chan-switch { display: flex; gap: 8px; margin: 4px 0 12px; flex-wrap: wrap; }
+.sl-chan {
+  padding: 7px 14px; border-radius: 10px; border: 1px solid var(--bd);
+  background: var(--bg2); color: var(--tx2); font-size: 13px; cursor: pointer;
+}
+.sl-chan.on { background: var(--ac); border-color: var(--ac); color: #fff; }
+.sl-qb-card { border: 1px solid var(--bd); border-radius: 14px; padding: 14px 16px; background: var(--bg2); }
+.sl-qb-card.hidden { display: none; }
+.sl-qb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 14px; }
+.sl-qb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.sl-qb-grid .field { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.sl-qb-grid .field > span { font-size: 12px; color: var(--tx3); }
+.sl-qb-grid input, .sl-qb-grid select { width: 100%; }
+.sl-qb-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
