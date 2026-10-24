@@ -247,6 +247,8 @@ async function main() {
     // 所以测试也必须按配置来，否则测的是不存在的语义。
     const { setSkillEnabled } = await import('../src/skills/config.js');
     const id = skillWithTools.id;
+    // 有些技能出厂就是禁用的（例如 dsh-agent）——先按配置启用，再验证"启用时工具可用"
+    setSkillEnabled(id, true);
     const before = (skillWithTools.toolIds || []).map((t) => getToolAvailability(t, baseCtx).enabled);
     check(before.every(Boolean), `技能 ${id} 启用时它的工具可用`, JSON.stringify(before));
 

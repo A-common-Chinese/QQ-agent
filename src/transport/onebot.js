@@ -24,6 +24,10 @@ export class OneBotTransport extends Transport {
     this.client = client;
   }
 
+  get selfId() { return this.client.selfId || ''; }
+  get selfNickname() { return this.client.selfNickname || ''; }
+  get connected() { return this.client.connected === true; }
+
   async start() { return this.client.connect(); }
   async stop() { return this.client.close(); }
   onStatus(fn) { return this.client.onStatus(fn); }

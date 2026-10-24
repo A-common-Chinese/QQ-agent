@@ -42,6 +42,7 @@ import { safeFetchBinary, browseLockState } from './safe-fetch.js';
 import { getGlobalBlocklist, updateGlobalBlocklist, FIXED_PRICE_FEED_URL } from './community.js';
 import { listAccounts, removeAccount, loginAccount, publishModule, verifyInstallCodes, installByCode } from './market.js';
 import { detectDialect as detectThinkingDialect } from './thinking.js';
+import { asTransport } from './transport/index.js';
 
 /**
  * 解析 /api/memory-bundle/json?sections=generals,topics 的栏目选择。
@@ -71,8 +72,9 @@ function parseSectionsQuery(searchParams) {
  * @param {object} deps 依赖注入
  */
 export function createRoutes(deps) {
+  const conn = deps.transport || asTransport({ client: deps.onebot });
   const {
-    store, memory, sessions, onebot, orchestrator, sender,
+    store, memory, sessions, onebot, transport, orchestrator, sender,
     emit, log,
     // app.js 内部的过程/状态
     localVersion, compareSemver, UPDATE_INFO_URL,
@@ -357,7 +359,7 @@ export function createRoutes(deps) {
       method: 'GET', pattern: '/api/onebot/groups',
       handler: async ({ res, json }) => {
         try {
-          const list = await onebot.call('get_group_list');
+          const list = await conn.call('get_group_list');
           const groups = (Array.isArray(list) ? list : (list?.data ?? []))
             .map((g) => ({ id: String(g.group_id), name: String(g.group_name ?? g.group_id) }));
           return json(res, 200, { groups });
@@ -370,7 +372,7 @@ export function createRoutes(deps) {
       method: 'GET', pattern: '/api/onebot/friends',
       handler: async ({ res, json }) => {
         try {
-          const list = await onebot.call('get_friend_list');
+          const list = await conn.call('get_friend_list');
           const friends = (Array.isArray(list) ? list : (list?.data ?? []))
             .map((f) => ({ id: String(f.user_id), name: String(f.remark || f.nickname || f.user_id) }));
           return json(res, 200, { friends });
@@ -2246,7 +2248,7 @@ export function createRoutes(deps) {
           for (const it of items) {
             let dataUrl = null;
             try {
-              const ret = await onebot.call('get_image', { file: String(it?.file || '') });
+              const ret = await conn.call('get_image', { file: String(it?.file || '') });
               if (ret?.file && fs.existsSync(String(ret.file))) dataUrl = fileToDataUrl(String(ret.file));
               if (!dataUrl && ret?.url) dataUrl = await safeToDataUrl(ret.url);
             } catch { /* 缓存没有 / 地址不可信就走下一条 */ }
@@ -2267,7 +2269,7 @@ export function createRoutes(deps) {
       method: 'GET', pattern: /^\/api\/groups\/(\d+)\/members$/,
       handler: async ({ res, json, match }) => {
         try {
-          const list = await onebot.call('get_group_member_list', { group_id: Number(match[1]) });
+          const list = await conn.call('get_group_member_list', { group_id: Number(match[1]) });
           const members = (Array.isArray(list) ? list : (list?.data ?? []))
             .map((m) => ({ userId: String(m.user_id), nickname: String(m.nickname || ''), card: String(m.card || '') }))
             .sort((a, b) => String(a.card || a.nickname).localeCompare(String(b.card || b.nickname), 'zh-CN'));
@@ -2308,7 +2310,7 @@ export function createRoutes(deps) {
         }
         try {
           const chatKey = `${kind}:${id}`;
-          const data = await onebot.sendText(kind, id, text);
+          const data = await conn.sendText(kind, id, text);
           store.appendSelf(chatKey, { text, ts: Date.now() });
           emit('chat-update', chatKey);
           return json(res, 200, { ok: true, messageId: data?.message_id ?? null });

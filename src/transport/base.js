@@ -48,6 +48,11 @@ export class Transport {
   /** 是否有某能力 */
   can(name) { return this.capabilities[name] === true; }
 
+  // ── 身份 / 状态（子类覆盖；默认空值，避免上层到处判空） ──
+  get selfId() { return ''; }
+  get selfNickname() { return ''; }
+  get connected() { return false; }
+
   /** 开 / 关连接 */
   async start() { /* 子类实现 */ }
   async stop() { /* 子类实现 */ }

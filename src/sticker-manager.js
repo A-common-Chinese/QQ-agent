@@ -47,10 +47,12 @@ export function localStickerPath(raw) {
 // 图片类型嗅探统一在 image-type.js：原先这里是第三份副本，且**漏了 JPEG 分支**
 // （靠"默认返回 .jpg"歪打正着），加新格式时要改三处、极易漏。
 import { detectImageExt } from './image-type.js';
+import { asTransport } from './transport/index.js';
 
 export class StickerManager {
-  constructor(onebot) {
+  constructor(onebot, transport = null) {
     this.onebot = onebot;
+    this.transport = transport || asTransport({ client: onebot });
     this.entries = loadStickerStore();
     this.syncedAt = 0;
     this.syncing = null;
@@ -98,7 +100,7 @@ export class StickerManager {
     this.syncing = (async () => {
       try {
         const count = Math.min(500, Math.max(1, Number(getConfig().sticker?.promptMaxStickers) * 10 || 100));
-        const data = await this.onebot.call('fetch_custom_face_detail', { count });
+        const data = await this.transport.call('fetch_custom_face_detail', { count });
         const fetched = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : null);
         if (!fetched) throw new Error('fetch_custom_face_detail 返回 data 不是数组');
         // 只有拿到合法数组才合并，避免异常响应清空本地库
@@ -240,7 +242,7 @@ export class StickerManager {
     if (!emojiId) {
       try {
         const addRef = bytes ? `base64://${bytes.toString('base64')}` : url;
-        const ret = await this.onebot.call('add_custom_face', { file: addRef });
+        const ret = await this.transport.call('add_custom_face', { file: addRef });
         emojiId = String(ret?.emoji_id ?? '').trim();
         if (!emojiId) throw new Error('add_custom_face 未返回 emoji_id');
       } catch (error) {
@@ -250,7 +252,7 @@ export class StickerManager {
 
     // ④ 备注写进 QQ 收藏（best-effort，QQ 面板里能看到这条备注）
     if (emojiId && noteText) {
-      try { await this.onebot.call('modify_custom_face', { emoji_id: emojiId, desc: noteText.slice(0, 20) }); }
+      try { await this.transport.call('modify_custom_face', { emoji_id: emojiId, desc: noteText.slice(0, 20) }); }
       catch { /* 备注失败不影响收藏 */ }
     }
 
@@ -258,7 +260,7 @@ export class StickerManager {
     let sendUrl = localFile;
     if (!sendUrl && emojiId) {
       try {
-        const list = await this.onebot.call('fetch_custom_face_detail', { count: 200 });
+        const list = await this.transport.call('fetch_custom_face_detail', { count: 200 });
         const items = Array.isArray(list) ? list : (Array.isArray(list?.data) ? list.data : []);
         const hit = items.find((x) => String(x?.emoji_id ?? x?.resId ?? x?.id ?? '') === emojiId);
         const qqUrl = String(hit?.url || '').trim();
@@ -326,7 +328,7 @@ export class StickerManager {
   async #getImageBytes({ url, file }) {
     if (file) {
       try {
-        const ret = await this.onebot.call('get_image', { file: String(file) });
+        const ret = await this.transport.call('get_image', { file: String(file) });
         const srcPath = ret?.file && fs.existsSync(String(ret.file)) ? String(ret.file) : '';
         if (srcPath) {
           const buf = fs.readFileSync(srcPath);

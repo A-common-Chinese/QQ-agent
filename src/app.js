@@ -649,17 +649,17 @@ export function createApp({ log = console.log } = {}) {
   });
   // 传输层（P1）：onebot 适配器先包住现有客户端；官方 QQ Bot 通道在 P2 接入
   const transport = createTransport({ type: 'onebot', client: onebot });
-  const stickers = new StickerManager(onebot);
+  const stickers = new StickerManager(onebot, transport);
   const sender =   new SendQueue({
     onebot, transport, store,
     onSent: ({ chatKey, text }) => log(`[发送 -> ${chatKey}] ${String(text).slice(0, 60)}`),
     log
   });
   const reminders = new ReminderStore();
-  const videoReader = new VideoReader(onebot);
+  const videoReader = new VideoReader(onebot, transport);
   // DSH 桥：/dsh 前缀命令绕过大模型，直接交给本机 dsh headless（详见 src/dsh-bridge.js）
   const dshBridge = createDshBridge({ getConfig, sender, log, emit });
-  const orchestrator = new Orchestrator({ store, memory, stickers, sender, sessions, onebot, emit, reminders, videoReader });
+  const orchestrator = new Orchestrator({ store, memory, stickers, sender, sessions, onebot, transport, emit, reminders, videoReader });
 
   // 远程价格表固定为官网公开地址；不从用户配置读取，避免被页面/配置篡改。
   initPriceFeed(FIXED_PRICE_FEED_URL);
@@ -809,7 +809,7 @@ export function createApp({ log = console.log } = {}) {
     const key = `${groupId}:${userId}`;
     if (atNameCache.has(key)) return atNameCache.get(key);
     try {
-      const info = await onebot.getGroupMemberInfo(groupId, userId);
+      const info = await transport.memberInfo(groupId, userId);
       const name = info?.card || info?.nickname || null;
       if (name) {
         atNameCache.set(key, String(name));
@@ -822,7 +822,7 @@ export function createApp({ log = console.log } = {}) {
 
   async function resolveReply(messageId) {
     try {
-      const msg = await onebot.getMsg(messageId);
+      const msg = await transport.msgInfo(messageId);
       const senderName = msg?.sender?.card || msg?.sender?.nickname || '';
       let text = '';
       if (Array.isArray(msg?.message)) {
@@ -877,7 +877,7 @@ export function createApp({ log = console.log } = {}) {
     // 展开失败时占位符留在存档里，模型可用 read_forward 工具稍后重试。
     if (segments && (text.includes('[合并转发') || text.includes('[转发消息')) && event.message_id != null) {
       try {
-        const r = await onebot.call('get_forward_msg', { message_id: Number(event.message_id) });
+        const r = await transport.call('get_forward_msg', { message_id: Number(event.message_id) });
         const nodes = Array.isArray(r?.messages) ? r.messages : (Array.isArray(r?.data?.messages) ? r.data.messages : []);
         const ex = await expandForwardNodes(nodes);
         if (ex && ex.text) {
@@ -1432,6 +1432,7 @@ export function createApp({ log = console.log } = {}) {
   // 声明式路由表（src/routes.js）：把所有依赖一次性注入。
   // 路由 handler 通过闭包取用这些依赖，handleHttp 只负责匹配分发。
   const apiRoutes = createRoutes({
+    transport,
     store, memory, sessions, onebot, orchestrator, sender,
     emit, log,
     localVersion, compareSemver, UPDATE_INFO_URL,

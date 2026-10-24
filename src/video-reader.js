@@ -19,6 +19,7 @@ import { spawn } from 'node:child_process';
 import { DATA_DIR, getConfig } from './config.js';
 import { safeFetchBinaryToFile } from './safe-fetch.js';
 import { skillManager } from './skills/manager.js';
+import { asTransport } from './transport/index.js';
 
 /** 允许的抽帧模式取值（配置写错时回退 auto）。 */
 export const VIDEO_MODES = ['auto', 'native', 'frames', 'off'];
@@ -122,8 +123,9 @@ async function ensureFf() {
 }
 
 export class VideoReader {
-  constructor(onebot) {
+  constructor(onebot, transport = null) {
     this.onebot = onebot;
+    this.transport = transport || asTransport({ client: onebot });
   }
 
   /** 抽帧能力是否可用（Skill 生效 + ffmpeg 存在）。 */
@@ -317,7 +319,7 @@ export class VideoReader {
     if (media.file) {
       for (const action of ['get_video', 'get_file', 'get_image']) {
         try {
-          const ret = await this.onebot.call(action, { file: String(media.file) });
+          const ret = await this.transport.call(action, { file: String(media.file) });
           const p = ret?.file && fs.existsSync(String(ret.file)) ? String(ret.file) : '';
           if (p) return p;
           if (ret?.url) {

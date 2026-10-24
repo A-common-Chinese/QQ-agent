@@ -50,7 +50,7 @@ export function setup(api) {
       '只在用户明确要求"在这台电脑上做某事"时调用；闲聊、查资料、算数不要用它。',
       '任务描述要写清目标、路径、验收标准；一次只做一件事。'
     ].join(''),
-    category: 'utility',
+    category: 'system',   // 工具分类（技能分类仍为 utility，两套命名空间不同）
     icon: '🖥️',
     defaultEnabled: true,
     parameters: {

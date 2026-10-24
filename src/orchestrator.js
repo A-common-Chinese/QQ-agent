@@ -19,15 +19,17 @@ import { currentProviders } from './providers.js';
 import { skillManager } from './skills/manager.js';
 import { getToolAvailability } from './tool-registry.js';
 import { rescueUnsentReply } from './reply-rescue.js';
+import { asTransport } from './transport/index.js';
 
 export class Orchestrator {
-  constructor({ store, memory, stickers, sender, sessions, onebot, emit = null, reminders = null, videoReader = null }) {
+  constructor({ store, memory, stickers, sender, sessions, onebot, transport = null, emit = null, reminders = null, videoReader = null }) {
     this.store = store;
     this.memory = memory;
     this.stickers = stickers;
     this.sender = sender;
     this.sessions = sessions;
     this.onebot = onebot;
+    this.transport = transport || asTransport({ client: onebot });
     this.reminders = reminders;   // ReminderStore（可选；闹钟/计时功能）
     this.videoReader = videoReader; // VideoReader（可选；视频读取功能）
     // 事件出口：正常情况下由 app.js 注入（转发到 SSE）。
@@ -192,9 +194,9 @@ export class Orchestrator {
     if (!active) {
       const tierResult = resolveContextTier({
         triggerEntries: entry ? [entry] : (this.store.peekUnread(chatKey, 1) || []),
-        selfNickname: cfg.persona?.selfNickname || this.onebot.selfNickname || '',
+        selfNickname: cfg.persona?.selfNickname || this.transport.selfNickname || '',
         botName: cfg.persona?.botName || '',
-        selfId: cfg.onebot?.selfId || this.onebot.selfId || '',
+        selfId: cfg.onebot?.selfId || this.transport.selfId || '',
         cfg: storeConfigForChat(chatKey),
         isPrivate: String(chatKey).startsWith('private:'),
         // 单条判定当场掷骰、当场出结果 —— 没有"预判/实跑"两阶段了，
@@ -464,9 +466,9 @@ export class Orchestrator {
         for (const m of probe) {
           const r = resolveContextTier({
             triggerEntries: [m],
-            selfNickname: cfgForJudge.persona?.selfNickname || this.onebot.selfNickname || '',
+            selfNickname: cfgForJudge.persona?.selfNickname || this.transport.selfNickname || '',
             botName: cfgForJudge.persona?.botName || '',
-            selfId: cfgForJudge.onebot?.selfId || this.onebot.selfId || '',
+            selfId: cfgForJudge.onebot?.selfId || this.transport.selfId || '',
             cfg: storeConfigForChat(chatKey),
             isPrivate: String(chatKey).startsWith('private:'),
             roll: null
@@ -536,9 +538,9 @@ export class Orchestrator {
       ? { tier: 4, count: Math.max(0, Number(storeConfigForChat(chatKey).historyCount) || 80), reason: '主动机会（带历史）', shouldRespond: true }
       : resolveContextTier({
         triggerEntries,
-        selfNickname: cfgNow.persona?.selfNickname || this.onebot.selfNickname || '',
+        selfNickname: cfgNow.persona?.selfNickname || this.transport.selfNickname || '',
         botName: cfgNow.persona?.botName || '',
-        selfId: cfgNow.onebot?.selfId || this.onebot.selfId || '',
+        selfId: cfgNow.onebot?.selfId || this.transport.selfId || '',
         cfg: storeConfigForChat(chatKey),
         isPrivate: String(chatKey).startsWith('private:'),   // 私聊恒响应
         roll: null
@@ -763,7 +765,7 @@ export class Orchestrator {
     this.sessionAbortControllers.set(session.id, abortController);
     const abortSignal = abortController.signal;
     const chatName = kind === 'group' ? await this.#chatName(chatId) : '';
-    const selfNickname = kind === 'group' ? (cfg.persona.selfNickname || this.onebot.selfNickname || cfg.persona.botName) : cfg.persona.botName;
+    const selfNickname = kind === 'group' ? (cfg.persona.selfNickname || this.transport.selfNickname || cfg.persona.botName) : cfg.persona.botName;
 
     // （原"上下文统计"三件套 —— 最近消息密度/上次发言时间/最后消息时间 ——
     //  只喂【此刻状态】段，该段 2026-09-25 删除后不再计算。）
@@ -815,7 +817,7 @@ export class Orchestrator {
         const r = p.fn({
           triggerEntries,
           kind,
-          selfId: this.onebot.selfId,
+          selfId: this.transport.selfId,
           // 主人模式的"基准人设"用本会话独立人设：主人覆盖发生在会话人设之上，
           // 没配置会话人设时 personaForChat 原样返回全局 persona，行为不变。
           persona: personaForChat(chatKey)
@@ -927,10 +929,11 @@ export class Orchestrator {
 
     const ctx = {
       chatKey, kind, chatId,
-      selfId: this.onebot.selfId,
+      selfId: this.transport.selfId,
       selfNickname,
       botName: cfg.persona.botName,
       onebot: this.onebot,
+      transport: this.transport,
       store: this.store,
       memory: this.memory,
       stickers: this.stickers,
@@ -1306,7 +1309,7 @@ export class Orchestrator {
   async #chatName(groupId) {
     if (this.chatNameCache.has(groupId)) return this.chatNameCache.get(groupId);
     try {
-      const info = await this.onebot.getGroupInfo(groupId);
+      const info = await this.transport.groupInfo(groupId);
       if (info?.group_name) {
         this.chatNameCache.set(groupId, String(info.group_name));
         return String(info.group_name);
@@ -1443,9 +1446,9 @@ export class Orchestrator {
     let muted = false;
     try {
       const groupId = String(chatKey).split(':')[1];
-      const selfId = this.onebot.selfId;
+      const selfId = this.transport.selfId;
       if (groupId && selfId) {
-        const info = await this.onebot.call('get_group_member_info', {
+        const info = await this.transport.call('get_group_member_info', {
           group_id: Number(groupId),
           user_id: Number(selfId),
           no_cache: false
@@ -1939,7 +1942,7 @@ export class Orchestrator {
       running: [...this.runningChats],
       activeSessions: [...this.activeRuns.entries()].map(([chatKey, sessionId]) => ({ chatKey, sessionId })),
       consolidating: [...this.consolidating],
-      onebotConnected: this.onebot.connected,
+      onebotConnected: this.transport.connected,
       model: cfg.api.model,
       maxConcurrentRuns: cfg.maxConcurrentRuns
     };
