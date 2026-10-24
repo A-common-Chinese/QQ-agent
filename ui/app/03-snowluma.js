@@ -354,7 +354,7 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
     if (autoRead) {
       autoRead.addEventListener('change', async () => {
         try {
-          await api('/api/config', { method: 'PATCH', body: JSON.stringify({ snowluma: { autoReadToken: autoRead.checked } }) });
+          await api('/api/config', { method: 'POST', body: JSON.stringify({ snowluma: { autoReadToken: autoRead.checked } }) });
         } catch (e) {
           const hint = box.querySelector('#sl-ob-hint');
           if (hint) { hint.textContent = '保存失败：' + (e.message || e); hint.style.color = 'var(--red)'; }
@@ -419,7 +419,7 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
           }
         };
         try {
-          await api('/api/config', { method: 'PATCH', body: JSON.stringify(payload) });
+          await api('/api/config', { method: 'POST', body: JSON.stringify(payload) });
           obHint('已保存 ✅（地址/令牌改动需重启生效）', 'var(--green)');
           loadSnowlumaPage({ quiet: true });
         } catch (e) {
