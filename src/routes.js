@@ -74,7 +74,7 @@ function parseSectionsQuery(searchParams) {
 export function createRoutes(deps) {
   const conn = deps.transport || asTransport({ client: deps.onebot });
   const {
-    store, memory, sessions, onebot, transport, qqbotChats, qqbotStatus, simulateQqbotEvent, orchestrator, sender,
+    store, memory, sessions, onebot, transport, qqbotChats, qqbotStatus, qqbotStats, simulateQqbotEvent, orchestrator, sender,
     emit, log,
     // app.js 内部的过程/状态
     localVersion, compareSemver, UPDATE_INFO_URL,
@@ -157,6 +157,9 @@ export function createRoutes(deps) {
               connected: st.connected === true,
               error: st.error || '',
               selfNickname: transport && transport.kind === 'qqbot' ? (transport.selfNickname || '') : '',
+              received: (typeof qqbotStats === 'function' ? (qqbotStats() || {}).received : 0) || 0,
+              lastRecvAt: Number(getConfig().transport?.qqbot?.lastRecvAt || 0),
+              activeChats: (typeof qqbotStats === 'function' ? (qqbotStats() || {}).activeChats : 0) || 0,
               configured: Boolean(String(acc.appId || '').trim() && String(acc.appSecret || '').trim()),
               active: String(getConfig().transport?.active || 'onebot')
             };

@@ -92,17 +92,18 @@
         <div class="top-status">
           <!-- 状态胶囊带：窄窗口下横向滚动（不折行、不裁切）；右侧控件固定可见 -->
           <div class="top-chips">
-            <span id="usage-label" class="muted">今日：-</span>
-            <span class="sep"></span>
-            <span id="search-count-label" class="muted" title="今日联网搜索次数（web_search / web_fetch）">搜索：-</span>
-            <span class="sep"></span>
-            <!-- 就绪进度指示器：4 圆点 = QQ运行 / SnowLuma运行 / OneBot连接 / 配置完成 -->
-            <span id="readiness-dots" class="readiness-dots" title="就绪进度：点击跳转到对应设置">
-              <span class="rdot" data-target="snowluma" title="QQ 内核未运行"></span>
-              <span class="rdot" data-target="snowluma" title="SnowLuma 未运行"></span>
-              <span class="rdot" data-target="snowluma" title="OneBot 未连接"></span>
-              <span class="rdot" data-target="settings" title="配置未完成"></span>
+            <!-- 通道胶囊：主体点击进 QQ 接口页，▾ 展开状态菜单；4 个就绪点按当前通道换语义/配色 -->
+            <span id="channel-chip" class="channel-chip" title="点击打开 QQ 接口">
+              <span class="chip-dot"></span>
+              <span id="chip-label" class="chip-label">未连接</span>
+              <span id="readiness-dots" class="readiness-dots">
+                <span class="rdot"></span><span class="rdot"></span><span class="rdot"></span><span class="rdot"></span>
+              </span>
+              <button id="status-menu-btn" class="chip-caret" type="button" aria-label="状态详情" title="更多状态">▾</button>
             </span>
+            <!-- 旧的用量/搜索标签：改到状态菜单里展示，这里保留隐藏节点给既有逻辑 -->
+            <span id="usage-label" class="hidden">今日：-</span>
+            <span id="search-count-label" class="hidden"></span>
           </div>
           <div id="top-actions">
             <!-- 2026-10 改版：原顶栏的社区/市场按钮已收进右下悬浮菜单（#fab）。
@@ -118,6 +119,7 @@
             <button class="hidden" id="quote-confirm-btn" type="button" aria-hidden="true" aria-label="确认金句"></button>
           </div>
         </div>
+        <div id="status-menu" class="status-menu hidden" role="menu" aria-label="状态详情"></div>
       </header>
 
       <!-- 二级菜单：由 renderSubnav() 按当前主项渲染（记忆页 = 三张卡 ｜ 压缩） -->

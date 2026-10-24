@@ -1218,6 +1218,7 @@ export function createApp({ log = console.log } = {}) {
 
   /** 官方通道最近收到的会话（openid 不好找，这里给 UI/日志直接用） */
   const qqbotChats = new Map();
+  let qqbotRecv = 0;   // 本进程收到的官方通道消息数（用于顶栏「群授权」判定）
 
   /** 官方机器人事件 → 伪 OneBot 事件，复用现有 ingestMessage 管线（chatKey 用 openid） */
   function feedQqbotEvent(evt) {
@@ -1237,6 +1238,15 @@ export function createApp({ log = console.log } = {}) {
         _qqbot: evt
       };
       const ck = `${isGroup ? 'group' : 'private'}:${evt.chatId}`;
+      qqbotRecv += 1;
+      // 持久化「曾经收到过消息」的时间戳（顶栏第 3 个点=群授权可用），每分钟最多写一次
+      try {
+        const now = Date.now();
+        if (now - (globalThis.__qqbotRecvPersistAt || 0) > 60000) {
+          globalThis.__qqbotRecvPersistAt = now;
+          updateConfig({ transport: { qqbot: { lastRecvAt: now } } });
+        }
+      } catch { /* 忽略 */ }
       qqbotChats.set(ck, {
         kind: isGroup ? 'group' : 'private',
         id: String(evt.chatId),
