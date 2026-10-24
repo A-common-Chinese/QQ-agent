@@ -1,7 +1,7 @@
 # QQ Agent（桌面端）
 
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Electron-lightgrey)
-![版本](https://img.shields.io/badge/version-v0.7.0-blue)
+![版本](https://img.shields.io/badge/version-v0.7.1-blue)
 ![测试](https://img.shields.io/badge/tests-33%20suites%20(npm%20test)-brightgreen)
 ![许可](https://img.shields.io/badge/license-MIT-green)
 
@@ -9,7 +9,7 @@
 
 接 QQ 有**两种方式**（v0.7.0 起）：原来的 SnowLuma（OneBot v11，玩法最全），或 **QQ 开放平台的官方机器人**（合规、不因协议违规被封号）。两者凭据、白名单、日志、记忆完全独立，在控制台「QQ 接口」页里二选一。
 
-> **这是一个 fork。** 上游是 [K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)，本仓库是 **[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**，当前版本 `v0.7.0`。
+> **这是一个 fork。** 上游是 [K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)，本仓库是 **[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**，当前版本 `v0.7.1`。
 > 上游功能一个没删。[这个 fork 改了什么](#这个-fork-改了什么) 一节是全部改动的清单，其余章节对上游和本 fork 同样适用。
 
 ## 这是什么
@@ -49,7 +49,8 @@
 
 **怎么配**：控制台 → 「QQ 接口」页 → 选通道 → 填配置 → 测试 → 设为当前通道 → 重启。
 
-- OneBot：WS 地址 / HTTP 地址 / 令牌 / 自动拉起
+- OneBot：WS 地址 / HTTP 地址 / 令牌 / 自动拉起 / 「设为当前通道」
+- 协议端的检测、启停、卸载：**设置 → 服务 → 「协议端管理（可选）」**
 - 官方机器人：AppID / AppSecret（只存本机，页面脱敏）/ 环境（正式·沙箱）/ 群消息模式（全量·仅 @）
 - 官方通道的 openid 不用手抄：卡片下方「最近收到的会话」点「加入白名单」
 
@@ -72,7 +73,7 @@
 
 | 方式 | 怎么做 |
 |---|---|
-| **安装包（推荐，只想用）** | 去 **[最新 Release](https://github.com/A-common-Chinese/QQ-agent/releases/latest)** 下载 `QQ-Agent-DSH-Setup-0.5.0.exe`（Windows x64，约 79 MB），双击安装后从桌面/开始菜单快捷方式启动 |
+| **安装包（推荐，只想用）** | 去 **[最新 Release](https://github.com/A-common-Chinese/QQ-agent/releases/latest)** 下载 `QQ-Agent-DSH-Setup-0.7.1.exe`（Windows x64，约 83 MB），双击安装后从桌面/开始菜单快捷方式启动 |
 | **源码（要改代码或跑测试）** | 见下面[快速开始](#快速开始) |
 | **更新** | 启动 8 秒后自动检查一次本仓库的 GitHub Releases，发现新版本时在控制台提示并可下载安装包（12 小时结果缓存、下载后按资产 `sha256` 校验）。**不会自动安装**，安装包要自己跑一遍。不想要就在设置里关掉（`update.enabled` / `update.checkOnStartup`） |
 
@@ -98,7 +99,8 @@
 | 14 | **双通道接入**：新增官方 QQ 机器人通道（传输层抽象 + `src/transport/qqbot.js`），`transport.active` 切换，未配置时自动回落 OneBot | `src/transport/`、`src/app.js`、`src/config.js` | v0.7.0 |
 | 15 | **界面重构**：「SnowLuma」页改成「QQ 接口」（两张卡统一「连接配置 → 运行状态 → 运行日志 → 应用日志」+ ⓘ 说明弹窗）；顶栏通道胶囊 + 状态菜单；设置里只留跳转入口 | `ui/app/03-snowluma.js`、`ui/app/01-boot.js`、`ui/index.html`、`ui/app/06-settings-render.js` | v0.7.0 |
 | 16 | **双通道隔离**：白名单两套（`allow` / `allowQqbot`，openid 自动迁移）、日志分目录、顶栏就绪点按通道换语义 | `src/app.js`、`src/channel-log.js`、`src/routes.js` | v0.7.0 |
-| 17 | **协议端可选化**：未检测到协议端时只显示官方通道；进程管理收进「高级」折叠；默认不读第三方令牌（`snowluma.autoReadToken=false`）；新增「卸载协议端」（仅外部目录，自带目录受保护） | `ui/app/03-snowluma.js`、`src/app.js`、`src/routes.js`、`src/config.js` | v0.7.0 |
+| 17 | **协议端可选化**：未检测到协议端时只显示官方通道；检测/启停/卸载集中到 **设置 → 服务 → 「协议端管理（可选）」**（QQ 接口页只留连接配置与日志）；默认不读第三方令牌（`snowluma.autoReadToken=false`）；「卸载协议端」仅对外部目录生效、自带目录受保护 | `ui/app/03-snowluma.js`、`ui/app/06-settings-render.js`、`src/app.js`、`src/routes.js`、`src/config.js` | v0.7.0 |
+| 18 | **可用性修复**：保存 OneBot 配置 / 自动读取令牌开关（PATCH→POST）；官方通道下顶部体检卡常驻导致的"自动刷新"（就绪检查与横幅改按通道判断 + 体检卡内容去抖）；OneBot 卡片补「设为当前通道」；未安装提示可点击跳转协议端管理 | `ui/app/00-core.js`、`ui/app/01-boot.js`、`ui/app/03-snowluma.js`、`ui/app/06-settings-render.js` | v0.7.1 |
 
 ### 人设系统（v0.5.0 重点）
 
@@ -282,6 +284,7 @@ npm run setup    # 自动下载 SnowLuma + 固定版本便携 QQ
 
 | 版本 | 时间 | 内容 |
 |---|---|---|
+| **v0.7.1** | 2026-10-24 | 协议端可选化收尾：未装协议端时「QQ 接口」只显示官方通道；检测/启停/卸载迁到 **设置 → 服务 → 协议端管理（可选）**；默认不读第三方令牌；「两种接入方式只能选一种」仅在双通道时显示，未安装提示可点击跳转。修复：保存 OneBot 配置报 `PATCH /api/config`（改 POST）、官方通道下体检卡常驻导致顶部闪烁/自动刷新（就绪检查与横幅按通道判断 + 体检卡内容去抖）、OneBot 缺「设为当前通道」、误插 `</details>` 结构错位 |
 | **v0.7.0** | 2026-10-24 | **双通道**：新增官方 QQ 机器人通道（传输层抽象 / `src/transport/`；AppID+AppSecret 本地配置；被动回复自动带 msg_id；@ 判定兼容全量模式 mentions）。**界面重构**：「QQ 接口」页替代 SnowLuma 页（两卡统一连接配置/运行状态/运行日志/应用日志 + ⓘ 说明）；顶栏通道胶囊（绿=官方/蓝=OneBot）+ 状态详情菜单；设置里只留跳转入口。**双通道隔离**：白名单 `allow`/`allowQqbot` 两套（openid 自动迁移）、日志分 `snowluma/` 与 `qqbot/` 目录、存档支持 openid 会话。修复：@ 判定导致官方通道不回、存档 openid 会话打不开/消失、顶栏第 3 点不回填、QQ 接口页输入被打断。随包技能 `dsh-agent` 1.0.2；协议端改为可选外部依赖（默认不读第三方令牌、可卸载、自带目录受保护） |
 | v0.6.5 | 2026-10-24 | 启动动画修复（"更新后不播"：标记改存版本号）；随包技能 1.0.1 |
 | v0.6.4 | 2026-10-24 | 人设卡重构（core 迁移、`{{owner}}` 占位符、内置卡查看/复制、共用段可选、core/voice 分开关）；用量图表（tokens 输入/输出拆分、悬浮提示修复、输出放大 ×N）；启动动画微调 |
