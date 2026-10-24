@@ -59,6 +59,77 @@ function updateReadinessDots(s) {
   // 圆点 3：配置完成
   dots[3].className = 'rdot' + (cfgReady ? ' on' : '');
   dots[3].title = cfgReady ? '配置已完成' : '配置未完成（点击前往设置）';
+
+  // 顺带维护顶部体检卡（未就绪时才显示）
+  try { mountHealthCard(); } catch { /* 忽略 */ }
+}
+
+/**
+ * 未就绪时在控制台顶部显示「就绪度体检卡」，就绪后自动隐藏。
+ * 以前 renderHealthCard() 写了但没人调用（死代码），现在接到状态轮询上。
+ */
+function mountHealthCard() {
+  const wrap = document.getElementById('health-card-wrap');
+  if (!wrap) return;
+  let ready = true;
+  try {
+    if (!state.config) ready = true;                        // 配置还没加载，先不弹
+    else ready = assessReadiness(state.config, state.status).ready;
+  } catch { ready = true; }
+  if (ready) {
+    if (!wrap.classList.contains('hidden')) {
+      wrap.classList.add('hidden');
+      wrap.innerHTML = '';
+    }
+    return;
+  }
+  try {
+    wrap.innerHTML = renderHealthCard();
+    wrap.classList.remove('hidden');
+    // 「测试一下」：直接打 /api/providers/test-chat（设置页那个同名函数在闭包里，取不到）
+    const tBtn = wrap.querySelector('#test-api-btn');
+    const tOut = wrap.querySelector('#test-api-result');
+    if (tBtn) {
+      tBtn.addEventListener('click', async () => {
+        if (tBtn.disabled) return;
+        const idle = tBtn.textContent;
+        tBtn.disabled = true;
+        tBtn.textContent = '测试中…';
+        if (tOut) tOut.textContent = '';
+        try {
+          const cfg = state.config || {};
+          const r = await api('/api/providers/test-chat', {
+            method: 'POST',
+            body: JSON.stringify({
+              baseUrl: String(cfg.api?.baseUrl || '').trim(),
+              apiKey: '',
+              model: String(cfg.api?.model || '').trim()
+            })
+          });
+          const res = (r && r.result) || {};
+          if (tOut) tOut.textContent = res.ok
+            ? '✓ 测试通过（' + res.latencyMs + 'ms）：' + (res.note || '请求成功')
+            : '✗ 测试失败：' + (res.note || '未知错误');
+        } catch (e) {
+          if (tOut) tOut.textContent = '测试失败：' + (e?.message || e);
+        }
+        tBtn.disabled = false;
+        tBtn.textContent = idle;
+      });
+    }
+    // 「去填写 / 去勾选 / 前往启动」
+    wrap.querySelectorAll('.hc-fix-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const t = btn.dataset.target;
+        if (t === 'snowluma') { switchTab('snowluma'); return; }
+        switchTab('settings');
+        const sec = t === 'settings-allow' ? 'allow' : 'api';
+        state.settingsSection = sec;
+        try { if (typeof renderSettingsSidebar === 'function') renderSettingsSidebar(); } catch { /* 忽略 */ }
+        try { if (typeof renderSettings === 'function') renderSettings(); } catch { /* 忽略 */ }
+      });
+    });
+  } catch { /* 渲染失败不影响主界面 */ }
 }
 
 // 就绪圆点点击跳转

@@ -2298,3 +2298,8 @@ body.skin-bg-on .view { background: transparent; }
   white-space: nowrap;
 }
 .uc-tip .uc-tip-no { margin-left: 6px; color: var(--tx3); font-size: 11px; }
+
+/* 未就绪体检卡（只在没就绪时出现在控制台顶部） */
+.health-card-wrap { padding: 10px 18px 0; }
+.health-card-wrap.hidden { display: none; }
+.health-card-wrap .health-card { max-width: 1080px; margin: 0; }
