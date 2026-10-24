@@ -160,7 +160,11 @@ export class QqBotTransport extends Transport {
       role: String(author.member_role || ''),
       text: String(d.content || ''),
       mentions: Array.isArray(d.mentions) ? d.mentions : [],
-      atMe: t === 'GROUP_AT_MESSAGE_CREATE',
+      // 全量模式下 @ 消息可能也走 GROUP_MESSAGE_CREATE：用 mentions 里 bot=true 判断是否被 @
+      atMe: t === 'GROUP_AT_MESSAGE_CREATE'
+        || (Array.isArray(d?.mentions) && d.mentions.some((m) => m && m.bot === true))
+        || /<@!?all>/i.test(String(d?.content || '')),
+      rawType: t,
       timestamp: d.timestamp || '',
       raw: d
     };

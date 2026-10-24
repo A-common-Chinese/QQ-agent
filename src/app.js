@@ -1247,7 +1247,7 @@ export function createApp({ log = console.log } = {}) {
         text: String(evt.text || '').slice(0, 60)
       });
       if (qqbotChats.size > 30) { const first = qqbotChats.keys().next().value; qqbotChats.delete(first); }
-      { const msg = `[qqbot] 收到 ${ck}（${evt.nickname || '?'}）：${String(evt.text || '').slice(0, 40)}`; log(msg); try { channelLog('qqbot', msg); } catch { /* 忽略 */ } }
+      { const msg = `[qqbot] 收到 ${ck}（${evt.nickname || '?'}｜${evt.rawType || '?'}｜atMe=${evt.atMe === true}）：${String(evt.text || '').slice(0, 40)}`; log(msg); try { channelLog('qqbot', msg); } catch { /* 忽略 */ } }
       return ingestMessage(isGroup ? 'group' : 'private', String(evt.chatId), pseudo, 'qqbot')
         .catch((e) => { const msg = '[qqbot] ingest 失败：' + String(e?.message ?? e); log(msg); try { channelLog('qqbot', msg); } catch { /* 忽略 */ } });
     } catch (error) {
