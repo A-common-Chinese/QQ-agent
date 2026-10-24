@@ -449,7 +449,9 @@ export const DEFAULT_CONFIG = {
   // Skill 统一开关：唯一的"能力启停"来源。
   // 形状：{ [skillId]: { enabled: boolean, ...该 Skill 自己的设置 } }
   // 这里只存用户改过的值；默认值来自各 Skill 的 skill.json → settings。
-  skills: {},
+  // 随包内置的 dsh-agent 技能默认禁用（工具不会出现在模型列表）；
+  // 想用"机器人自己调 DSH"：技能页启用它 → 设置里调范围/权限
+  skills: { 'dsh-agent': { enabled: false } },
   // 扩展热重载：把自定义的插件/skill 目录放进 plugins/ 或 skills/ 后**自动生效**，无需重启。
   // 默认开 —— 这正是"放进去就能用"的体验来源。
   // ⚠️ 安全含义：等价于"任意落地的 JS 会被执行"。共享机器 / 只跑固定版本时建议关掉。

@@ -1,0 +1,26 @@
+{
+  "id": "dsh-agent",
+  "name": "DSH 远程执行",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "category": "utility",
+  "author": "A-common-Chinese",
+  "homepage": "https://github.com/A-common-Chinese/dsh-qq",
+  "description": "让模型通过 dsh-qq 桥在本机 DSH 上执行任务（默认关闭；可设范围/权限/频率）",
+  "settings": {
+    "scope": "whitelist",
+    "permissionMode": "read-only",
+    "maxPerHour": 3,
+    "timeoutSec": 25,
+    "bridgeUrl": "http://127.0.0.1:19387/__dsh-qq/message",
+    "bridgeToken": ""
+  },
+  "configSchema": {
+    "scope": { "type": "select", "label": "可用范围", "options": [["whitelist", "白名单会话（bot 能回话的会话）"], ["private", "仅私聊"], ["mention", "仅被点名/被 @"]] },
+    "permissionMode": { "type": "select", "label": "DSH 权限", "options": [["read-only", "只读（推荐）"], ["workspace-write", "可改工作区"], ["danger-full-access", "完全放开（危险）"]] },
+    "maxPerHour": { "type": "number", "label": "每会话每小时次数上限", "min": 0, "max": 999 },
+    "timeoutSec": { "type": "number", "label": "单次等待秒数", "min": 5, "max": 120 },
+    "bridgeUrl": { "type": "string", "label": "dsh-qq 桥地址" },
+    "bridgeToken": { "type": "string", "label": "bridgeToken（插件侧留空则这里也留空）" }
+  }
+}
