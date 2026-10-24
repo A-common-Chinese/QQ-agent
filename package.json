@@ -64,6 +64,7 @@
     "test:skill": "node test/skill-test.mjs",
     "new:skill": "node scripts/new-skill.mjs",
     "test:wiring": "node test/coverage-wiring.mjs",
+    "test:transport": "node test/transport-test.mjs",
     "test:audit": "node test/tools-skill-audit.mjs",
     "check:protocol": "node scripts/protocol-check.mjs",
     "check:judge": "node scripts/judge-check.mjs",

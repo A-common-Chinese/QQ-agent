@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import { getConfig, DEFAULT_CONFIG } from './config.js';
 import { sleep, randInt, createSendChain, formatClockTime } from './util.js';
 import { mdToPlain, splitForQQ } from './md-to-plain.js';
+import { createTransport } from './transport/index.js';
 
 // 限频回退值统一取自 DEFAULT_CONFIG，杜绝"代码默认 80 / 回退值 8 / UI 回退 8"三处打架。
 const DEFAULT_MAX_PER_MINUTE = DEFAULT_CONFIG.send.maxPerMinute;
@@ -41,8 +42,10 @@ export function toFileUri(input) {
 }
 
 export class SendQueue {
-  constructor({ onebot, store, onSent = null, log = null }) {
+  constructor({ onebot, transport = null, store, onSent = null, log = null }) {
     this.onebot = onebot;
+    // 传输层（P1）：发送走统一接口，默认包一层 OneBot 适配器，行为与之前一致
+    this.transport = transport || createTransport({ type: 'onebot', client: onebot });
     this.store = store;
     this.onSent = onSent;
     // 回退/降级这类"行为变了但没报错"的事必须留痕，否则排查时看不到曾经降级过
@@ -171,7 +174,7 @@ export class SendQueue {
           console.warn(`[sender] 跳过重复消息（${this.#dedupeWindow()}ms 内已发过相同内容）：${String(text).slice(0, 30)}`);
           return { text, messageId: null, at: formatClockTime(Date.now()), deduped: true };
         }
-        const data = await this.onebot.sendText(kind, id, text, {
+        const data = await this.transport.sendText(kind, id, text, {
           replyToMessageId: i === 0 ? options.replyToMessageId : null, // 引用挂在第一条上：回的就是那条
           atUserId: i === 0 ? options.atUserId : null
         });
@@ -229,7 +232,7 @@ export class SendQueue {
       const params = kind === 'group'
         ? { group_id: Number(id), file: ref, name }
         : { user_id: Number(id), file: ref, name };
-      const data = await this.onebot.call(kind === 'group' ? 'upload_group_file' : 'upload_private_file', params, 300000);
+      const data = await this.transport.call(kind === 'group' ? 'upload_group_file' : 'upload_private_file', params, 300000);
       const fileId = data?.file_id ?? null;
       this.#rememberUpload(chatKey, name);
       const ts = Date.now();
@@ -285,7 +288,7 @@ export class SendQueue {
       //   3. 空地址 —— 直接报错给模型
       // 失败自愈：http 直链失败时，用 OneBot get_image（拿协议端本地缓存）
       // 重发一次；再不行转成 base64 内联发（体积上限 15MB，超限明确报错）。
-      const sendVia = (ref) => this.onebot.sendSticker(kind, id, ref, {
+      const sendVia = (ref) => this.transport.sendSticker(kind, id, ref, {
         replyToMessageId: options.replyToMessageId ?? null,
         atUserId: options.atUserId ?? null
       });
@@ -314,7 +317,7 @@ export class SendQueue {
         // 回退 1：get_image 按文件名/URL 拿协议端本地缓存，绕开过期直链
         try {
           const fileKey = sticker.md5 || sticker.resId || sticker.id || '';
-          const ret = await this.onebot.call('get_image', { file: fileKey });
+          const ret = await this.transport.call('get_image', { file: fileKey });
           const cached = ret?.file || ret?.filename || '';
           if (cached) {
             this.log?.(`[sender] 表情直链发送失败（${firstError?.message ?? firstError}），改用协议端缓存重试`);
@@ -382,7 +385,7 @@ export class SendQueue {
 
       let data;
       try {
-        data = await this.onebot.sendImage(kind, id, ref, {
+        data = await this.transport.sendImage(kind, id, ref, {
           replyToMessageId: options.replyToMessageId ?? null,
           atUserId: options.atUserId ?? null
         });
@@ -391,7 +394,7 @@ export class SendQueue {
         // 只在**有 dataUrl 备份**且**确实是 local 路径**时才回退，避免无意义重试。
         if (!file || !dataUrl) throw error;
         this.log?.(`本地路径发送失败（${error?.message ?? error}），回退 base64 重试一次`);
-        data = await this.onebot.sendImage(kind, id, dataUrl, {
+        data = await this.transport.sendImage(kind, id, dataUrl, {
           replyToMessageId: options.replyToMessageId ?? null,
           atUserId: options.atUserId ?? null
         });
@@ -436,7 +439,7 @@ export class SendQueue {
       }
       this.#checkRate(chatKey);
       await sleep(randInt(800, 1800));   // 视频/多图体积大，停顿比文字长一点
-      const data = await this.onebot.sendSegments(kind, id, segs);
+      const data = await this.transport.sendSegments(kind, id, segs);
       this.#markSent(chatKey, `__media__${dedupeKey}`);   // 成功后才记账
       const ts = Date.now();
       this.store.appendSelf(chatKey, { text: label, ts, mid: data?.message_id ?? null });
@@ -453,7 +456,7 @@ export class SendQueue {
       // 可以绕过 maxPerMinute/maxPerHour 刷屏
       this.#checkRate(chatKey);
       await sleep(randInt(300, 900));
-      const data = await this.onebot.sendPoke(kind, id, targetUserId);
+      const data = await this.transport.sendPoke(kind, id, targetUserId);
       const ts = Date.now();
       const target = kind === 'group' && targetUserId != null ? ` ${targetUserId}` : '对方';
       this.store.appendSelf(chatKey, { text: `[拍一拍] 你拍了拍${target}`, ts, mid: data?.message_id ?? null });

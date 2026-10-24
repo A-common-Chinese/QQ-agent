@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { getConfig, updateConfig, ROOT, DATA_DIR, silentReason, ensurePersonaAssignment } from './config.js';
 import { checkForUpdate as updateCheck, getDownloadState as updateStatus, downloadUpdate as updateDownload } from './updater.js';
+import { createTransport } from './transport/index.js';
 import { OneBotClient, segmentsToText, extractMediaFromSegments, expandForwardNodes } from './onebot.js';
 import { isAtMe } from './prompt.js';
 import { ChatStore } from './store.js';
@@ -646,9 +647,11 @@ export function createApp({ log = console.log } = {}) {
     httpToken: cfg.snowluma?.httpAccessToken || cfg.snowluma?.accessToken,
     onEvent: (event) => handleOneBotEvent(event).catch((error) => log('[ingest] 处理事件出错:', error?.message ?? error))
   });
+  // 传输层（P1）：onebot 适配器先包住现有客户端；官方 QQ Bot 通道在 P2 接入
+  const transport = createTransport({ type: 'onebot', client: onebot });
   const stickers = new StickerManager(onebot);
   const sender =   new SendQueue({
-    onebot, store,
+    onebot, transport, store,
     onSent: ({ chatKey, text }) => log(`[发送 -> ${chatKey}] ${String(text).slice(0, 60)}`),
     log
   });
