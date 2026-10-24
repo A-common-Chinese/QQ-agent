@@ -799,6 +799,26 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     return pv2Cards(c).map((x) => `<option value="${esc(x.id)}"${x.id === sel ? ' selected' : ''}>${esc(x.name)}${x.builtin ? '（只读）' : ''}</option>`).join('');
   }
   function pv2CardName(c, id) { const x = pv2Cards(c).find((k) => k && k.id === id); return x ? x.name : ''; }
+  /**
+   * 删除/保存后刷新，但**保住当前滚动位置**（以前直接 pv2Reload 会把窗口弹回顶部）。
+   * 折叠卡的开合状态由 sessionStorage 持久化，重渲染后会自动恢复。
+   */
+  async function pv2RefreshKeepScroll() {
+    const winY = window.scrollY || document.documentElement.scrollTop || 0;
+    const pane = document.querySelector('.settings-pane') || document.scrollingElement;
+    const paneY = pane ? pane.scrollTop : 0;
+    try {
+      if (typeof loadSettings === 'function') await loadSettings();
+      else if (typeof memRerender === 'function') await memRerender();
+    } catch { /* 刷新失败就保持现状 */ }
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    try {
+      window.scrollTo(0, winY);
+      const pane2 = document.querySelector('.settings-pane') || document.scrollingElement;
+      if (pane2) pane2.scrollTop = paneY;
+    } catch { /* 忽略 */ }
+  }
+
   async function pv2Reload() {
     try { if (typeof memRerender === 'function') await memRerender(); else if (typeof loadSettings === 'function') await loadSettings(); else location.reload(); }
     catch (e) { try { location.reload(); } catch { /* ignore */ } }
@@ -1215,8 +1235,8 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     if (!confirm(msg)) return;
     try {
       const r = await pv2Api('DELETE', '/api/personas/' + encodeURIComponent(id));
+      await pv2RefreshKeepScroll();
       showNoticeModal('已删除', `影响 ${r.affected || 0} 个会话，回落目标：${r.fallback || '无'}`);
-      pv2Reload();
     } catch (e) { showNoticeModal('删除失败', String(e.message || e)); }
   }
 
@@ -3038,8 +3058,8 @@ async function refreshPromptPreview(overrides = null) {
     try {
       await pv2Api('DELETE', '/api/persona-shared/presets/' + encodeURIComponent(pick), {});
       if (typeof state !== 'undefined') state.pv2SharedPick = '';
+      await pv2RefreshKeepScroll();
       pv2Hint('pv2-shared-hint', '已删除 ✅', 'var(--green)');
-      await pv2Reload();
     } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
   }
 
