@@ -1296,6 +1296,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       <h3>④ 共用部分（useShared 的卡共享）</h3>
       <div class="hint">可以保存多份共用段，选一份作为「当前使用」；改完内容点保存会写回选中的那份。</div>
       ${(() => {
+        if (typeof ensureSharedPresetsLoaded === 'function') ensureSharedPresetsLoaded();
         const box = (typeof state !== 'undefined' && state.personaSharedPresets) || { activeId: '', items: [] };
         const items = Array.isArray(box.items) ? box.items : [];
         const activeId = String(box.activeId || '');
@@ -1311,7 +1312,18 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
             '<div class="preset-card-sub">core ' + String(x.core || '').length + ' 字 · voice ' + String(x.voice || '').length + ' 字</div>' +
           '</div>';
         }).join('') || '<div class="muted" style="font-size:12px">（还没有共用段，写好内容后点「另存为新预设」）</div>';
+        const selOpts = items.map((x) => '<option value="' + esc(x.id) + '"' + (x.id === pickId ? ' selected' : '') + '>'
+          + esc(x.name || x.id) + '（core ' + String(x.core || '').length + ' / voice ' + String(x.voice || '').length + ' 字）</option>').join('');
+        const cardOpts = (Array.isArray(c.cards) ? c.cards : (Array.isArray(c.personas) ? c.personas : []))
+          .map((x) => '<option value="' + esc(x.id) + '">' + esc(x.name) + (x.builtin ? '（只读）' : '') + '</option>').join('');
         return '<div class="preset-row">' + cards + '</div>' +
+          (items.length
+            ? '<div class="field"><label>选择已保存的共用段（下拉）</label><select id="pv2-shared-select">' + selOpts + '</select></div>'
+            : '<div class="hint" id="pv2-shared-empty">还没有共用段预设：<a href="#" data-pv2="load-shared">重新加载已保存的共用段</a></div>') +
+          '<div class="field-row" style="align-items:flex-end">' +
+            '<div class="field"><label>把某张人格卡的正文导入为共用段</label><select id="pv2-shared-import">' + cardOpts + '</select></div>' +
+            '<div class="field" style="flex:0 0 auto"><button class="btn btn-small" data-pv2="import-shared">导入为共用段</button></div>' +
+          '</div>' +
           '<div class="field"><label>这份共用段的名称</label><input type="text" id="pv2-shared-name" value="' + esc(nameText) + '" placeholder="例如：小鲸鱼基础版" /></div>' +
           '<div class="field"><label>core（身份/性格/定位）· ' + coreText.length + ' 字</label>' +
             '<textarea id="pv2-shared-core" class="persona-role-text" style="min-height:150px">' + esc(coreText) + '</textarea></div>' +
@@ -1364,6 +1376,8 @@ if (!window.__pv2Delegated) {
     if (act === 'new') return pv2OpenEditor(null);
     if (act === 'ai-gen') return pv2AiGenerate();
     if (act === 'import') return pv2Import();
+    if (act === 'import-shared') return pv2ImportSharedFromCard();
+    if (act === 'load-shared') return pv2ReloadSharedPresets();
     if (act === 'edit') {
       const c = state.config || {};
       const card = (c.personas || []).find((p) => p && p.id === el.dataset.id);
@@ -2956,6 +2970,55 @@ async function refreshPromptPreview(overrides = null) {
       await pv2Reload();
     } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
   }
+  /** 把某张人格卡的正文导入为一份新的共用段（core 用卡正文，voice 留空）。 */
+  /** 保证共用段预设列表已经拉过（直接进 设置→人设 时 05 可能还没跑）。 */
+  function ensureSharedPresetsLoaded() {
+    if (typeof state === 'undefined') return;
+    if (state.personaSharedPresets && Array.isArray(state.personaSharedPresets.items)) return;
+    if (window.__pv2SharedLoading) return;
+    window.__pv2SharedLoading = true;
+    api('/api/persona-shared').then((sh) => {
+      state.personaShared = sh.shared || {};
+      state.personaSharedPresets = sh.presets || { activeId: '', items: [] };
+      window.__pv2SharedLoading = false;
+      if (state.tab === 'settings' && state.settingsSection === 'persona') {
+        try { renderSettings(); } catch { /* 忽略 */ }
+      }
+    }).catch(() => { window.__pv2SharedLoading = false; });
+  }
+
+  async function pv2ImportSharedFromCard() {
+    const sel = document.getElementById('pv2-shared-import');
+    const id = sel ? sel.value : '';
+    if (!id) { pv2Hint('pv2-shared-hint', '先选一张卡', 'var(--orange)'); return; }
+    const c = state.config || {};
+    const card = (Array.isArray(c.personas) ? c.personas : []).find((x) => x && x.id === id);
+    if (!card) { pv2Hint('pv2-shared-hint', '找不到这张卡', 'var(--red)'); return; }
+    try {
+      const r = await pv2Api('POST', '/api/persona-shared/presets', {
+        name: String(card.name || '卡').slice(0, 30) + '（共用段）',
+        core: String(card.variant || ''),
+        voice: '',
+        activate: false
+      });
+      if (typeof state !== 'undefined') state.pv2SharedPick = r?.item?.id || '';
+      pv2Hint('pv2-shared-hint', '已导入为共用段：「' + (card.name || '') + '」' + String(card.variant || '').length + ' 字 ✅', 'var(--green)');
+      await pv2Reload();
+    } catch (e) { pv2Hint('pv2-shared-hint', '导入失败：' + (e?.message || e), 'var(--red)'); }
+  }
+
+  /** 重新拉一次共用段预设列表（老版本没带 presets 时用）。 */
+  async function pv2ReloadSharedPresets() {
+    try {
+      const sh = await pv2Api('GET', '/api/persona-shared');
+      if (typeof state !== 'undefined') {
+        state.personaShared = sh.shared || {};
+        state.personaSharedPresets = sh.presets || { activeId: '', items: [] };
+      }
+      await pv2Reload();
+    } catch (e) { pv2Hint('pv2-shared-hint', '加载失败：' + (e?.message || e), 'var(--red)'); }
+  }
+
   async function pv2UseShared() {
     const pick = pv2SharedPickId();
     if (!pick) { pv2Hint('pv2-shared-hint', '先选一份共用段', 'var(--orange)'); return; }
