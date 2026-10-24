@@ -17,6 +17,7 @@
     axis: 'auto',       // auto | manual
     axisMax: '',
     split: 'both',      // tokens 指标下：both | input | output
+    outMul: 5,          // 柱状并排时"输出"的放大倍数（输入输出悬殊时便于对比）
     data: null,
     loading: false,
     error: '',
@@ -31,12 +32,13 @@
       if (saved.axis === 'manual' || saved.axis === 'auto') S.axis = saved.axis;
       if (saved.axisMax !== undefined) S.axisMax = String(saved.axisMax || '');
       if (['both', 'input', 'output'].includes(saved.split)) S.split = saved.split;
+      if (Number(saved.outMul) > 0) S.outMul = Math.min(1000, Math.max(1, Number(saved.outMul)));
     }
   } catch { /* 忽略 */ }
 
   function persist() {
     try {
-      localStorage.setItem(CHART_KEY, JSON.stringify({ chart: S.chart, metric: S.metric, model: S.model, axis: S.axis, axisMax: S.axisMax, split: S.split }));
+      localStorage.setItem(CHART_KEY, JSON.stringify({ chart: S.chart, metric: S.metric, model: S.model, axis: S.axis, axisMax: S.axisMax, split: S.split, outMul: S.outMul }));
     } catch { /* 忽略 */ }
   }
 
@@ -122,7 +124,10 @@
           outTotals[i] += Number(s.completion?.[i]) || 0;
         }
       }
-      const pick = (i) => (S.split === 'input' ? inTotals[i] : S.split === 'output' ? outTotals[i] : inTotals[i] + outTotals[i]);
+      const mul = outMul();
+      const pick = (i) => (S.split === 'input' ? inTotals[i]
+        : S.split === 'output' ? outTotals[i] * mul
+        : inTotals[i] + outTotals[i] * mul);
       draw = buckets.map((_, i) => pick(i));
     }
     const peak = Math.max(...draw, 0);
@@ -163,6 +168,12 @@
     return out;
   }
 
+  /** 柱状并排时输出的放大倍数（折线不受影响，看的是趋势） */
+  function outMul() {
+    if (S.metric !== 'tokens' || S.chart !== 'bar') return 1;
+    const n = Number(S.outMul);
+    return Number.isFinite(n) && n > 0 ? Math.min(1000, Math.max(1, n)) : 1;
+  }
   const IN_COLOR = '#2f6fd0';
   const OUT_COLOR = '#d9731a';
   const showInput = () => S.metric !== 'tokens' || S.split !== 'output';
@@ -252,7 +263,7 @@
       const cx = PAD.l + slot * i + slot / 2;
       const bars = [];
       if (showInput()) bars.push({ val: v.inTotals[i], color: IN_COLOR, x: cx - pairW / 2 });
-      if (showOutput()) bars.push({ val: v.outTotals[i], color: OUT_COLOR, x: cx - pairW / 2 + bw + 3 });
+      if (showOutput()) bars.push({ val: v.outTotals[i] * outMul(), color: OUT_COLOR, x: cx - pairW / 2 + bw + 3, real: v.outTotals[i] });
       let top = base0;
       for (const b of bars) {
         const h = Math.min((b.val / v.yMax) * plotH, plotH);
@@ -350,6 +361,9 @@
       + '<span class="uc-lbl">指标</span>' + seg('metric', [['cost', '花费'], ['tokens', 'tokens'], ['runs', '请求数']], S.metric, 'uc-metric')
       + (S.metric === 'tokens'
         ? '<span class="uc-lbl">显示</span>' + seg('split', [['both', '输入+输出'], ['input', '仅输入'], ['output', '仅输出']], S.split, 'uc-split')
+          + (S.chart === 'bar' && S.split !== 'input'
+            ? '<span class="uc-lbl">输出放大 ×</span><input class="uc-input" id="uc-out-mul" type="number" min="1" max="1000" step="1" value="' + esc(String(S.outMul)) + '" />'
+            : '')
         : '')
       + '<span class="uc-lbl">模型</span>'
       + `<select class="uc-select" id="uc-model"><option value="auto"${S.model === 'auto' ? ' selected' : ''}>自动（按当天主导）</option>`
@@ -414,7 +428,8 @@
     if (S.metric === 'tokens') {
       const items = [];
       if (showInput()) items.push('<span class="uc-lg"><i style="background:' + IN_COLOR + '"></i>输入 token</span>');
-      if (showOutput()) items.push('<span class="uc-lg"><i style="background:' + OUT_COLOR + '"></i>输出 token</span>');
+      if (showOutput()) items.push('<span class="uc-lg"><i style="background:' + OUT_COLOR + '"></i>输出 token'
+        + (outMul() > 1 ? ' ×' + outMul() + '（放大显示）' : '') + '</span>');
       items.push('<span class="uc-lg uc-lg-dash"><i></i>今天（累计中）</span>');
       return items.join('');
     }
@@ -465,7 +480,8 @@
       const rows = [];
       if (S.metric === 'tokens') {
         if (showInput()) rows.push('<span style="color:' + IN_COLOR + '">●</span> 输入 ' + fmtNum(v.inTotals[i]));
-        if (showOutput()) rows.push('<span style="color:' + OUT_COLOR + '">●</span> 输出 ' + fmtNum(v.outTotals[i]));
+        if (showOutput()) rows.push('<span style="color:' + OUT_COLOR + '">●</span> 输出 ' + fmtNum(v.outTotals[i])
+          + (outMul() > 1 ? ' <span style="color:var(--tx3)">（图上 ×' + outMul() + '）</span>' : ''));
         if (S.split === 'both') rows.push('合计 ' + fmtNum(v.inTotals[i] + v.outTotals[i]));
       } else {
         rows.push(METRIC_LABEL[S.metric] + ' ' + fmtNum(v.totals[i]) + METRIC_UNIT[S.metric]);
@@ -496,6 +512,11 @@
       S.axis = el.dataset.ucAxis; persist(); render();
     }));
     box.querySelectorAll('[data-uc-split]').forEach((el) => el.addEventListener('click', () => { S.split = el.dataset.ucSplit; persist(); render(); }));
+    box.querySelector('#uc-out-mul')?.addEventListener('change', (e) => {
+      const n = Number(e.currentTarget.value);
+      S.outMul = Number.isFinite(n) && n > 0 ? Math.min(1000, Math.max(1, n)) : 1;
+      persist(); render();
+    });
     box.querySelector('#uc-model')?.addEventListener('change', (e) => { S.model = e.currentTarget.value; persist(); render(); });
     box.querySelector('#uc-axis-max')?.addEventListener('change', (e) => {
       S.axisMax = String(e.currentTarget.value || ''); persist(); render();
