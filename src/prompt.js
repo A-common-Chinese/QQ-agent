@@ -211,7 +211,18 @@ function renderSkillSections(sections) {
 }
 
 /** 组装系统提示。 */
-export function buildSystemPrompt({ persona, skillContext, extraSections = [] } = {}) {
+/**
+ * 准备动态 Skill 段（含稳定排序）。
+ * 单独导出：系统提示要彻底静态化，这些动态段改由用户提示携带（缓存友好）。
+ */
+export function prepareSkillSections(skillContext = {}, extraSections = []) {
+  return [...collectSkillSections(skillContext || {}), ...(Array.isArray(extraSections) ? extraSections : [])]
+    .map((x) => ({ priority: 50, ...x }))
+    .map((x, i) => ({ ...x, __seq: i }))
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.__seq - b.__seq);
+}
+
+export function buildSystemPrompt({ persona, skillContext, extraSections = [], skillSections: skillSectionsArg = undefined } = {}) {
   const cfg = persona ?? getConfig().persona;
   // extraSections：调用方在**运行时**算出来的片段（如主人身份说明）。
   // 与 Skill 自己声明的 prompt.sections 走同一条渲染路径 —— 都排在核心规则之后，
@@ -221,13 +232,10 @@ export function buildSystemPrompt({ persona, skillContext, extraSections = [] } 
   //    的每轮注入、knowledge-memes 的脑内闪过），必须**追加到系统提示末尾**而不是
   //    插在中间 —— 插在中间会把后面所有核心规则的字节位置推来推去，系统提示的
   //    缓存前缀（通常占 token 大头）直接归零。核心静态段全部在前，动态段殿后。
-  const skillSections = [...collectSkillSections(skillContext || {}), ...(Array.isArray(extraSections) ? extraSections : [])]
-    .map((x) => ({ priority: 50, ...x }))
-    // 同 priority 的段必须按固定次序排：sort 不稳定会让 nsfw-gate(99) 这类
-    // 动态段有时插在静态段前、有时在后，整段系统提示的字节布局随排序抖动，
-    // 前缀缓存命中率大幅波动。次序键 = priority 降序 +（id 相等时）数组原序。
-    .map((x, i) => ({ ...x, __seq: i }))
-    .sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.__seq - b.__seq);
+  // skillSections 显式传 null = 不往系统提示里塞动态段（改由用户提示携带，系统提示保持全静态）
+  const skillSections = skillSectionsArg === null
+    ? []
+    : (Array.isArray(skillSectionsArg) ? skillSectionsArg : prepareSkillSections(skillContext, extraSections));
 
   // ── 系统提示词覆盖（高级）：替换人格/风格类准则 ──
   // 安全规则与工具协议不可覆盖（无论配置怎么写都追加在最后）——
@@ -929,6 +937,14 @@ function fillPersonaVars(text) {
   // 原"群名/最近消息密度/距上次发言 N 分钟"三行整体移除：这些信息模型
   // 从【已读信息】的时间戳和内容里能自然感知，单独罗列反而助长"汇报式"
   // 开场（"好久没人说话了，我来开个话题"）。selfNickname 仍用于 @ 标签判定。
+
+  // 动态 Skill 段（原来挂在系统提示末尾）：
+  // 放在【已读信息】之后、【未读信息】之前 —— 系统提示因此变成全静态（跨轮字节不变），
+  // 而【记忆】+【已读信息】的锚点前缀仍保持连续、不被打断。
+  if (Array.isArray(ctx.dynamicSections) && ctx.dynamicSections.length) {
+    const _dyn = renderSkillSections(ctx.dynamicSections);
+    if (_dyn.length) parts.push(..._dyn);
+  }
 
   // 未读信息
   const triggerBlock = buildTriggerBlock(ctx.triggerEntries, ctx);

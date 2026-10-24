@@ -13,7 +13,7 @@ import path from 'node:path';
 import { getConfig, storeConfigForChat, personaForChat, isSilentChat, DATA_DIR } from './config.js';
 import { vendorOfConfig } from './model-prices.js';
 import { randInt } from './util.js';
-import { buildSystemPrompt, buildUserPrompt, resolveContextTier } from './prompt.js';
+import { buildSystemPrompt, buildUserPrompt, resolveContextTier, prepareSkillSections } from './prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from './llm.js';
 import { buildToolDefs, toOpenAiTools, executeTool } from './tools.js';
 import { modelImageVerdict } from './vision-scan.js';
@@ -841,12 +841,14 @@ export class Orchestrator {
     //   3. 全局人设（cfg.persona）
     // 名字（botName/selfNickname）在任何层都保持全局值 —— 那是账号身份，
     // 换了会和 @ 判定对不上（personaForChat 在结构上就不允许覆盖这两个字段）。
+    // 动态 Skill 段（conversation-memory 每轮注入 / 主人规则等）改由**用户提示**携带：
+    // 系统提示只保留静态内容 → 跨轮字节完全一致，前缀缓存可吃满。
+    const _dynamicSections = prepareSkillSections(skillContext, ownerRules
+      ? [{ id: 'owner-rules-run', title: '', priority: 72, content: ownerRules }]
+      : []);
     const systemPrompt = buildSystemPrompt({
-      skillContext,
       persona: ownerPersona || personaForChat(chatKey),
-      extraSections: ownerRules
-        ? [{ id: 'owner-rules-run', title: '', priority: 72, content: ownerRules }]
-        : []
+      skillSections: null
     });
     const userPrompt = buildUserPrompt({
       chatKey, kind, chatId, chatName,
@@ -865,6 +867,7 @@ export class Orchestrator {
       activeTopic,
       // 提示词锚点：传入上一轮的前缀状态；新状态经 session.promptAnchorState 带回
       promptAnchor: { prev: this.promptAnchors.get(chatKey) || null },
+      dynamicSections: _dynamicSections,
       session
     });
 
@@ -1033,6 +1036,13 @@ export class Orchestrator {
         session.vendor = vendorOfConfig({ api: response._usedApi, providers: getConfig().providers }) || session.vendor;
       }
       addUsage(session.usage, response.usage);
+    // 前缀缓存命中率诊断（改提示词结构后观察收益用）
+    try {
+      const _u = response.usage || {};
+      const _pt = Number(_u.prompt_tokens ?? _u.promptTokens ?? 0);
+      const _cached = Number(_u.prompt_cache_hit_tokens ?? _u.cached_tokens ?? _u.prompt_tokens_details?.cached_tokens ?? 0);
+      if (_pt > 0) console.log(`[prompt] 前缀缓存命中 ${_cached}/${_pt}（${Math.round((_cached / _pt) * 100)}%）`);
+    } catch { /* 忽略 */ }
       session.usage.calls += 1;
       // Skill 附加统计（如 reasoning tokens）——单独累加，不混进成本口径
       if (response.extraUsage) {
