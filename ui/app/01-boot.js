@@ -59,7 +59,10 @@ function mountHealthCard() {
     return;
   }
   try {
-    wrap.innerHTML = renderHealthCard();
+    const html = renderHealthCard();
+    if (wrap.dataset.sig === html) { wrap.classList.remove('hidden'); return; }
+    wrap.dataset.sig = html;
+    wrap.innerHTML = html;
     wrap.classList.remove('hidden');
     const tBtn = wrap.querySelector('#test-api-btn');
     const tOut = wrap.querySelector('#test-api-result');

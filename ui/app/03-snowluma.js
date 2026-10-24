@@ -129,6 +129,7 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       ? { top: oldAppPre.scrollTop, atBottom: oldAppPre.scrollTop + oldAppPre.clientHeight >= oldAppPre.scrollHeight - 40 }
       : null;
 
+    const _keepScroll = quiet && box ? { y: window.scrollY, pane: box.scrollTop } : null;
     box.innerHTML = `
       <div class="snowluma-page-card">
         <h2 style="display:flex;align-items:center;gap:10px">QQ 接口
@@ -342,6 +343,10 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       } else if (st.focused) {
         el.focus();
       }
+    }
+
+    if (_keepScroll) {
+      try { box.scrollTop = _keepScroll.pane; window.scrollTo(0, _keepScroll.y); } catch { /* 忽略 */ }
     }
 
     // 说明弹窗（原「与 OneBot 的区别」长文本）
