@@ -680,6 +680,19 @@ export function createApp({ log = console.log } = {}) {
   const dshBridge = createDshBridge({ getConfig, sender, log, emit });
   const orchestrator = new Orchestrator({ store, memory, stickers, sender, sessions, onebot, transport, emit, reminders, videoReader });
 
+  // 首次启动/重装后回填「曾经收到过官方通道消息」的时间戳：
+  // 存档里 group:<32位hex> / private:<32位hex> 就是 openid 会话，
+  // 用它推 lastRecvAt，顶栏第 3 个点（群授权）才不会因为重启变灰。
+  try {
+    const allKeys = (store.listChats ? store.listChats() : []);
+    const qbKeys = allKeys.filter((k) => /^(group|private):[0-9a-f]{20,}$/i.test(String(k)));
+    if (qbKeys.length) {
+      const last = qbKeys.reduce((mx, k) => Math.max(mx, Number(store.getChatMeta(k)?.lastTs) || 0), 0);
+      const cur = Number(getConfig().transport?.qqbot?.lastRecvAt || 0);
+      if (last > cur) updateConfig({ transport: { qqbot: { lastRecvAt: last } } });
+    }
+  } catch { /* 回填失败不影响启动 */ }
+
   // 远程价格表固定为官网公开地址；不从用户配置读取，避免被页面/配置篡改。
   initPriceFeed(FIXED_PRICE_FEED_URL);
 
@@ -1242,7 +1255,7 @@ export function createApp({ log = console.log } = {}) {
       // 持久化「曾经收到过消息」的时间戳（顶栏第 3 个点=群授权可用），每分钟最多写一次
       try {
         const now = Date.now();
-        if (now - (globalThis.__qqbotRecvPersistAt || 0) > 60000) {
+        if (now - (globalThis.__qqbotRecvPersistAt || 0) > 30000) {
           globalThis.__qqbotRecvPersistAt = now;
           updateConfig({ transport: { qqbot: { lastRecvAt: now } } });
         }

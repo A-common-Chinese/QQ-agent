@@ -63,9 +63,10 @@ export class ChatStore {
   listChats() {
     // 从磁盘文件名还原（group_123.json -> group:123），已加载的直接带上
     try {
-      const files = fs.readdirSync(MESSAGES_DIR).filter((f) => /^(group|private)_\d+\.json$/.test(f));
+      // id 可能是数字群号，也可能是官方通道的 openid（16 进制串），都要能扫出来
+      const files = fs.readdirSync(MESSAGES_DIR).filter((f) => /^(group|private)_[0-9A-Za-z]+\.json$/.test(f));
       for (const f of files) {
-        const m = /^(group|private)_(\d+)\.json$/.exec(f);
+        const m = /^(group|private)_([0-9A-Za-z]+)\.json$/.exec(f);
         if (m) this.#state(`${m[1]}:${m[2]}`);
       }
     } catch { /* 目录不存在 */ }
