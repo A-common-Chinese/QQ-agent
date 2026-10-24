@@ -241,6 +241,10 @@ export const DEFAULT_CONFIG = {
   // 统一模式下不读 personaByChat）—— 否则统一开关形同虚设：旧分会话条目会
   // 继续静默覆盖全局人设，而 UI 已把编辑入口藏起来了。
   personaUnified: true,
+  // 共用段（老架构）：会被拼到所有 useShared=true 的卡前面。
+  // 2026-10-24：core 默认清空 —— 不同卡人设不同，core 属于各卡自己；
+  // 老配置里残留的 core 会在启动时一次性搬进「内置只读卡」。
+  personaShared: { core: '', voice: '' },
   // 新会话（白名单里第一次说话的好友/群）自动分配的人格卡 id；空 = 用内置卡/第一张卡
   personaDefaultId: '',
   // 接入白名单
@@ -403,7 +407,8 @@ export const DEFAULT_CONFIG = {
     free: [],
     limited: [],
     adminOnly: [],
-    adminQQ: '85946573'
+    adminQQ: '',              // 管理员 QQ；空 = 取白名单第一个私聊（部署者）
+    adminName: '',            // 部署者称呼；空 = 人设变量 {{owner}} 用「群主」
   },
   // ── 安全模式：写入存档前脱敏（密码/账号/电话等）────────────────────
   //   enabled 默认 true；level 1=内置全拦 2=只用 customText 里的自定义规则
@@ -578,7 +583,16 @@ export function loadConfig() {
     let text = fs.readFileSync(CONFIG_FILE, 'utf8');
     if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     const parsed = JSON.parse(text);
-    return deepMerge(DEFAULT_CONFIG, stripObsoleteFields(migrateLegacySkills(parsed)));
+    const merged = deepMerge(DEFAULT_CONFIG, stripObsoleteFields(migrateLegacySkills(parsed)));
+    // 一次性：把老的共用 core 搬进内置卡（搬完 core 变空），并立即写回配置文件
+    try {
+      const _p1 = migratePersonaSharedCore(merged);
+      const _p2 = migratePersonaOwnerPlaceholder(merged);
+      if (_p1 || _p2) {
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf8');
+      }
+    } catch { /* 迁移失败不影响启动，下次再试 */ }
+    return merged;
   } catch (error) {
     // ⚠️ 配置文件坏了（手改错/磁盘故障）不能静默回落默认值：
     //   曾经直接返回 DEFAULT，随后任何 updateConfig（比如 5 分钟一次的
@@ -624,6 +638,81 @@ const LEGACY_SKILL_MIGRATIONS = [
   // 旧表情标注开关
   { from: ['tools', 'stickerAnnotate'], skill: 'sticker-annotate', map: (v) => ({ enabled: v !== false }) }
 ];
+
+/**
+ * 把老配置里 personaShared.core 的正文搬进「内置只读人格卡」，然后清空共用 core。
+ *
+ * 为什么：core 是"所有用共用段的卡都共享的角色底子"，但不同卡往往有完全不同的人设
+ * （小鲸鱼 / 别的角色），共用 core 会把它们都染成同一个人。改成 core 归各卡自己，
+ * 内置卡（read-only）保留原来那段；其余卡想加就自己写进 variant。
+ * 幂等：内置卡 variant 已包含该文本时不重复追加。
+ */
+/**
+ * 迁移：把人格卡里写死的部署者 QQ（历史默认 85946573）换成 {{ownerQQ}} 占位符。
+ * 目的：卡可以原样分享给别人部署，谁部署就填谁的白名单，不用改文案。
+ * 幂等：已经是 {{ownerQQ}} 的不会再变。
+ */
+export function migratePersonaOwnerPlaceholder(cfg) {
+  const qq = '85946573';
+  let changed = false;
+  const walk = (obj, key) => {
+    if (!obj || typeof obj !== 'object') return;
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      if (typeof v === 'string' && v.includes(qq)) {
+        obj[k] = v.split(qq).join('{{ownerQQ}}');
+        changed = true;
+      } else if (v && typeof v === 'object') {
+        walk(v, k);
+      }
+    }
+  };
+  if (Array.isArray(cfg.personas)) walk(cfg.personas);
+  if (cfg.personaShared && typeof cfg.personaShared === 'object') walk(cfg.personaShared);
+
+  // 再把写死的部署者昵称换成 {{owner}}（只处理常见写法，避免误伤普通单词）
+  const nameFix = (str) => String(str)
+    .replace(/Call me ACC/g, '{{owner}}')
+    .replace(/[“"]ACC[”"]/g, '“{{owner}}”')
+    .replace(/\bACC\b(?=[（(，,、。\s])/g, '{{owner}}');
+  const walkName = (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      if (typeof v === 'string') {
+        const after = nameFix(v);
+        if (after !== v) { obj[k] = after; changed = true; }
+      } else if (v && typeof v === 'object') walkName(v);
+    }
+  };
+  if (Array.isArray(cfg.personas)) walkName(cfg.personas);
+  if (cfg.personaShared && typeof cfg.personaShared === 'object') walkName(cfg.personaShared);
+
+  // 管理员 QQ 如果就是白名单第一个私聊（=部署者），清空让它走派生，谁部署填谁
+  try {
+    const firstPriv = String((Array.isArray(cfg.allow?.private) ? cfg.allow.private[0] : '') || '')
+      .replace(/^private:/i, '').trim();
+    const adminQQ = String(cfg.forwardRules?.adminQQ || '').trim();
+    if (firstPriv && adminQQ === firstPriv) { cfg.forwardRules.adminQQ = ''; changed = true; }
+  } catch { /* 忽略 */ }
+  return changed;
+}
+
+export function migratePersonaSharedCore(cfg) {
+  const shared = cfg && cfg.personaShared;
+  const core = shared && typeof shared.core === 'string' ? shared.core.trim() : '';
+  if (!core) return false;
+  const cards = Array.isArray(cfg.personas) ? cfg.personas : [];
+  const builtin = cards.find((p) => p && (p.builtin === true || p.id === 'builtin_xiaojingyu'));
+  if (builtin) {
+    const variant = String(builtin.variant || '');
+    if (!variant.includes(core)) {
+      builtin.variant = (variant ? variant + '\n\n' : '') + core;
+    }
+  }
+  shared.core = '';
+  return true;
+}
 
 export function migrateLegacySkills(parsed) {
   if (!parsed || typeof parsed !== 'object') return parsed;

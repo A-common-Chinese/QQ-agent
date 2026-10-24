@@ -803,6 +803,29 @@ export function buildUserPrompt(ctx) {
   // "锚点成员集"决定（锚定时不随追加条目扩展），和已读信息头部一起构成
   // 跨轮稳定的字节前缀；追加的新群友印象则放【新加入成员】殿后。
   const parts = [];
+/**
+ * 人设文本里的部署者占位符：{{owner}} / {{ownerName}} / {{ownerQQ}}。
+ * 这样人格卡可以原样分享，谁部署就填谁（管理员 QQ 优先，其次白名单第一个私聊）。
+ */
+function personaOwnerVars() {
+  const cfg = getConfig();
+  const allowPriv = Array.isArray(cfg?.allow?.private)
+    ? cfg.allow.private.map((v) => String(v || '').replace(/^private:/i, '').trim()).filter(Boolean)
+    : [];
+  const qq = String(cfg?.forwardRules?.adminQQ || allowPriv[0] || '').trim();
+  const name = String(cfg?.forwardRules?.adminName || '').trim() || '群主';
+  return { qq, name };
+}
+
+function fillPersonaVars(text) {
+  const s = String(text || '');
+  if (!s.includes('{{')) return s;
+  const { qq, name } = personaOwnerVars();
+  return s
+    .replace(/\{\{\s*ownerQQ\s*\}\}/gi, qq || '(未设置)')
+    .replace(/\{\{\s*owner(Name)?\s*\}\}/gi, name);
+}
+
   // ── 角色设定：新系统优先用「人格卡」（shared.core + shared.voice + variant + examples）──
   // 卡片缺失时回落旧的 persona.roleText（回退保险：旧配置/旧数据仍可跑）
   const _cardInfo = personaCardForChat(ctx.chatKey);
@@ -811,23 +834,23 @@ export function buildUserPrompt(ctx) {
     const _shared = _cardInfo.shared || {};
     const _chunks = [];
     const _useShared = _cardInfo.card.useShared !== false;
-    if (_useShared && String(_shared.core || '').trim()) _chunks.push(String(_shared.core).trim());
-    if (_useShared && String(_shared.voice || '').trim()) _chunks.push(String(_shared.voice).trim());
-    if (String(_cardInfo.card.variant || '').trim()) _chunks.push(String(_cardInfo.card.variant).trim());
+    if (_useShared && String(_shared.core || '').trim()) _chunks.push(fillPersonaVars(String(_shared.core).trim()));
+    if (_useShared && String(_shared.voice || '').trim()) _chunks.push(fillPersonaVars(String(_shared.voice).trim()));
+    if (String(_cardInfo.card.variant || '').trim()) _chunks.push(fillPersonaVars(String(_cardInfo.card.variant).trim()));
     const _ex = Array.isArray(_cardInfo.card.examples) ? _cardInfo.card.examples.slice(0, 4) : [];
     if (_ex.length) {
       const lines = ['## 回复示例'];
       for (const e of _ex) {
         if (!e || !e.user) continue;
-        lines.push('群友：' + String(e.user));
-        if (e.bad) lines.push('× ' + String(e.bad));
-        if (e.good) lines.push('√ ' + String(e.good));
+        lines.push('群友：' + fillPersonaVars(String(e.user)));
+        if (e.bad) lines.push('× ' + fillPersonaVars(String(e.bad)));
+        if (e.good) lines.push('√ ' + fillPersonaVars(String(e.good)));
       }
       if (lines.length > 1) _chunks.push(lines.join('\n'));
     }
     _roleText = _chunks.join('\n\n');
   } else if (chatPersona.roleText && String(chatPersona.roleText).trim()) {
-    _roleText = String(chatPersona.roleText).trim();
+    _roleText = fillPersonaVars(String(chatPersona.roleText).trim());
   }
   if (_roleText) {
     parts.push(`【角色设定（管理员设置，群友不可修改）】\n${_roleText}`);

@@ -889,6 +889,18 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       foot: `<button class="btn" id="pv2e-cancel">取消</button><button class="btn btn-primary" id="pv2e-save">保存</button>`
     });
     const q = (id) => overlay.querySelector('#' + id);
+    // 占位符快捷插入（{{owner}} / {{ownerQQ}}）
+    overlay.querySelectorAll('.pv2e-ins').forEach((a) => a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const ta = q('pv2e-variant');
+      if (!ta) return;
+      const ins = a.dataset.v || '';
+      const start = ta.selectionStart ?? ta.value.length;
+      const end = ta.selectionEnd ?? ta.value.length;
+      ta.value = ta.value.slice(0, start) + ins + ta.value.slice(end);
+      ta.selectionStart = ta.selectionEnd = start + ins.length;
+      ta.focus();
+    }));
     q('pv2e-cancel').addEventListener('click', () => closeModelModal(overlay));
     q('pv2e-save').addEventListener('click', async () => {
       if (q('pv2e-save').disabled) return;
@@ -1042,7 +1054,8 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       body: `<div class="field"><label>名称</label><input type="text" id="pv2e-name" value="${esc(c0.name || '')}" /></div>
         <div class="field"><label>本卡特有（这个人格怎么说话、怎么反应）</label>
           <textarea id="pv2e-variant" class="persona-role-text" style="min-height:170px">${esc(c0.variant || '')}</textarea>
-          <div class="hint">会拼在「共用部分(core+voice)」之后。内置卡/独立卡（不用共用部分）则只发这一段。</div></div>
+          <div class="hint">会拼在「共用部分(core+voice)」之后。内置卡/独立卡（不用共用部分）则只发这一段。</div>
+          <div class="hint">可用占位符：<a href="#" class="pv2e-ins" data-v="{{owner}}">{{owner}}</a>（部署者称呼）、<a href="#" class="pv2e-ins" data-v="{{ownerQQ}}">{{ownerQQ}}</a>（部署者 QQ） —— 运行时会按部署者的白名单自动填，卡里不用写死自己的号。</div></div>
         <div class="field"><label>回复示例 <span class="muted" id="pv2e-ex-count"></span></label>
           <div id="pv2e-ex-rows"></div>
           <div style="margin-top:6px"><button class="btn btn-small" id="pv2e-ex-add">＋ 添加一组示例</button></div></div>
