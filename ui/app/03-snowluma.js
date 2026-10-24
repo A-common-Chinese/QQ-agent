@@ -142,7 +142,7 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
         <div class="hint" style="margin:-4px 0 12px">
           ${slInstalled
             ? '两种接入方式只能选一种（可留空另一种）；切换后需重启应用生效。点右上角「ⓘ 说明」看能力对比。'
-            : `<span style="color:var(--tx3)">未检测到 OneBot 协议端：目前只有官方通道。想用 OneBot 请自行安装 SnowLuma / NapCat / LLOneBot，然后到 <b>设置 → 服务 → 协议端管理</b> 检测。</span> <button class="btn btn-small" id="sl-redetect" style="margin-left:6px">重新检测</button>`}
+            : `<span style="color:var(--tx3)">未检测到 OneBot 协议端：目前只有官方通道。想用 OneBot 请自行安装 SnowLuma / NapCat / LLOneBot，然后到 <a href="#" data-jump="protocol-panel" style="color:var(--ac);text-decoration:underline">设置 → 服务 → 协议端管理</a> 检测。</span> <button class="btn btn-small" id="sl-redetect" style="margin-left:6px">重新检测</button>`}
         </div>
 
         <div id="sl-qqbot-card" class="sl-qb-card ${chan === 'qqbot' ? '' : 'hidden'}">

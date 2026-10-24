@@ -1036,6 +1036,18 @@ if (typeof document !== 'undefined' && !window.__jumpBound) {
     if (!el) return;
     e.preventDefault();
     const to = el.dataset.jump;
-    if (to === 'qq-interface' && typeof switchTab === 'function') switchTab('snowluma');
+    if (to === 'qq-interface' && typeof switchTab === 'function') { switchTab('snowluma'); return; }
+    if (to === 'protocol-panel' && typeof switchTab === 'function') {
+      switchTab('settings');
+      try {
+        state.settingsSection = 'onebot';
+        if (typeof renderSettingsSidebar === 'function') renderSettingsSidebar();
+        if (typeof renderSettings === 'function') renderSettings();
+        setTimeout(() => {
+          const el = document.getElementById('settings-onebot');
+          if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        }, 250);
+      } catch { /* 忽略 */ }
+    }
   });
 }
