@@ -1515,10 +1515,17 @@ export class Orchestrator {
       const minInterval = Math.max(30 * 60 * 1000,
         Number(cfg.memoryCards?.autoIntervalMs) || 6 * 60 * 60 * 1000);
       if (Date.now() - lastAutoCardsAt(chatKey) < minInterval) return;
-      this.consolidating.add('cards:' + chatKey);
-      this.#autoUpdateCards(chatKey)
-        .catch((e) => console.error('[memory] 自动更新记忆卡失败:', e?.message ?? e))
-        .finally(() => this.consolidating.delete('cards:' + chatKey));
+      // 延迟 30s 再跑：绝不和会话收尾/drain 抢 LLM 请求，也避免测试里多打请求
+      const t = setTimeout(() => {
+        try {
+          if (this.paused || this.aborted) return;
+          this.consolidating.add('cards:' + chatKey);
+          this.#autoUpdateCards(chatKey)
+            .catch((e) => console.error('[memory] 自动更新记忆卡失败:', e?.message ?? e))
+            .finally(() => this.consolidating.delete('cards:' + chatKey));
+        } catch { /* 忽略 */ }
+      }, 30000);
+      if (t && typeof t.unref === 'function') t.unref();
     } catch { /* 锦上添花 */ }
   }
 
