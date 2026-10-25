@@ -2356,7 +2356,6 @@ function renderIdentityLinksSection(c) {
       <div class="h-title" style="color:var(--red)">危险操作</div>
       <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
         <button class="btn btn-small btn-danger" data-il-act="unlink-all">一键解绑所有通道映射</button>
-        <span class="muted" style="font-size:12px">需二次确认</span>
       </div>
       <div class="hint">解绑只停合并/镜像，<b>不会删除白名单</b>；数据按所选方式处理。</div>
     </div>
