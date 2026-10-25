@@ -1058,6 +1058,17 @@ function renderHealthCard() {
     const hit = (s) => !q || String(s || '').toLowerCase().includes(q);
 
     // ── 侧栏：只列 群聊 / 私聊 卡片 ──
+    // 个人卡子页签：左侧列个人卡（而不是会话）
+    const isPersons = st.tab === 'persons';
+    const personsAll = (st.list.persons || []).filter((x) => hit(x.name || '') || hit(x.qq) || hit(x.summary || ''));
+    const personCards = personsAll.map((x) => {
+      const sel = st.sel && st.sel.tab === 'persons' && String(st.sel.qq) === String(x.qq);
+      const payload = JSON.stringify({ tab: 'persons', qq: x.qq });
+      const sub = 'QQ ' + String(x.qq || '') + (x.summary ? ' · ' + String(x.summary).slice(0, 20) : '');
+      return '<div class="mem-card' + (sel ? ' sel' : '') + '" data-mem="sel" data-json=\'' + esc(payload) + '\'>' +
+        '<div class="mem-card-title">' + esc(x.name || ('QQ' + x.qq)) + '</div>' +
+        '<div class="mem-card-sub">' + esc(sub) + '</div></div>';
+    }).join('') || '<div class="mem-empty">（没有匹配的个人卡）</div>';
     const chatCards = groups
       .filter((g) => hit(g.name || g.chatKey) || hit(g.chatKey))
       .map((g) => {
@@ -1073,9 +1084,11 @@ function renderHealthCard() {
 
     itemsBox.innerHTML =
       '<div class="mem-side">' +
-        '<div class="mem-side-head"><span>群聊 / 私聊</span><span class="mem-count">' + groups.length + '</span></div>' +
-        '<input type="text" data-mem="search" id="memv-q" class="mem-search" placeholder="搜索会话名…" value="' + esc(st.q || '') + '" />' +
-        '<div class="mem-cards">' + chatCards + '</div>' +
+        '<div class="mem-side-head"><span>' + (isPersons ? '个人卡' : '群聊 / 私聊') + '</span><span class="mem-count">' +
+          (isPersons ? personsAll.length : groups.length) + '</span></div>' +
+        '<input type="text" data-mem="search" id="memv-q" class="mem-search" placeholder="' +
+          (isPersons ? '搜索昵称 / QQ 号…' : '搜索会话名…') + '" value="' + esc(st.q || '') + '" />' +
+        '<div class="mem-cards">' + (isPersons ? personCards : chatCards) + '</div>' +
       '</div>';
 
     // ── 右栏：子页签 + 内容（点进会话后才显示） ──
@@ -1104,16 +1117,16 @@ function renderHealthCard() {
         body += memTopicSectionHtml(topicChatKey);
       }
     } else if (activeSub === 'persons') {
-      const persons = (st.list.persons || []).filter((p) => hit(p.name || '') || hit(p.qq) || hit(p.summary || ''));
-      const cards = persons.slice(0, 300).map((p) => {
-        const sel = st.detail && String(st.detail.qq) === String(p.qq);
-        const payload = JSON.stringify({ tab: 'persons', qq: p.qq });
-        return '<div class="mem-card' + (sel ? ' sel' : '') + '" data-mem="sel" data-json=\'' + esc(payload) + '\'>' +
-          '<div class="mem-card-title">' + esc(p.name || ('QQ' + p.qq)) + '</div>' +
-          '<div class="mem-card-sub">QQ ' + esc(String(p.qq || '')) + (p.summary ? ' · ' + esc(String(p.summary).slice(0, 22)) : '') + '</div></div>';
-      }).join('') || '<div class="mem-empty">（没有匹配的人）</div>';
-      body = '<div class="mem-grid">' + cards + '</div>' +
-        (st.detail && String(st.detail.qq || '') !== '' ? '<div class="mem-detail-sub">' + memDetailHtml() + '</div>' : '');
+      // 个人卡：左侧是卡列表，右侧只显示选中的那张卡
+      const selQq = st.sel && st.sel.tab === 'persons' ? String(st.sel.qq || '') : '';
+      if (!selQq) {
+        body = '<div class="muted" style="padding:20px">← 从左侧选择一张个人卡</div>';
+      } else if (st.detail && String(st.detail.qq || '') === selQq) {
+        body = memDetailHtml();
+      } else {
+        memLoadDetail();
+        body = '<div class="muted" style="padding:20px">加载中…</div>';
+      }
     } else {
       const gens = (st.generals && st.generals.length) ? st.generals : (st.list.general ? [st.list.general] : []);
       if (!st.genId && gens[0]) st.genId = gens[0].id;
