@@ -54,6 +54,48 @@ function pickKey(raw) {
   return k;
 }
 
+/**
+ * 软绑定白名单：绑定成功后把两侧会话各自加进「对应通道」的白名单。
+ * 只是「自动添加」，不是「共享列表」——解绑不会删除任何白名单条目，
+ * 之后各通道白名单独立维护，删绑定也不会把人踢出白名单。
+ */
+function softAddWhitelist(link) {
+  const cfg = getConfig();
+  const added = [];
+  const idOf = (key) => String(key || '').split(':')[1] || '';
+  try {
+    const obId = idOf(link.onebotKey);
+    const qbId = idOf(link.qqbotKey);
+    if (link.onebotKey.startsWith('group:')) {
+      const groups = Array.from(new Set([...(cfg.allow?.groups || []).map(String), obId])).filter(Boolean);
+      if (groups.length !== (cfg.allow?.groups || []).length) {
+        updateConfig({ allow: { groups: { __replace__: groups } } });
+        added.push('allow.groups:' + obId);
+      }
+    } else {
+      const priv = Array.from(new Set([...(cfg.allow?.private || []).map(String), obId])).filter(Boolean);
+      if (priv.length !== (cfg.allow?.private || []).length) {
+        updateConfig({ allow: { private: { __replace__: priv } } });
+        added.push('allow.private:' + obId);
+      }
+    }
+    if (link.qqbotKey.startsWith('group:')) {
+      const groups = Array.from(new Set([...(cfg.allowQqbot?.groups || []).map(String), qbId])).filter(Boolean);
+      if (groups.length !== (cfg.allowQqbot?.groups || []).length) {
+        updateConfig({ allowQqbot: { groups: { __replace__: groups } } });
+        added.push('allowQqbot.groups:' + qbId);
+      }
+    } else {
+      const priv = Array.from(new Set([...(cfg.allowQqbot?.private || []).map(String), qbId])).filter(Boolean);
+      if (priv.length !== (cfg.allowQqbot?.private || []).length) {
+        updateConfig({ allowQqbot: { private: { __replace__: priv } } });
+        added.push('allowQqbot.private:' + qbId);
+      }
+    }
+  } catch { /* 白名单添加失败不影响绑定 */ }
+  return added;
+}
+
 export function addLink({ onebotKey, qqbotKey, note = '', mode = 'merge' }) {
   const a = pickKey(onebotKey);
   const b = pickKey(qqbotKey);
@@ -66,7 +108,9 @@ export function addLink({ onebotKey, qqbotKey, note = '', mode = 'merge' }) {
   }
   const link = { id: 'lk' + Date.now().toString(36), onebotKey: a, qqbotKey: b, note: String(note || '').slice(0, 40), mode: MODES.has(mode) ? mode : 'merge', linkedAt: Date.now() };
   updateConfig({ identityLinks: { __replace__: [...links, link] } });
-  return { ok: true, link };
+  // 软绑定：自动加入两侧白名单（解绑不删除）
+  const whitelistAdded = softAddWhitelist(link);
+  return { ok: true, link, whitelistAdded };
 }
 
 export function setLinkMode(id, mode) {

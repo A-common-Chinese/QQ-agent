@@ -2318,7 +2318,8 @@ function renderIdentityLinksSection(c) {
     <h3 id="settings-links">通道映射</h3>
     <div class="hint" style="margin-bottom:10px">
       把「官方通道的 openid」和「OneBot 的群号/QQ 号」绑成同一个逻辑会话。绑定后记忆、记忆卡按映射合并：
-      <b>读合并</b>（两边都读、各自写）或 <b>只合并未来</b>（绑定后写入镜像两份，历史不合并）。
+      <b>读合并</b>（两边都读、各自写）或 <b>只合并未来</b>（绑定后写入镜像两份，历史不合并）。<br>
+      白名单是<b>软绑定</b>：绑定时自动把两侧会话各加进对应通道的白名单，<b>解绑不会删除</b>，之后各自独立维护。
     </div>
     ${links.length ? `<div class="health-card" style="margin-bottom:12px">
       <div class="h-title">已绑定（${links.length}）</div>
@@ -3442,7 +3443,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
         const r = await api('/api/identity-links/add', { method: 'POST', body: JSON.stringify({ onebotKey: onebot, qqbotKey: official, note, mode }) });
         if (!r.ok) { hint('绑定失败：' + (r.error || ''), 'var(--red)'); return; }
         __identityLinksCache = null;
-        hint('已绑定 ✅', 'var(--green)');
+        hint('已绑定 ✅' + (Array.isArray(r.whitelistAdded) && r.whitelistAdded.length ? '（已自动加入两侧白名单）' : ''), 'var(--green)');
         if (typeof renderSettings === 'function') renderSettings();
       } catch (err) { hint('绑定失败：' + (err.message || err), 'var(--red)'); }
       return;
