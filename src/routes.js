@@ -39,7 +39,7 @@ import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, 
 import { readChunks, readSemanticCards, lastAutoCardsAt } from './memory-layers.js';
 import { skillPlacementStatus } from './prompt.js';
 import { listLinks, listHistory, addLink, setLinkMode, unlink, restore } from './identity-links.js';
-import { listDecisions, decisionStats } from './decision-log.js';
+import { listDecisions, decisionStats, queryDecisions } from './decision-log.js';
 import { decisionStatus, buildCorpus } from './decision-pipeline.js';
 import { ensureIndex, rebuildIndex, indexStatus } from './vector-store.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
@@ -1509,7 +1509,35 @@ export function createRoutes(deps) {
       method: 'GET', pattern: '/api/decision/logs',
       handler: async ({ res, json, url }) => {
         const limit = Number(url.searchParams.get('limit') || 100);
-        return json(res, 200, { ok: true, logs: listDecisions(limit) });
+        const chatKey = String(url.searchParams.get('chatKey') || '').trim();
+        const minScore = url.searchParams.get('minScore');
+        const maxScore = url.searchParams.get('maxScore');
+        if (!chatKey && minScore == null && maxScore == null) return json(res, 200, { ok: true, logs: listDecisions(limit) });
+        return json(res, 200, { ok: true, logs: queryDecisions({ chatKey, minScore, maxScore, limit }) });
+      }
+    },
+    {
+      method: 'GET', pattern: '/api/decision/export.csv',
+      handler: async ({ res }) => {
+        const rows = queryDecisions({ limit: 500 });
+        const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+        const head = ['time', 'chatKey', 'score', 'low', 'high', 'highHit', 'action', 'skipped', 'tookMs', 'text', 'top1'];
+        const lines = [head.join(',')];
+        for (const r of rows) {
+          lines.push([
+            new Date(Number(r.at) || 0).toISOString(),
+            esc(r.chatKey), r.score == null ? '' : r.score,
+            r.low == null ? '' : r.low, r.high == null ? '' : r.high,
+            r.highHit ? 1 : 0, esc(r.action || ''), esc(r.skipped || ''),
+            r.tookMs || '', esc(String(r.text || '').slice(0, 120)),
+            esc((r.top && r.top[0] && r.top[0].text) || '')
+          ].join(','));
+        }
+        res.writeHead(200, {
+          'content-type': 'text/csv; charset=utf-8',
+          'content-disposition': 'attachment; filename="decision-log.csv"'
+        });
+        res.end('\ufeff' + lines.join('\n'));
       }
     },
     {

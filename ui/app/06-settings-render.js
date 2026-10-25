@@ -3584,6 +3584,7 @@ function renderDecisionSection(c) {
       <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
         <button class="btn btn-small btn-primary" id="dec-save">保存</button>
         <button class="btn btn-small" id="dec-logs">查看最近判定</button>
+        <button class="btn btn-small" id="dec-panel">判定数据面板</button>
         <span class="muted" id="dec-hint" style="font-size:12px"></span>
       </div>
       <pre id="dec-log-view" class="snowluma-logs-view" style="margin-top:8px;max-height:220px;display:none"></pre>
@@ -3659,5 +3660,116 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
         if (pre) { pre.style.display = ''; pre.textContent = '读取失败：' + (err.message || err); }
       }
     }
+  });
+}
+
+// ── 判定数据面板（直方图 / 每群分位 / 明细 / 导出）──────────────────────
+async function renderDecisionPanelBody(body, filters = {}) {
+  const q = new URLSearchParams();
+  if (filters.chatKey) q.set('chatKey', filters.chatKey);
+  if (filters.minScore !== '' && filters.minScore != null) q.set('minScore', filters.minScore);
+  if (filters.maxScore !== '' && filters.maxScore != null) q.set('maxScore', filters.maxScore);
+  const [st, lg] = await Promise.all([
+    api('/api/decision/status').catch(() => null),
+    api('/api/decision/logs?limit=200&' + q.toString()).catch(() => ({ logs: [] }))
+  ]);
+  const stats = (st && st.stats) || { total: 0, scored: 0, histogram: [], chats: [] };
+  const hist = Array.isArray(stats.histogram) ? stats.histogram : new Array(10).fill(0);
+  const maxBar = Math.max(1, ...hist);
+  const bars = hist.map((n, i) => {
+    const pct = Math.round((n / maxBar) * 100);
+    return `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+      <span style="width:52px;color:var(--tx3);font-size:11px">${(i / 10).toFixed(1)}–${((i + 1) / 10).toFixed(1)}</span>
+      <div style="flex:1;background:var(--bg2);border-radius:4px;height:14px;position:relative">
+        <div style="width:${pct}%;background:var(--ac);opacity:.75;height:14px;border-radius:4px"></div>
+      </div>
+      <span style="width:34px;text-align:right;font-size:11px;color:var(--tx2)">${n}</span></div>`;
+  }).join('');
+  const chats = (stats.chats || []).map((c) => `<tr>
+      <td style="font-size:11.5px">${esc(String(c.chatKey).slice(0, 28))}</td>
+      <td>${c.count}</td><td>${Number(c.avg || 0).toFixed(3)}</td>
+      <td>${Number(c.p50 || 0).toFixed(3)}</td><td>${Number(c.p75 || 0).toFixed(3)}</td>
+      <td>${Number(c.p90 || 0).toFixed(3)}</td><td>${Number(c.max || 0).toFixed(3)}</td>
+      <td><button class="btn btn-small" data-dec-pick="${esc(c.chatKey)}">筛选</button></td>
+    </tr>`).join('') || '<tr><td colspan="8" class="muted">（还没有数据）</td></tr>';
+  const rows = (lg.logs || []).slice().reverse().map((x) => `<tr>
+      <td style="font-size:11px">${esc(new Date(Number(x.at) || 0).toLocaleString('zh-CN', { hour12: false }))}</td>
+      <td style="font-size:11px">${esc(String(x.chatKey || '').slice(0, 22))}</td>
+      <td><b>${x.score == null ? '—' : Number(x.score).toFixed(3)}</b></td>
+      <td>${x.action || ''}${x.skipped ? ' · ' + esc(x.skipped) : ''}</td>
+      <td style="font-size:11px;color:var(--tx2)">${esc(String(x.text || '').slice(0, 36))}</td>
+      <td style="font-size:11px;color:var(--tx3)">${esc(((x.top && x.top[0] && x.top[0].text) || '').slice(0, 28))}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">（还没有记录）</td></tr>';
+  const opt = '<option value="">全部会话</option>' + (stats.chats || []).map((c) =>
+    `<option value="${esc(c.chatKey)}"${filters.chatKey === c.chatKey ? ' selected' : ''}>${esc(String(c.chatKey).slice(0, 30))}（${c.count}）</option>`).join('');
+  body.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <select id="dec-f-chat" style="max-width:230px">${opt}</select>
+      <input type="number" step="0.05" id="dec-f-min" placeholder="最低分" value="${esc(filters.minScore == null ? '' : filters.minScore)}" style="width:100px" />
+      <input type="number" step="0.05" id="dec-f-max" placeholder="最高分" value="${esc(filters.maxScore == null ? '' : filters.maxScore)}" style="width:100px" />
+      <button class="btn btn-small" id="dec-f-apply">筛选</button>
+      <a class="btn btn-small" href="/api/decision/export.csv" download>导出 CSV</a>
+      <span class="muted" style="font-size:12px">共 ${stats.total} 条（已评分 ${stats.scored}）</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <div style="font-weight:600;margin-bottom:4px;font-size:12.5px">分数分布（0–1）</div>
+        ${bars}
+      </div>
+      <div>
+        <div style="font-weight:600;margin-bottom:4px;font-size:12.5px">每群分位数</div>
+        <div style="max-height:180px;overflow:auto">
+          <table style="width:100%;font-size:11.5px"><thead><tr>
+            <th align="left">会话</th><th>n</th><th>avg</th><th>p50</th><th>p75</th><th>p90</th><th>max</th><th></th>
+          </tr></thead><tbody>${chats}</tbody></table>
+        </div>
+      </div>
+    </div>
+    <div style="font-weight:600;margin:12px 0 4px;font-size:12.5px">最近判定（新→旧）</div>
+    <div style="max-height:260px;overflow:auto">
+      <table style="width:100%;font-size:11.5px"><thead><tr>
+        <th align="left">时间</th><th align="left">会话</th><th>score</th><th align="left">action</th><th align="left">消息</th><th align="left">top1</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+    </div>`;
+  body.querySelector('#dec-f-apply')?.addEventListener('click', () => {
+    renderDecisionPanelBody(body, {
+      chatKey: body.querySelector('#dec-f-chat')?.value || '',
+      minScore: body.querySelector('#dec-f-min')?.value || '',
+      maxScore: body.querySelector('#dec-f-max')?.value || ''
+    });
+  });
+  body.querySelectorAll('[data-dec-pick]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const k = b.dataset.decPick;
+      const sel = body.querySelector('#dec-f-chat');
+      if (sel) sel.value = k;
+      renderDecisionPanelBody(body, { chatKey: k, minScore: body.querySelector('#dec-f-min')?.value || '', maxScore: body.querySelector('#dec-f-max')?.value || '' });
+    });
+  });
+}
+
+function openDecisionPanel() {
+  const overlay = modelModalShell({
+    head: '判定数据面板（语义触发 · 观察模式）',
+    body: '<div id="dec-panel-body" class="hint" style="font-size:12.5px;min-width:720px">加载中…</div>',
+    foot: '<button class="btn btn-small" id="dec-panel-refresh">刷新</button><button class="btn btn-primary" id="dec-panel-close">关闭</button>'
+  });
+  const body = overlay.querySelector('#dec-panel-body');
+  const rerender = () => renderDecisionPanelBody(body, {
+    chatKey: body.querySelector('#dec-f-chat')?.value || '',
+    minScore: body.querySelector('#dec-f-min')?.value || '',
+    maxScore: body.querySelector('#dec-f-max')?.value || ''
+  });
+  overlay.querySelector('#dec-panel-close').addEventListener('click', () => closeModelModal(overlay));
+  overlay.querySelector('#dec-panel-refresh').addEventListener('click', rerender);
+  rerender();
+}
+
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function' && !window.__decisionPanelBound) {
+  window.__decisionPanelBound = true;
+  document.addEventListener('click', (e) => {
+    const b = e.target && e.target.closest && e.target.closest('#dec-panel');
+    if (!b) return;
+    openDecisionPanel();
   });
 }
