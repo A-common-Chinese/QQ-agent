@@ -1020,6 +1020,7 @@ function renderHealthCard() {
     box.innerHTML = cards.map(pill).join('') +
       '<span class="subnav-sep"></span>' +
       (compress ? pill(compress) : '') +
+    '<button class="mem-subtab' + (memActiveSub === 'batch' ? ' act' : '') + '" data-mem="subtab" data-sub="batch">记忆整理</button>' +
     '<span class="subnav-note" title="' + esc(typeof consumptionTip === 'function' ? consumptionTip('memory-compress') : '') + '">压缩只改注入内容，不动原始记忆</span>';
   };
 
@@ -1085,11 +1086,14 @@ function renderHealthCard() {
     if (st.tab === 'persons') activeSub = 'persons';
     else if (st.tab === 'general') activeSub = 'general';
     if (st.sub === 'compress') activeSub = 'compress';
+  else if (st.sub === 'batch') activeSub = 'batch';
 
     let body = '';
     if (activeSub === 'compress') {
       // 压缩面板自己管渲染与轮询（全部 data-* + 文档级委托），这里只给挂载点
       body = memStudioPanelHtml();
+    } else if (activeSub === 'batch') {
+      body = memBatchPanelHtml();
     } else if (activeSub === 'groups') {
       body = (typeof memDetailHtml === 'function') ? memDetailHtml() : '<div class="muted" style="padding:20px">从左侧选一个会话</div>';
       // 话题卡只属于具体会话：挂在「本会话」页签下半区。
@@ -1136,6 +1140,7 @@ function renderHealthCard() {
     }
     if (typeof bindMemoryTabEvents === 'function') bindMemoryTabEvents();
     if (activeSub === 'compress') memStudioMount();
+  if (activeSub === 'batch') memBatchMount();
   }
 
 
@@ -2370,70 +2375,87 @@ function renderHealthCard() {
   }
 
 
-// ── 记忆批量整理：配置 + 手动触发 + 进度 ──────────────────────────────
-if (typeof document !== 'undefined' && typeof document.addEventListener === 'function' && !window.__memBatchBound) {
-  window.__memBatchBound = true;
-  const fillBatchBar = async () => {
-    const hours = document.getElementById('mem-batch-hours');
-    const max = document.getElementById('mem-batch-max');
-    if (!hours || !max) return;
-    try {
-      const cfg = state.config || (await api('/api/config'));
-      state.config = cfg;
-      const mc = cfg.memoryCards || {};
-      hours.value = Math.round((Number(mc.batchIntervalMs) || 6 * 3600 * 1000) / 3600000);
-      max.value = Number(mc.batchMaxChats) || 20;
-      const sil = document.getElementById('mem-batch-silent');
-      if (sil) sil.checked = mc.batchIncludeSilent === true;
-    } catch { /* 忽略 */ }
-  };
-  setTimeout(() => { try { fillBatchBar(); } catch { /* 忽略 */ } }, 400);
-  const setStatus = (t) => { const el = document.getElementById('mem-batch-status'); if (el) el.textContent = t || ''; };
-  ['mem-batch-hours', 'mem-batch-max', 'mem-batch-silent'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el && !el.__memBound) { el.__memBound = true; el.addEventListener('change', () => setStatus('有未保存的配置')); }
+// ── 记忆整理（独立子页签卡片）：批量整理配置 + 手动触发 + 进度 ──────────────
+function memBatchPanelHtml() {
+  const mc = (state.config && state.config.memoryCards) || {};
+  const hours = Math.round((Number(mc.batchIntervalMs) || 6 * 3600 * 1000) / 3600000);
+  const max = Number(mc.batchMaxChats) || 20;
+  const includeSilent = mc.batchIncludeSilent === true;
+  return `
+    <div class="health-card mem-batch-card" style="max-width:720px">
+      <div class="h-title">记忆整理（批量）</div>
+      <div class="hint" style="margin-bottom:10px">
+        定时把所有「有新消息的白名单会话」各整理一次：先整理印象，再生成/更新记忆卡。
+        两个通道的记忆按通道映射合并后处理。
+      </div>
+      <div class="field-row">
+        <div class="field"><label>每隔（小时）</label><input type="number" min="1" max="72" step="1" id="mem-batch-hours" value="${hours}" /></div>
+        <div class="field"><label>单次最多处理（个会话）</label><input type="number" min="1" max="100" step="1" id="mem-batch-max" value="${max}" /></div>
+      </div>
+      <div class="checkbox-row"><input type="checkbox" id="mem-batch-silent" ${includeSilent ? 'checked' : ''} />
+        <label for="mem-batch-silent">包含静默会话（静默=不花 token 调模型，默认排除）</label></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-small" id="mem-batch-save">保存设置</button>
+        <button class="btn btn-small btn-primary" id="mem-batch-run">立即整理全部</button>
+        <span class="muted" id="mem-batch-status" style="font-size:12px"></span>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        说明：整理会调用一次模型/会话（成本随会话数增加）；压缩记忆后头 1–2 轮缓存命中率下降属正常。
+      </div>
+    </div>`;
+}
+
+function memBatchMount() {
+  const root = document.getElementById('memory-detail');
+  if (!root) return;
+  const status = (t) => { const el = root.querySelector('#mem-batch-status'); if (el) el.textContent = t || ''; };
+  const hours = root.querySelector('#mem-batch-hours');
+  const max = root.querySelector('#mem-batch-max');
+  const silent = root.querySelector('#mem-batch-silent');
+  [hours, max, silent].forEach((el) => {
+    if (el) el.addEventListener('change', () => status('有未保存的配置'));
   });
-  document.addEventListener('click', async (e) => {
-    const save = e.target && e.target.closest && e.target.closest('#mem-batch-save');
-    if (save) {
-      const h = Number((document.getElementById('mem-batch-hours') || {}).value) || 6;
-      const m = Number((document.getElementById('mem-batch-max') || {}).value) || 20;
-      const sil = !!(document.getElementById('mem-batch-silent') || {}).checked;
+  const save = root.querySelector('#mem-batch-save');
+  if (save) {
+    save.addEventListener('click', async () => {
+      const h = Number(hours && hours.value) || 6;
+      const m = Number(max && max.value) || 20;
+      save.disabled = true;
       try {
         state.config = await api('/api/config', {
           method: 'POST',
-          body: JSON.stringify({ memoryCards: { batchIntervalMs: h * 3600 * 1000, batchMaxChats: m, batchIncludeSilent: sil } })
+          body: JSON.stringify({ memoryCards: { batchIntervalMs: h * 3600 * 1000, batchMaxChats: m, batchIncludeSilent: !!(silent && silent.checked) } })
         });
-        setStatus('已保存 ✅');
-      } catch (err) { setStatus('保存失败：' + (err.message || err)); }
-      return;
-    }
-    const run = e.target && e.target.closest && e.target.closest('#mem-batch-run');
-    if (run) { runMemoryBatchNow(run); }
-  });
-  async function runMemoryBatchNow(btn) {
-    btn.disabled = true;
-    setStatus('整理中…');
-    try {
-      await api('/api/memory-cards/batch', { method: 'POST', body: JSON.stringify({ force: true }) });
-      const poll = async () => {
-        try {
-          const st = await api('/api/memory-cards/batch/status');
-          if (st.running) {
-            setStatus(`整理中 ${st.done}/${st.total}${st.current ? '：' + String(st.current).slice(0, 18) : ''}`);
-            setTimeout(poll, 1500);
-          } else {
-            const r = st.result || {};
-            setStatus(`完成：${r.done || 0}/${r.total || 0} 个会话${r.failed ? '（失败 ' + r.failed + '）' : ''}`);
-            btn.disabled = false;
-            if (typeof loadMemoryView === 'function') { try { await loadMemoryView(); } catch { /* 忽略 */ } }
-          }
-        } catch { setTimeout(poll, 2500); }
-      };
-      setTimeout(poll, 1200);
-    } catch (err) {
-      setStatus('启动失败：' + (err.message || err));
-      btn.disabled = false;
-    }
+        status('已保存 ✅');
+      } catch (err) { status('保存失败：' + (err.message || err)); }
+      save.disabled = false;
+    });
+  }
+  const run = root.querySelector('#mem-batch-run');
+  if (run) {
+    run.addEventListener('click', async () => {
+      run.disabled = true;
+      status('整理中…');
+      try {
+        await api('/api/memory-cards/batch', { method: 'POST', body: JSON.stringify({ force: true }) });
+        const poll = async () => {
+          try {
+            const st = await api('/api/memory-cards/batch/status');
+            if (st.running) {
+              status(`整理中 ${st.done}/${st.total}${st.current ? '：' + String(st.current).slice(0, 18) : ''}`);
+              setTimeout(poll, 1500);
+            } else {
+              const r = st.result || {};
+              status(`完成：${r.done || 0}/${r.total || 0} 个会话${r.failed ? '（失败 ' + r.failed + '）' : ''}`);
+              run.disabled = false;
+            }
+          } catch { setTimeout(poll, 2500); }
+        };
+        setTimeout(poll, 1200);
+      } catch (err) {
+        status('启动失败：' + (err.message || err));
+        run.disabled = false;
+      }
+    });
   }
 }

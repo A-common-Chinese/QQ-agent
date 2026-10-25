@@ -1,7 +1,7 @@
 # QQ Agent（桌面端）
 
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Electron-lightgrey)
-![版本](https://img.shields.io/badge/version-v0.7.1-blue)
+![版本](https://img.shields.io/badge/version-v0.7.2-blue)
 ![测试](https://img.shields.io/badge/tests-33%20suites%20(npm%20test)-brightgreen)
 ![许可](https://img.shields.io/badge/license-MIT-green)
 
@@ -9,7 +9,7 @@
 
 接 QQ 有**两种方式**（v0.7.0 起）：原来的 SnowLuma（OneBot v11，玩法最全），或 **QQ 开放平台的官方机器人**（合规、不因协议违规被封号）。两者凭据、白名单、日志、记忆完全独立，在控制台「QQ 接口」页里二选一。
 
-> **这是一个 fork。** 上游是 [K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)，本仓库是 **[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**，当前版本 `v0.7.1`。
+> **这是一个 fork。** 上游是 [K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)，本仓库是 **[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**，当前版本 `v0.7.2`。
 > 上游功能一个没删。[这个 fork 改了什么](#这个-fork-改了什么) 一节是全部改动的清单，其余章节对上游和本 fork 同样适用。
 
 ## 这是什么
@@ -73,7 +73,7 @@
 
 | 方式 | 怎么做 |
 |---|---|
-| **安装包（推荐，只想用）** | 去 **[最新 Release](https://github.com/A-common-Chinese/QQ-agent/releases/latest)** 下载 `QQ-Agent-DSH-Setup-0.7.1.exe`（Windows x64，约 83 MB），双击安装后从桌面/开始菜单快捷方式启动 |
+| **安装包（推荐，只想用）** | 去 **[最新 Release](https://github.com/A-common-Chinese/QQ-agent/releases/latest)** 下载 `QQ-Agent-DSH-Setup-0.7.2.exe`（Windows x64，约 83 MB），双击安装后从桌面/开始菜单快捷方式启动 |
 | **源码（要改代码或跑测试）** | 见下面[快速开始](#快速开始) |
 | **更新** | 启动 8 秒后自动检查一次本仓库的 GitHub Releases，发现新版本时在控制台提示并可下载安装包（12 小时结果缓存、下载后按资产 `sha256` 校验）。**不会自动安装**，安装包要自己跑一遍。不想要就在设置里关掉（`update.enabled` / `update.checkOnStartup`） |
 
