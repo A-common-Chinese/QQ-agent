@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR, getConfig, updateConfig } from './config.js';
+import { resolveKeys, writeKeys } from './identity-links.js';
 
 const MEMORY_DIR = path.join(DATA_DIR, 'memory');
 
@@ -225,7 +226,10 @@ export class MemoryStore {
     const userId = String(extra.userId ?? '').trim();
     const target = String(extra.target ?? '').trim().slice(0, 60);
     if (!userId && !target) return null;
-    return this.#appendRaw(chatKey, userId, target || userId, content);
+    // mirror 模式：写到映射的两侧（merge 模式只写自己）
+    let last = null;
+    for (const k of writeKeys(chatKey)) last = this.#appendRaw(k, userId, target || userId, content);
+    return last;
   }
 
   /** 所有成员的印象（扁平列表，兼容旧消费方）。 */
@@ -249,20 +253,23 @@ export class MemoryStore {
 
   /** 成员级视图（记忆页签用）。 */
   members(chatKey) {
-    const map = this.#ensureChat(chatKey);
-    const list = [];
-    for (const m of map.values()) {
-      if (!m.impressions.length) continue;
-      list.push({
-        userId: String(m.userId || ''),
-        name: String(m.name || m.userId || '某人'),
-        impressions: m.impressions.map((e) => ({ ...e })),
-        updatedAt: m.updatedAt,
-        lastConsolidatedAt: m.lastConsolidatedAt
-      });
+    // 通道映射：merge 模式把两边的成员/印象并起来（按 userId 合并、印象按内容去重）
+    const keys = resolveKeys(chatKey);
+    const byId = new Map();
+    for (const k of keys) {
+      const map = this.#ensureChat(k);
+      for (const m of map.values()) {
+        const id = String(m.userId || m.name || '');
+        const cur = byId.get(id);
+        if (!cur) { byId.set(id, { ...m, impressions: [...(m.impressions || [])] }); continue; }
+        for (const e of (m.impressions || [])) {
+          if (!cur.impressions.some((x) => x.content === e.content)) cur.impressions.push(e);
+        }
+        cur.impressions.sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+        if (!cur.name && m.name) cur.name = m.name;
+      }
     }
-    list.sort((a, b) => b.updatedAt - a.updatedAt);
-    return list;
+    return [...byId.values()];
   }
 
   /** 单个成员的印象（含空成员）。 */

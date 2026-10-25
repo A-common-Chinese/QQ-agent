@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
+import { resolveKeys, writeKeys, canonicalKey } from './identity-links.js';
 
 const ROOT = path.join(DATA_DIR, 'memory-cards');
 const PERSONS = path.join(ROOT, 'persons');
@@ -48,7 +49,31 @@ export function listCards() {
 }
 
 export function getPerson(qq) { return read(path.join(PERSONS, safeKey(qq) + '.json')); }
-export function getGroup(chatKey) { return read(path.join(dirOf(chatKey), 'group.json')); }
+export function getGroup(chatKey) {
+  // 通道映射：把关联会话的群卡合并成一张虚拟卡（merge/mirror 都走这里）
+  const keys = resolveKeys(chatKey);
+  const cards = keys.map((k) => read(path.join(dirOf(k), 'group.json'))).filter(Boolean);
+  if (!cards.length) return null;
+  if (cards.length === 1) return cards[0];
+  const canon = canonicalKey(chatKey);
+  const base = { ...(cards.find((c) => String(c.chatKey || '') === canon) || cards[0]) };
+  const uniq = (arr) => [...new Set(arr.map((x) => JSON.stringify(x)))].map((x) => JSON.parse(x));
+  for (const c of cards) {
+    base.facts = uniq([...(base.facts || []), ...(c.facts || [])]);
+    base.topics = uniq([...(base.topics || []), ...(c.topics || [])]);
+    const mm = new Map();
+    for (const mem of [...(base.members || []), ...(c.members || [])]) {
+      const id = String(mem?.id || mem?.name || '');
+      if (!id) continue;
+      const cur = mm.get(id);
+      mm.set(id, cur ? { ...cur, msgs: Math.max(Number(cur.msgs) || 0, Number(mem.msgs) || 0) } : mem);
+    }
+    base.members = [...mm.values()];
+    if (!base.summary && c.summary) base.summary = c.summary;
+    if ((!base.name || base.name === base.chatKey) && c.name) base.name = c.name;
+  }
+  return base;
+}
 export function getGeneral() {
   // 迁移后：优先取 generals/ 里的全局卡；没有再回退老的单文件
   try {
@@ -76,7 +101,11 @@ export function updateGroup(chatKey, patch) {
   const allowed = ['name', 'summary', 'facts', 'topics', 'members'];
   const next = { ...cur, updatedAt: new Date().toISOString() };
   for (const k of allowed) if (patch && patch[k] !== undefined) next[k] = patch[k];
-  writeAtomic(file, next);
+  // mirror 模式：同步写到映射的另一侧
+  for (const k of writeKeys(key)) {
+    if (k === key) { writeAtomic(file, next); continue; }
+    writeAtomic(path.join(dirOf(k), 'group.json'), { ...next, chatKey: k });
+  }
   return { ok: true, card: next };
 }
 

@@ -38,6 +38,7 @@ import { redactText, getSafeModeConfig } from './safe-mode.js';
 import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral, listTopics, getTopic, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
 import { readChunks, readSemanticCards, lastAutoCardsAt } from './memory-layers.js';
 import { skillPlacementStatus } from './prompt.js';
+import { listLinks, listHistory, addLink, setLinkMode, unlink, restore } from './identity-links.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
 import { availabilityOf, listTools, CATEGORY_META } from './tool-registry.js';
 import { safeFetchBinary, browseLockState } from './safe-fetch.js';
@@ -1464,6 +1465,88 @@ export function createRoutes(deps) {
         } catch (e) {
           return json(res, 500, { ok: false, error: String(e?.message ?? e) });
         }
+      }
+    },
+    {
+      method: 'GET', pattern: '/api/identity-links',
+      handler: async ({ res, json }) => {
+        // 官方通道候选：最近收到的会话；OneBot 候选：存档里数字 id 的会话
+        const official = [];
+        try {
+          for (const [key, v] of qqbotChats.entries()) {
+            official.push({ key, name: v.nickname || '', lastText: String(v.lastText || '').slice(0, 40), at: v.at || 0 });
+          }
+        } catch { /* 忽略 */ }
+        const onebot = [];
+        try {
+          for (const key of store.listChats()) {
+            const id = String(key).split(':')[1] || '';
+            if (!/^\d+$/.test(id)) continue;
+            const meta = store.getChatMeta(key) || {};
+            onebot.push({ key, name: meta.chatName || '', at: meta.lastTs || 0 });
+          }
+        } catch { /* 忽略 */ }
+        return json(res, 200, { ok: true, links: listLinks(), history: listHistory(), candidates: { official, onebot } });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/identity-links/add',
+      handler: async ({ req, res, json }) => {
+        const b = await readBody(req).catch(() => ({}));
+        const r = addLink({ onebotKey: b.onebotKey, qqbotKey: b.qqbotKey, note: b.note, mode: b.mode });
+        return json(res, r.ok ? 200 : 400, r);
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/identity-links/mode',
+      handler: async ({ req, res, json }) => {
+        const b = await readBody(req).catch(() => ({}));
+        const r = setLinkMode(String(b.id || ''), String(b.mode || ''));
+        return json(res, r.ok ? 200 : 400, r);
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/identity-links/unlink',
+      handler: async ({ req, res, json }) => {
+        const b = await readBody(req).catch(() => ({}));
+        const r = unlink(String(b.id || ''), { copy: b.copy === true });
+        // A 模式可选：解绑后把「绑定期间新增」的印象/卡复制到两侧（解绑后已无法解析合并，读的是各自物理数据）
+        if (r.ok && b.copy === true && r.link && r.link.mode === 'merge') {
+          try {
+            const stats = { impressions: 0, cards: 0 };
+            const cut = Number(r.link.linkedAt) || 0;
+            for (const [from, to] of [[r.link.onebotKey, r.link.qqbotKey], [r.link.qqbotKey, r.link.onebotKey]]) {
+              const members = memory.members(from) || [];
+              for (const m of members) {
+                for (const e of (m.impressions || [])) {
+                  if ((Number(e.createdAt) || 0) <= cut) continue;
+                  memory.append(to, 'memberImpression', e.content, { userId: m.userId, name: m.name });
+                  stats.impressions += 1;
+                }
+              }
+              const card = getGroup(from);
+              if (card && !getGroup(to)) {
+                updateGroup(to, {
+                  name: card.name, summary: card.summary,
+                  facts: card.facts, topics: card.topics, members: card.members
+                });
+                stats.cards += 1;
+              }
+            }
+            r.copied = stats;
+          } catch (e) {
+            r.copyError = String(e?.message ?? e);
+          }
+        }
+        return json(res, r.ok ? 200 : 400, r);
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/identity-links/restore',
+      handler: async ({ req, res, json }) => {
+        const b = await readBody(req).catch(() => ({}));
+        const r = restore(String(b.id || ''));
+        return json(res, r.ok ? 200 : 400, r);
       }
     },
     {

@@ -98,7 +98,8 @@ function wired(el) {
       '[data-cmdmute-release]',
     '[data-jump]',   // 通用跳转（设置→QQ 接口 等）
     '[data-protocol-act]',   // 设置→服务→协议端管理按钮（事件委托）
-    '#mem-batch-save', '#mem-batch-run',   // 记忆页批量整理（事件委托）                         // 解除禁言按钮
+    '#mem-batch-save', '#mem-batch-run',   // 记忆页批量整理（事件委托）
+    '[data-il-act]', '[data-il-mode]',   // 通道映射按钮/模式选择（事件委托）                         // 解除禁言按钮
       '[data-tag-box]', '[data-tag-del]',               // 白名单/静默会话标签块
       '[data-tag-input]',
       '[data-membundle]', '[data-membundle-section]',   // 记忆导出/导入

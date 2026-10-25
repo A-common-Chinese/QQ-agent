@@ -113,7 +113,7 @@ function privacyPatternsHint(list) {
 const SETTINGS_GROUPS = [
   { id: 'model', label: '模型', items: [['api', '模型 API'], ['search', '搜索服务']] },
   { id: 'chat', label: '聊天', items: [['chat', '聊天设置'], ['allow', '聊天白名单'], ['persona', '人设'], ['memory', '记忆']] },
-  { id: 'service', label: '服务', items: [['onebot', '协议端管理（可选）'], ['desktop', '桌面端']] },
+  { id: 'service', label: '服务', items: [['onebot', '协议端管理（可选）'], ['links', '通道映射'], ['desktop', '桌面端']] },
   { id: 'tools', label: '工具', items: [['tools', '工具与技能']] },
   { id: 'look', label: '外观', items: [['ui', 'UI 自定义']] }
 ];
@@ -307,6 +307,7 @@ function renderSettingsSection(c) {
     chat: () => renderChatSection(c),
     desktop: () => renderDesktopSection(c),
     onebot: () => renderOnebotSection(c),
+    links: () => renderIdentityLinksSection(c),
     tools: () => renderToolsSection(c),
     ui: () => renderUiCustomSection(c)
   };
@@ -2295,6 +2296,72 @@ function renderOnebotSection(c) {
     </div>`;
 }
 
+let __identityLinksCache = null;
+async function loadIdentityLinksForSettings() {
+  try { __identityLinksCache = await api('/api/identity-links'); } catch { __identityLinksCache = null; }
+  return __identityLinksCache;
+}
+
+/** 通道映射：群号（OneBot）↔ openid（官方机器人） */
+function renderIdentityLinksSection(c) {
+  const d = __identityLinksCache;
+  if (!d) {
+    loadIdentityLinksForSettings().then(() => { try { renderSettings(); } catch { /* 忽略 */ } });
+    return '<h3 id="settings-links">通道映射</h3><div class="hint">加载中…</div>';
+  }
+  const links = d.links || [];
+  const hist = (d.history || []).filter((h) => Date.now() - Number(h.unlinkedAt || 0) < 7 * 24 * 3600 * 1000);
+  const off = (d.candidates && d.candidates.official) || [];
+  const ob = (d.candidates && d.candidates.onebot) || [];
+  const opt = (arr, label) => arr.map((x) => `<option value="${esc(x.key)}">${esc((x.name ? x.name + ' · ' : '') + x.key)}${x.lastText ? '（' + esc(x.lastText) + '）' : ''}</option>`).join('');
+  return `
+    <h3 id="settings-links">通道映射</h3>
+    <div class="hint" style="margin-bottom:10px">
+      把「官方通道的 openid」和「OneBot 的群号/QQ 号」绑成同一个逻辑会话。绑定后记忆、记忆卡按映射合并：
+      <b>读合并</b>（两边都读、各自写）或 <b>只合并未来</b>（绑定后写入镜像两份，历史不合并）。
+    </div>
+    ${links.length ? `<div class="health-card" style="margin-bottom:12px">
+      <div class="h-title">已绑定（${links.length}）</div>
+      ${links.map((l) => `
+        <div class="snowluma-state-row" style="flex-wrap:wrap;gap:8px">
+          <span>${esc(l.note || '未命名')}</span>
+          <span class="muted">${esc(l.onebotKey)} ↔ ${esc(l.qqbotKey)}</span>
+          <select data-il-mode="${esc(l.id)}" data-il-mode-cur="${esc(l.mode)}" style="width:auto">
+            <option value="merge"${l.mode === 'merge' ? ' selected' : ''}>读合并</option>
+            <option value="mirror"${l.mode === 'mirror' ? ' selected' : ''}>只合并未来</option>
+          </select>
+          <button class="btn btn-small btn-danger" data-il-act="unlink" data-il-id="${esc(l.id)}">解绑</button>
+        </div>`).join('')}
+    </div>` : '<div class="hint" style="margin-bottom:10px">还没有绑定任何会话。</div>'}
+    <div class="health-card" style="margin-bottom:12px">
+      <div class="h-title">新增绑定</div>
+      <div class="field-row">
+        <div class="field"><label>官方通道（openid）</label><select id="il-official">${off.length ? opt(off) : '<option value="">（暂无官方会话，可在下面手动填）</option>'}</select>
+          <input type="text" id="il-official-manual" placeholder="或手动填 key：group:B55C… / private:56D6…" style="margin-top:6px" /></div>
+        <div class="field"><label>OneBot（群号 / QQ 号）</label><select id="il-onebot">${ob.length ? opt(ob) : '<option value="">（暂无存档会话，可在下面手动填）</option>'}</select>
+          <input type="text" id="il-onebot-manual" placeholder="或手动填 key：group:759694210 / private:85946573" style="margin-top:6px" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>备注（群名，可选）</label><input type="text" id="il-note" placeholder="例如：叶云鸿指挥室" /></div>
+        <div class="field"><label>合并模式</label><select id="il-mode"><option value="merge">读合并</option><option value="mirror">只合并未来</option></select></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <button class="btn btn-small btn-primary" data-il-act="add">绑定</button>
+        <span class="muted" id="il-hint" style="font-size:12px"></span>
+      </div>
+      <div class="hint" style="margin-top:6px">私聊映射需要手动填 key（形如 private:数字 / private:openid），可在档案里查看。</div>
+    </div>
+    ${hist.length ? `<div class="health-card">
+      <div class="h-title">最近解绑（7 天内可撤销）</div>
+      ${hist.map((h) => `<div class="snowluma-state-row" style="flex-wrap:wrap;gap:8px">
+        <span>${esc(h.note || '未命名')}</span>
+        <span class="muted">${esc(h.onebotKey)} ↔ ${esc(h.qqbotKey)}</span>
+        <button class="btn btn-small" data-il-act="restore" data-il-id="${esc(h.id)}">撤销解绑</button>
+      </div>`).join('')}
+    </div>` : ''}`;
+}
+
+
 /**
  * 刷新 Skill 状态（后端判定结果）。
  * 单独抽出来是因为开关切换后需要立即重取，而不是等下一次 loadSettings。
@@ -3341,5 +3408,83 @@ if (typeof document !== 'undefined' && !window.__protocolActBound) {
       } catch (err) { setHint('卸载失败：' + (err.message || err), 'var(--red)'); }
     }
     setTimeout(() => { if (typeof loadSettings === 'function') loadSettings(); }, 1200);
+  });
+}
+
+// 通道映射：事件委托（渲染换 DOM 不用重绑）
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function' && !window.__identityLinksBound) {
+  window.__identityLinksBound = true;
+  document.addEventListener('change', async (e) => {
+    const sel = e.target && e.target.closest && e.target.closest('[data-il-mode]');
+    if (!sel) return;
+    try {
+      await api('/api/identity-links/mode', { method: 'POST', body: JSON.stringify({ id: sel.dataset.ilMode, mode: sel.value }) });
+      __identityLinksCache = null;
+      if (typeof renderSettings === 'function') renderSettings();
+    } catch (err) { alert('保存失败：' + (err.message || err)); }
+  });
+  document.addEventListener('click', async (e) => {
+    const btn = e.target && e.target.closest && e.target.closest('[data-il-act]');
+    if (!btn || btn.disabled) return;
+    const act = btn.dataset.ilAct;
+    const hint = (t, c) => { const el = document.getElementById('il-hint'); if (el) { el.textContent = t || ''; el.style.color = c || ''; } };
+    if (act === 'add') {
+      const official = String((document.getElementById('il-official-manual') || {}).value || '').trim() ||
+        ((document.getElementById('il-official') || {}).value || '');
+      const onebot = String((document.getElementById('il-onebot-manual') || {}).value || '').trim() ||
+        ((document.getElementById('il-onebot') || {}).value || '');
+      const note = (document.getElementById('il-note') || {}).value || '';
+      const mode = (document.getElementById('il-mode') || {}).value || 'merge';
+      const officialIsGroup = official.startsWith('group:');
+      const onebotIsGroup = onebot.startsWith('group:');
+      if (officialIsGroup !== onebotIsGroup) { hint('群只能绑群、私聊只能绑私聊', 'var(--red)'); return; }
+      try {
+        const r = await api('/api/identity-links/add', { method: 'POST', body: JSON.stringify({ onebotKey: onebot, qqbotKey: official, note, mode }) });
+        if (!r.ok) { hint('绑定失败：' + (r.error || ''), 'var(--red)'); return; }
+        __identityLinksCache = null;
+        hint('已绑定 ✅', 'var(--green)');
+        if (typeof renderSettings === 'function') renderSettings();
+      } catch (err) { hint('绑定失败：' + (err.message || err), 'var(--red)'); }
+      return;
+    }
+    if (act === 'restore') {
+      try {
+        const r = await api('/api/identity-links/restore', { method: 'POST', body: JSON.stringify({ id: btn.dataset.ilId }) });
+        if (!r.ok) { alert('撤销失败：' + (r.error || '')); return; }
+        __identityLinksCache = null;
+        if (typeof renderSettings === 'function') renderSettings();
+      } catch (err) { alert('撤销失败：' + (err.message || err)); }
+      return;
+    }
+    if (act === 'unlink') {
+      const id = btn.dataset.ilId;
+      // 三选一：取消 / 仅解绑 / 解绑并复制（仅 A 读合并模式提供复制）
+      const link = (d && d.links || []).find((l) => l.id === id) || {};
+      const mode = link.mode || 'merge';
+      const choice = await new Promise((resolve) => {
+        const overlay = modelModalShell({
+          head: '解绑通道映射',
+          body: `<div class="hint" style="font-size:13px;line-height:1.8">
+            ${esc(link.note || '')}<br><span class="muted">${esc(link.onebotKey || '')} ↔ ${esc(link.qqbotKey || '')}</span><br><br>
+            解绑后两个通道的记忆不再共享，数据各自保留。</div>`,
+          foot: `<button class="btn" id="il-un-cancel">取消</button>
+                 <button class="btn btn-small" id="il-un-copy"${mode === 'merge' ? '' : ' style="display:none"'}>解绑并复制共享期数据</button>
+                 <button class="btn btn-danger" id="il-un-only">仅解绑</button>`
+        });
+        const done = (v) => { try { closeModelModal(overlay); } catch { /* 忽略 */ } resolve(v); };
+        overlay.querySelector('#il-un-cancel').addEventListener('click', () => done(null));
+        overlay.querySelector('#il-un-copy').addEventListener('click', () => done({ copy: true }));
+        overlay.querySelector('#il-un-only').addEventListener('click', () => done({ copy: false }));
+      });
+      if (!choice) return;
+      try {
+        const r = await api('/api/identity-links/unlink', { method: 'POST', body: JSON.stringify({ id, copy: choice.copy }) });
+        if (!r.ok) { alert('解绑失败：' + (r.error || '')); return; }
+        __identityLinksCache = null;
+        if (typeof renderSettings === 'function') renderSettings();
+        if (choice.copy && r.copied) alert('已解绑并复制：印象 ' + r.copied.impressions + ' 条、卡片 ' + r.copied.cards + ' 张');
+      } catch (err) { alert('解绑失败：' + (err.message || err)); }
+
+    }
   });
 }
