@@ -2354,8 +2354,10 @@ function renderIdentityLinksSection(c) {
     </div>
     <div class="health-card" style="margin-top:12px;border-color:rgba(220,38,38,.35)">
       <div class="h-title" style="color:var(--red)">危险操作</div>
-      <div class="checkbox-row"><input type="checkbox" id="il-unlink-all-switch" />
-        <label for="il-unlink-all-switch">一键解绑所有通道映射（需二次确认）</label></div>
+      <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
+        <button class="btn btn-small btn-danger" data-il-act="unlink-all">一键解绑所有通道映射</button>
+        <span class="muted" style="font-size:12px">需二次确认</span>
+      </div>
       <div class="hint">解绑只停合并/镜像，<b>不会删除白名单</b>；数据按所选方式处理。</div>
     </div>
     ${hist.length ? `<div class="health-card">
@@ -3422,9 +3424,20 @@ if (typeof document !== 'undefined' && !window.__protocolActBound) {
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function' && !window.__identityLinksBound) {
   window.__identityLinksBound = true;
   document.addEventListener('change', async (e) => {
-    const sw = e.target && e.target.closest && e.target.closest('#il-unlink-all-switch');
-    if (sw) {
-      if (!sw.checked) return;
+    const sel = e.target && e.target.closest && e.target.closest('[data-il-mode]');
+    if (!sel) return;
+    try {
+      await api('/api/identity-links/mode', { method: 'POST', body: JSON.stringify({ id: sel.dataset.ilMode, mode: sel.value }) });
+      __identityLinksCache = null;
+      if (typeof renderSettings === 'function') renderSettings();
+    } catch (err) { alert('保存失败：' + (err.message || err)); }
+  });
+  document.addEventListener('click', async (e) => {
+    const btn = e.target && e.target.closest && e.target.closest('[data-il-act]');
+    if (!btn || btn.disabled) return;
+    const act = btn.dataset.ilAct;
+    const hint = (t, c) => { const el = document.getElementById('il-hint'); if (el) { el.textContent = t || ''; el.style.color = c || ''; } };
+    if (act === 'unlink-all') {
       const choice = await new Promise((resolve) => {
         const overlay = modelModalShell({
           head: '一键解绑所有通道映射',
@@ -3442,7 +3455,6 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
         overlay.querySelector('#il-all-copy').addEventListener('click', () => done({ copy: true }));
         overlay.querySelector('#il-all-only').addEventListener('click', () => done({ copy: false }));
       });
-      sw.checked = false;
       if (!choice) return;
       try {
         const r = await api('/api/identity-links/unlink-all', { method: 'POST', body: JSON.stringify(choice) });
@@ -3452,19 +3464,6 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
       } catch (err) { alert('一键解绑失败：' + (err.message || err)); }
       return;
     }
-    const sel = e.target && e.target.closest && e.target.closest('[data-il-mode]');
-    if (!sel) return;
-    try {
-      await api('/api/identity-links/mode', { method: 'POST', body: JSON.stringify({ id: sel.dataset.ilMode, mode: sel.value }) });
-      __identityLinksCache = null;
-      if (typeof renderSettings === 'function') renderSettings();
-    } catch (err) { alert('保存失败：' + (err.message || err)); }
-  });
-  document.addEventListener('click', async (e) => {
-    const btn = e.target && e.target.closest && e.target.closest('[data-il-act]');
-    if (!btn || btn.disabled) return;
-    const act = btn.dataset.ilAct;
-    const hint = (t, c) => { const el = document.getElementById('il-hint'); if (el) { el.textContent = t || ''; el.style.color = c || ''; } };
     if (act === 'add') {
       const official = String((document.getElementById('il-official-manual') || {}).value || '').trim() ||
         ((document.getElementById('il-official') || {}).value || '');
