@@ -797,7 +797,7 @@ function renderHealthCard() {
 // 人设模板数据：state.personaTemplates（由 loadSettings 从后端填充）
 
 
-  // ── 话题卡（「记忆 → 本会话」子页签内）────────────────────────────────
+  // ── 话题卡（「记忆 → 会话卡」子页签内）────────────────────────────────
   // 话题卡只属于某个会话（chatKey），落盘在 data/memory-cards/<chatKey>/topic_*.json。
   // 注入侧读 title / body / summary / keywords[]（见 src/memory-cards-prompt.js:122-143）。
   // 控件一律 data-topic + document 级委托（控制台 CSP 禁内联 onclick）；
@@ -823,7 +823,7 @@ function renderHealthCard() {
     memTopicState.loading = false;
   }
 
-  /** 进入「本会话」时确保已拉过该会话的话题卡；未加载 → 拉完再渲染一次 */
+  /** 进入「会话卡」时确保已拉过该会话的话题卡；未加载 → 拉完再渲染一次 */
   function memTopicEnsure(chatKey) {
     if (!chatKey) return;
     if (memTopicState.chatKey !== chatKey) {
@@ -1001,7 +1001,7 @@ function renderHealthCard() {
   // 记忆页右栏的子页签。`compress` 是「记忆压缩」：不依赖选中会话，
   // 读的是整份记忆 bundle（见文件末尾「记忆压缩」段）。
   const MEM_SUBTABS = [
-    { id: 'groups', label: '本会话' },
+    { id: 'groups', label: '会话卡' },
     { id: 'persons', label: '个人卡' },
     { id: 'general', label: '基本事实' },
     { id: 'compress', label: '压缩' }
@@ -1109,7 +1109,7 @@ function renderHealthCard() {
       body = memBatchPanelHtml();
     } else if (activeSub === 'groups') {
       body = (typeof memDetailHtml === 'function') ? memDetailHtml() : '<div class="muted" style="padding:20px">从左侧选一个会话</div>';
-      // 话题卡只属于具体会话：挂在「本会话」页签下半区。
+      // 话题卡只属于具体会话：挂在「会话卡」页签下半区。
       // 首次进入时先异步拉取，数据回来后会再渲染一次（memTopicEnsure 内部处理）。
       const topicChatKey = st.chatSel && st.chatSel.chatKey;
       if (topicChatKey) {
@@ -1816,7 +1816,7 @@ function renderHealthCard() {
           '<div style="font-size:12.5px;line-height:1.7;margin-top:4px">写入 <b>' + totalW + '</b> 张：' + memStudioCountsText(w) + '</div>' +
           '<div style="font-size:12.5px;line-height:1.7">跳过 <b>' + totalS + '</b> 张（同 key 且不比现有新）：' + memStudioCountsText(sk) + '</div>' +
           (done.filteredOut ? '<div class="hint">另有 ' + done.filteredOut + ' 张因时间范围被过滤。</div>' : '') +
-          '<div class="hint">切到「本会话 / 个人卡 / 基本事实」可看到最新数据（列表会自动重拉）。</div>' +
+          '<div class="hint">切到「会话卡 / 个人卡 / 基本事实」可看到最新数据（列表会自动重拉）。</div>' +
         '</div>';
     }
     return '<div class="mem-studio-block" style="' + MEM_STUDIO_BLOCK_STYLE + '">' +
@@ -2253,7 +2253,7 @@ function renderHealthCard() {
         filteredOut: memStudioNum(r.filteredOut) || 0
       };
       st.importOpen = false;
-      // 让「本会话 / 个人卡 / 基本事实」下次进入时重拉数据（导回已经改动磁盘上的卡）
+      // 让「会话卡 / 个人卡 / 基本事实」下次进入时重拉数据（导回已经改动磁盘上的卡）
       try { if (typeof memState === 'function') { const ms = memState(); if (ms) ms.list = null; } } catch (e) { /* ignore */ }
     } catch (e) {
       st.importError = String((e && e.message) || e);
