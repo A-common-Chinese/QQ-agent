@@ -2675,6 +2675,7 @@ function renderModulePage(kind) {
     : '';
 
   const html = `<div class="usage-wrap">
+    ${meta.kind === 'skill' ? '<div id="skill-placement-hint" class="hint" style="margin:0 0 8px"></div>' : ''}
       <div class="usage-head">
         <h2>${esc(meta.title)}</h2>
         <button class="btn btn-small" id="${esc(meta.tab)}-add-btn" title="从市场口令安装，或查看自建指南">＋ 添加${meta.kind === 'skill' ? '技能' : '插件'}</button>
@@ -2697,6 +2698,7 @@ function renderModulePage(kind) {
 
   if (box) box.innerHTML = html;
   bindModulePageEvents(kind);
+  if (kind === 'skill') refreshSkillPlacementHint();
   if (typeof enhanceConcept2UI === 'function') enhanceConcept2UI(box);
   return html;
 }
@@ -2704,6 +2706,23 @@ function renderModulePage(kind) {
 /** 供渲染测试按名取用的两个入口（render-test 会逐个执行这些函数）。 */
 function renderSkillsPage() { return renderModulePage('skill'); }
 function renderPluginsPage() { return renderModulePage('plugin'); }
+
+/** 技能页提示：静态/动态段的分流结果；有技能被自动降级时高亮显示。 */
+async function refreshSkillPlacementHint() {
+  const el = document.getElementById('skill-placement-hint');
+  if (!el) return;
+  try {
+    const d = await api('/api/prompt/skill-placement');
+    const demoted = Array.isArray(d.demoted) ? d.demoted : [];
+    if (!demoted.length) {
+      el.innerHTML = '提示词分流：静态技能段进系统提示（可缓存），动态技能段进用户提示。<span class="muted">（当前没有技能被降级）</span>';
+      return;
+    }
+    el.innerHTML = '⚠️ 以下技能的「静态段」内容发生变化，已自动改放用户提示（保护缓存）：<b>' +
+      demoted.map((x) => esc(x.skillId)).join('、') +
+      '</b> <span class="muted">（如果是技能作者把动态内容写进了静态段，建议反馈）</span>';
+  } catch { /* 忽略 */ }
+}
 
 function bindModulePageEvents(kind) {
   const meta = MODULE_KINDS[kind];

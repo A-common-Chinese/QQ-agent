@@ -37,6 +37,7 @@ import { exportToFile, previewImport, applyImport, buildBundle, bundleStats } fr
 import { redactText, getSafeModeConfig } from './safe-mode.js';
 import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral, listTopics, getTopic, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
 import { readChunks, readSemanticCards, lastAutoCardsAt } from './memory-layers.js';
+import { skillPlacementStatus } from './prompt.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
 import { availabilityOf, listTools, CATEGORY_META } from './tool-registry.js';
 import { safeFetchBinary, browseLockState } from './safe-fetch.js';
@@ -1464,6 +1465,10 @@ export function createRoutes(deps) {
           return json(res, 500, { ok: false, error: String(e?.message ?? e) });
         }
       }
+    },
+    {
+      method: 'GET', pattern: '/api/prompt/skill-placement',
+      handler: async ({ res, json }) => json(res, 200, { ok: true, ...skillPlacementStatus() })
     },
     {
       method: 'GET', pattern: '/api/memory-layers',

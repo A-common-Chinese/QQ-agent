@@ -215,6 +215,53 @@ function renderSkillSections(sections) {
  * 准备动态 Skill 段（含稳定排序）。
  * 单独导出：系统提示要彻底静态化，这些动态段改由用户提示携带（缓存友好）。
  */
+// ── 技能提示词分流：静态段进系统提示、动态段进用户提示 ──────────────────
+// 静态段的定义是"声明式"（manifest.prompt.sections），正常不会每轮变；
+// 但作者可能把动态内容写进静态段 → 用内容 hash 守卫，变了就自动降级到用户提示。
+const __sectionHashes = new Map();   // `${skillId}::${id}` -> hash
+const __demotedSkills = new Map();   // skillId -> { at, reason }
+
+function __hashText(text) {
+  let h = 5381;
+  const s = String(text || '');
+  for (let i = 0; i < s.length; i += 1) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+/**
+ * 把技能片段分成 system / user 两路。
+ * - source=runtime → 一律 user
+ * - source=manifest → 内容 hash 稳定则 system；变化过则永久降级 user（本进程内）
+ */
+export function splitSkillSections(sections = []) {
+  const system = [];
+  const user = [];
+  for (const s of sections || []) {
+    const skillId = String(s.skillId || '');
+    if (s.source !== 'manifest') { user.push(s); continue; }
+    if (__demotedSkills.has(skillId)) { user.push(s); continue; }
+    const key = `${skillId}::${s.id}`;
+    const h = __hashText(s.content);
+    const prev = __sectionHashes.get(key);
+    if (prev && prev !== h) {
+      __demotedSkills.set(skillId, { at: Date.now(), reason: '静态段内容发生变化' });
+      console.warn(`[prompt] 技能「${skillId}」的静态段内容发生变化，已自动改放用户提示（缓存保护）`);
+      user.push(s);
+      continue;
+    }
+    __sectionHashes.set(key, h);
+    system.push(s);
+  }
+  return { system, user };
+}
+
+/** 分流状态（技能页提示用） */
+export function skillPlacementStatus() {
+  return {
+    demoted: [...__demotedSkills.entries()].map(([skillId, v]) => ({ skillId, at: v.at, reason: v.reason }))
+  };
+}
+
 export function prepareSkillSections(skillContext = {}, extraSections = []) {
   return [...collectSkillSections(skillContext || {}), ...(Array.isArray(extraSections) ? extraSections : [])]
     .map((x) => ({ priority: 50, ...x }))

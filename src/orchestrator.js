@@ -13,7 +13,7 @@ import path from 'node:path';
 import { getConfig, storeConfigForChat, personaForChat, isSilentChat, DATA_DIR } from './config.js';
 import { vendorOfConfig } from './model-prices.js';
 import { randInt } from './util.js';
-import { buildSystemPrompt, buildUserPrompt, resolveContextTier, prepareSkillSections } from './prompt.js';
+import { buildSystemPrompt, buildUserPrompt, resolveContextTier, prepareSkillSections, splitSkillSections } from './prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from './llm.js';
 import { buildToolDefs, toOpenAiTools, executeTool } from './tools.js';
 import { modelImageVerdict } from './vision-scan.js';
@@ -843,12 +843,14 @@ export class Orchestrator {
     // 换了会和 @ 判定对不上（personaForChat 在结构上就不允许覆盖这两个字段）。
     // 动态 Skill 段（conversation-memory 每轮注入 / 主人规则等）改由**用户提示**携带：
     // 系统提示只保留静态内容 → 跨轮字节完全一致，前缀缓存可吃满。
-    const _dynamicSections = prepareSkillSections(skillContext, ownerRules
-      ? [{ id: 'owner-rules-run', title: '', priority: 72, content: ownerRules }]
+    const _allSections = prepareSkillSections(skillContext, ownerRules
+      ? [{ id: 'owner-rules-run', title: '', priority: 72, content: ownerRules, source: 'runtime' }]
       : []);
+    // 静态技能段进系统提示（可被前缀缓存），动态段进用户提示；hash 守卫会自动降级写错的技能
+    const _split = splitSkillSections(_allSections);
     const systemPrompt = buildSystemPrompt({
       persona: ownerPersona || personaForChat(chatKey),
-      skillSections: null
+      skillSections: _split.system
     });
     const userPrompt = buildUserPrompt({
       chatKey, kind, chatId, chatName,
@@ -867,7 +869,7 @@ export class Orchestrator {
       activeTopic,
       // 提示词锚点：传入上一轮的前缀状态；新状态经 session.promptAnchorState 带回
       promptAnchor: { prev: this.promptAnchors.get(chatKey) || null },
-      dynamicSections: _dynamicSections,
+      dynamicSections: [..._split.user],
       session
     });
 
