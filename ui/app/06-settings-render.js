@@ -2352,6 +2352,12 @@ function renderIdentityLinksSection(c) {
       </div>
       <div class="hint" style="margin-top:6px">私聊映射需要手动填 key（形如 private:数字 / private:openid），可在档案里查看。</div>
     </div>
+    <div class="health-card" style="margin-top:12px;border-color:rgba(220,38,38,.35)">
+      <div class="h-title" style="color:var(--red)">危险操作</div>
+      <div class="checkbox-row"><input type="checkbox" id="il-unlink-all-switch" />
+        <label for="il-unlink-all-switch">一键解绑所有通道映射（需二次确认）</label></div>
+      <div class="hint">解绑只停合并/镜像，<b>不会删除白名单</b>；数据按所选方式处理。</div>
+    </div>
     ${hist.length ? `<div class="health-card">
       <div class="h-title">最近解绑（7 天内可撤销）</div>
       ${hist.map((h) => `<div class="snowluma-state-row" style="flex-wrap:wrap;gap:8px">
@@ -3416,6 +3422,36 @@ if (typeof document !== 'undefined' && !window.__protocolActBound) {
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function' && !window.__identityLinksBound) {
   window.__identityLinksBound = true;
   document.addEventListener('change', async (e) => {
+    const sw = e.target && e.target.closest && e.target.closest('#il-unlink-all-switch');
+    if (sw) {
+      if (!sw.checked) return;
+      const choice = await new Promise((resolve) => {
+        const overlay = modelModalShell({
+          head: '一键解绑所有通道映射',
+          body: `<div class="hint" style="font-size:13px;line-height:1.8">
+            将解绑当前全部映射。解绑只停合并/镜像，<b>不会删除白名单</b>。<br><br>
+            选择处理方式：<br>
+            · <b>仅解绑</b>：数据各自保留（推荐）<br>
+            · <b>解绑并复制</b>：把绑定期间新增的印象/卡复制到两侧（仅 A 读合并模式生效，会产生重复卡片）</div>`,
+          foot: `<button class="btn" id="il-all-cancel">取消</button>
+                 <button class="btn btn-small" id="il-all-copy">解绑并复制</button>
+                 <button class="btn btn-danger" id="il-all-only">仅解绑</button>`
+        });
+        const done = (v) => { try { closeModelModal(overlay); } catch { /* 忽略 */ } resolve(v); };
+        overlay.querySelector('#il-all-cancel').addEventListener('click', () => done(null));
+        overlay.querySelector('#il-all-copy').addEventListener('click', () => done({ copy: true }));
+        overlay.querySelector('#il-all-only').addEventListener('click', () => done({ copy: false }));
+      });
+      sw.checked = false;
+      if (!choice) return;
+      try {
+        const r = await api('/api/identity-links/unlink-all', { method: 'POST', body: JSON.stringify(choice) });
+        __identityLinksCache = null;
+        if (typeof renderSettings === 'function') renderSettings();
+        alert('已解绑 ' + (r.count || 0) + ' 条映射' + (choice.copy ? '（复制印象 ' + (r.copied?.impressions || 0) + ' 条、卡片 ' + (r.copied?.cards || 0) + ' 张）' : ''));
+      } catch (err) { alert('一键解绑失败：' + (err.message || err)); }
+      return;
+    }
     const sel = e.target && e.target.closest && e.target.closest('[data-il-mode]');
     if (!sel) return;
     try {

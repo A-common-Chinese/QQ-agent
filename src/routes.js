@@ -96,6 +96,34 @@ export function createRoutes(deps) {
     reloadSkills
   } = deps;
 
+  /** 解绑后把「绑定期间新增」的印象/卡复制到两侧（A 读合并模式可选） */
+  function copyAfterUnlink(link) {
+    const stats = { impressions: 0, cards: 0 };
+    try {
+      const cut = Number(link.linkedAt) || 0;
+      for (const [from, to] of [[link.onebotKey, link.qqbotKey], [link.qqbotKey, link.onebotKey]]) {
+        const members = memory.members(from) || [];
+        for (const m of members) {
+          for (const e of (m.impressions || [])) {
+            if ((Number(e.createdAt) || 0) <= cut) continue;
+            memory.append(to, 'memberImpression', e.content, { userId: m.userId, name: m.name });
+            stats.impressions += 1;
+          }
+        }
+        const card = getGroup(from);
+        if (card && !getGroup(to)) {
+          updateGroup(to, {
+            name: card.name, summary: card.summary,
+            facts: card.facts, topics: card.topics, members: card.members
+          });
+          stats.cards += 1;
+        }
+      }
+    } catch { /* 忽略 */ }
+    return stats;
+  }
+
+
   // 小工具：读请求体（容错：没 body 当空对象）。
   // 但 readBody 明确标记的可暴露错误（400 非法 JSON / 413 过大）必须透传，
   // 否则会从"应返回 400"退化成静默当成空 patch。
@@ -1506,38 +1534,34 @@ export function createRoutes(deps) {
       }
     },
     {
+      method: 'POST', pattern: '/api/identity-links/unlink-all',
+      handler: async ({ req, res, json }) => {
+        const b = await readBody(req).catch(() => ({}));
+        const ids = listLinks().map((l) => l.id);
+        const copiedAll = { impressions: 0, cards: 0 };
+        let done = 0;
+        let failed = 0;
+        for (const id of ids) {
+          try {
+            const r = unlink(id, { copy: b.copy === true });
+            if (!r.ok) { failed += 1; continue; }
+            done += 1;
+            if (b.copy === true && r.link) {
+              const st = copyAfterUnlink(r.link);
+              copiedAll.impressions += st.impressions;
+              copiedAll.cards += st.cards;
+            }
+          } catch { failed += 1; }
+        }
+        return json(res, 200, { ok: true, count: done, failed, copied: copiedAll });
+      }
+    },
+    {
       method: 'POST', pattern: '/api/identity-links/unlink',
       handler: async ({ req, res, json }) => {
         const b = await readBody(req).catch(() => ({}));
         const r = unlink(String(b.id || ''), { copy: b.copy === true });
-        // A 模式可选：解绑后把「绑定期间新增」的印象/卡复制到两侧（解绑后已无法解析合并，读的是各自物理数据）
-        if (r.ok && b.copy === true && r.link && r.link.mode === 'merge') {
-          try {
-            const stats = { impressions: 0, cards: 0 };
-            const cut = Number(r.link.linkedAt) || 0;
-            for (const [from, to] of [[r.link.onebotKey, r.link.qqbotKey], [r.link.qqbotKey, r.link.onebotKey]]) {
-              const members = memory.members(from) || [];
-              for (const m of members) {
-                for (const e of (m.impressions || [])) {
-                  if ((Number(e.createdAt) || 0) <= cut) continue;
-                  memory.append(to, 'memberImpression', e.content, { userId: m.userId, name: m.name });
-                  stats.impressions += 1;
-                }
-              }
-              const card = getGroup(from);
-              if (card && !getGroup(to)) {
-                updateGroup(to, {
-                  name: card.name, summary: card.summary,
-                  facts: card.facts, topics: card.topics, members: card.members
-                });
-                stats.cards += 1;
-              }
-            }
-            r.copied = stats;
-          } catch (e) {
-            r.copyError = String(e?.message ?? e);
-          }
-        }
+        if (r.ok && b.copy === true && r.link) r.copied = copyAfterUnlink(r.link);
         return json(res, r.ok ? 200 : 400, r);
       }
     },

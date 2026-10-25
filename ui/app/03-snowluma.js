@@ -358,9 +358,17 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
       uninstallBtn.addEventListener('click', async () => {
         const hint = box.querySelector('#sl-uninstall-hint');
         const setHint = (t, c) => { if (hint) { hint.textContent = t; hint.style.color = c || ''; } };
+        // 卸载会顺带「一键解绑」所有通道映射 —— 先查数量写进提示
+        let linkCount = 0;
+        try {
+          const il = await api('/api/identity-links');
+          linkCount = (il && Array.isArray(il.links)) ? il.links.length : 0;
+        } catch { linkCount = 0; }
+        const uninstallWarn = '会先停止协议端进程，然后删除它的整个目录（配置、账号数据一并删除，不可恢复）。' +
+          (linkCount ? `\n\n注意：检测到 ${linkCount} 条通道映射，卸载会一并「一键解绑」（白名单不会被删除）。` : '');
         const first = typeof uiConfirm === 'function'
-          ? await uiConfirm('会先停止协议端进程，然后删除它的整个目录（配置、账号数据一并删除，不可恢复）。继续？', { title: '卸载协议端', okText: '继续' })
-          : window.confirm('会停止并删除协议端目录（不可恢复），继续？');
+          ? await uiConfirm(uninstallWarn + '\n\n继续？', { title: '卸载协议端', okText: '继续' })
+          : window.confirm(uninstallWarn + '\n\n继续？');
         if (!first) return;
         const second = typeof uiConfirm === 'function'
           ? await uiConfirm('确定删除？这一步不可撤销。', { title: '再次确认', okText: '删除' })
@@ -370,7 +378,15 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
         setHint('卸载中…');
         try {
           const r = await api('/api/snowluma/uninstall', { method: 'POST', body: JSON.stringify({ confirm: true }) });
-          setHint(r && r.removed ? '已卸载：' + (r.dir || '') : '目录不存在，已视为未安装', 'var(--green)');
+          // 卸载 OneBot 时自动激活「一键解绑」（仅停合并，白名单保留）
+          let unbindNote = '';
+          if (linkCount) {
+            try {
+              const u = await api('/api/identity-links/unlink-all', { method: 'POST', body: JSON.stringify({ copy: false }) });
+              unbindNote = `，已解绑 ${u.count || 0} 条通道映射`;
+            } catch { unbindNote = '，但通道映射解绑失败'; }
+          }
+          setHint((r && r.removed ? '已卸载：' + (r.dir || '') : '目录不存在，已视为未安装') + unbindNote, 'var(--green)');
           await loadSnowlumaPage();
         } catch (e) {
           setHint('卸载失败：' + (e.message || e), 'var(--red)');
