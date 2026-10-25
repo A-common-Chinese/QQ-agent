@@ -11,6 +11,14 @@ import { embeddingReady } from './embeddings.js';
 import { addDecision } from './decision-log.js';
 
 const lastRunAt = new Map();   // chatKey -> ts（冷却）
+
+/** 会话属于哪个通道：openid 形态（含 a-f 或长度≥20）→ qqbot；纯数字 → onebot */
+export function channelOfChatKey(chatKey) {
+  const id = String(chatKey || '').split(':')[1] || '';
+  if (!id) return '';
+  if (/[a-f]/i.test(id) || id.length >= 20) return 'qqbot';
+  return 'onebot';
+}
 const daily = new Map();       // `${chatKey}|${day}` -> count
 
 function dayKey() {
@@ -91,6 +99,11 @@ export async function runDecision({ chatKey, entry, messages = [], store = null 
   const d = cfg.decision || {};
   const eff = effectiveCfg(chatKey, cfg);
   if (!d.enabled || eff.enabled === false) return { ok: false, skipped: 'disabled' };
+  // 只观察「当前设置通道」的会话：避免两个通道同时配置时重复记录/口径错乱
+  const active = String(cfg.transport?.active || 'onebot');
+  if (active !== 'both' && channelOfChatKey(chatKey) !== active) {
+    return { ok: false, skipped: 'channel-mismatch' };
+  }
   if (eff.mode === 'off') return { ok: false, skipped: 'perChat-off' };
   if (String(chatKey).startsWith('private:')) return { ok: false, skipped: 'private' };
   if (isSilentChat(chatKey)) return { ok: false, skipped: 'silent' };
