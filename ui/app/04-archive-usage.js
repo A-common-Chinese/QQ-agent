@@ -411,6 +411,7 @@ function renderUsagePage(stats, st, prices) {
 
   box.innerHTML = `
     <div class="usage-wrap">
+      ${typeof renderConsumptionTipsCard === 'function' ? renderConsumptionTipsCard() : ''}
       <div class="usage-head">
         <h2>用量与成本</h2>
         <div class="usage-days">

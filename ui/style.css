@@ -2387,3 +2387,16 @@ body.skin-bg-on .view { background: transparent; }
 .mem-batch-bar .mb-row:last-child { margin-bottom: 0; }
 .mem-batch-bar input { width: 56px; padding: 2px 6px; }
 .mem-batch-bar label { color: var(--tx2); }
+
+/* 用量页：消耗说明折叠卡 */
+.consumption-tips { border: 1px solid var(--bd); border-radius: 12px; background: var(--bg2); padding: 8px 14px; }
+.consumption-tips > summary { cursor: pointer; font-weight: 600; color: var(--tx2); list-style: none; font-size: 13px; }
+.consumption-tips > summary::-webkit-details-marker { display: none; }
+.consumption-tips > summary::before { content: '▸ '; color: var(--tx3); }
+.consumption-tips[open] > summary::before { content: '▾ '; }
+.consumption-tips .ct-body { margin-top: 8px; font-size: 12.5px; line-height: 1.7; }
+.consumption-tips .ct-sec { margin-bottom: 10px; }
+.consumption-tips .ct-sec > b { display: block; margin-bottom: 4px; color: var(--tx); }
+.consumption-tips .ct-row { display: flex; gap: 10px; padding: 2px 0; }
+.consumption-tips .ct-k { flex: 0 0 190px; color: var(--tx3); }
+.consumption-tips .ct-v { flex: 1; color: var(--tx2); }

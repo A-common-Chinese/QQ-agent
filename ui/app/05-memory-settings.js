@@ -1020,7 +1020,7 @@ function renderHealthCard() {
     box.innerHTML = cards.map(pill).join('') +
       '<span class="subnav-sep"></span>' +
       (compress ? pill(compress) : '') +
-      '<span class="subnav-note">压缩只改"注入给模型的内容"，不动原始记忆</span>';
+      '<span class="subnav-note">压缩只改"注入给模型的内容"，不动原始记忆' + (typeof consumptionTip === 'function' ? '；' + consumptionTip('memory-compress') : '') + '</span>';
   };
 
   // 【记忆栏目 V2】顶部「记忆」tab 的三分区卡片视图（覆盖上面的旧 loadMemoryView）
