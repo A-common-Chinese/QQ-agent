@@ -2201,7 +2201,7 @@ return `
     </div>
     <div class="field" style="margin-top:14px">
       <button class="btn" id="blocklist-btn" style="height:44px;padding:0 28px;font-size:14px">管理屏蔽名单</button>
-    </div>`;
+    </div>\n    ${renderDecisionSection(c)}`;
 }
 
 function renderDesktopSection(c) {
@@ -3520,6 +3520,144 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
         if (choice.copy && r.copied) alert('已解绑并复制：印象 ' + r.copied.impressions + ' 条、卡片 ' + r.copied.cards + ' 张');
       } catch (err) { alert('解绑失败：' + (err.message || err)); }
 
+    }
+  });
+}
+
+/** 语义触发（P1）：触发与插话 */
+function renderDecisionSection(c) {
+  const d = c.decision || {};
+  const e = d.embedding || {};
+  const th = d.thresholds || {};
+  const bg = d.budget || {};
+  const j = d.judge || {};
+  const corpus = e.corpus || {};
+  const input = (id, val, ph = '') => `<input type="text" id="${id}" value="${esc(val == null ? '' : String(val))}" placeholder="${esc(ph)}" />`;
+  return `
+  <div class="setcard" style="margin-top:18px">
+    <div class="setcard-head"><div class="setcard-icon">🧠</div><div>
+      <div class="setcard-title">触发与插话（语义向量）</div>
+      <div class="setcard-sub">P1 观察模式：只记录相关度分数，不改变是否接话</div>
+    </div></div>
+    <div class="setcard-body">
+      <div class="checkbox-row"><input type="checkbox" id="dec-enabled" ${d.enabled ? 'checked' : ''} />
+        <label for="dec-enabled">启用语义触发（总开关）</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="dec-observe" ${d.observeOnly !== false ? 'checked' : ''} />
+        <label for="dec-observe">观察模式（只记分数，不改变行为）</label></div>
+
+      <h4 style="margin:14px 0 6px">向量服务（OpenAI 兼容 /v1/embeddings）</h4>
+      <div class="field-row">
+        <div class="field"><label>Base URL</label>${input('dec-emb-base', e.baseUrl, 'http://127.0.0.1:11434/v1')}</div>
+        <div class="field"><label>模型</label>${input('dec-emb-model', e.model, 'bge-m3 / text-embedding-3-small')}</div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>API Key（留空不改）</label>${input('dec-emb-key', '', e.hasApiKey ? '已保存（留空不改）' : '本地模型可留空')}</div>
+        <div class="field"><label>维度（0 = 按返回推断）</label><input type="number" id="dec-emb-dims" value="${Number(e.dims) || 0}" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>最近消息条数</label><input type="number" id="dec-emb-recent" value="${Number(corpus.recentMessages) || 200}" /></div>
+      </div>
+      <div class="checkbox-row"><input type="checkbox" id="dec-corpus-cards" ${corpus.semanticCards !== false ? 'checked' : ''} /><label for="dec-corpus-cards">索引语义卡</label>
+        <input type="checkbox" id="dec-corpus-hours" ${corpus.hourlySummaries !== false ? 'checked' : ''} /><label for="dec-corpus-hours">索引小时摘要</label></div>
+
+      <h4 style="margin:14px 0 6px">阈值与预算</h4>
+      <div class="field-row">
+        <div class="field"><label>低阈值（低于则跳过）</label><input type="number" step="0.01" id="dec-low" value="${Number(th.low) || 0.25}" /></div>
+        <div class="field"><label>高阈值（高于则可能接话）</label><input type="number" step="0.01" id="dec-high" value="${Number(th.high) || 0.55}" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>冷却（秒/群）</label><input type="number" id="dec-cooldown" value="${Number(bg.cooldownSec) || 120}" /></div>
+        <div class="field"><label>每群每日上限</label><input type="number" id="dec-daily" value="${Number(bg.dailyLimitPerChat) || 200}" /></div>
+      </div>
+
+      <h4 style="margin:14px 0 6px">本地/指定模型判定（L2，P1 默认关）</h4>
+      <div class="checkbox-row"><input type="checkbox" id="dec-judge-on" ${j.enabled ? 'checked' : ''} /><label for="dec-judge-on">启用模型判定</label></div>
+      <div class="field-row">
+        <div class="field"><label>渠道 ID（模型目录）</label>${input('dec-judge-provider', j.providerId)}</div>
+        <div class="field"><label>模型</label>${input('dec-judge-model', j.model)}</div>
+      </div>
+
+      <h4 style="margin:14px 0 6px">每群覆盖（JSON）</h4>
+      <div class="hint">示例：{"group:123456":{"mode":"off"}}；mode 可为 off / observe / active；可加 thresholds/budget。</div>
+      <textarea id="dec-perchat" style="min-height:70px" placeholder='{"group:123456":{"mode":"off"}}'>${esc(JSON.stringify(d.perChat || {}, null, 0))}</textarea>
+
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-small btn-primary" id="dec-save">保存</button>
+        <button class="btn btn-small" id="dec-logs">查看最近判定</button>
+        <span class="muted" id="dec-hint" style="font-size:12px"></span>
+      </div>
+      <pre id="dec-log-view" class="snowluma-logs-view" style="margin-top:8px;max-height:220px;display:none"></pre>
+    </div>
+  </div>`;
+}
+
+// 语义触发设置：保存 / 查看判定日志（事件委托）
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function' && !window.__decisionUiBound) {
+  window.__decisionUiBound = true;
+  const dv = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const dc = (id) => { const el = document.getElementById(id); return !!(el && el.checked); };
+  document.addEventListener('click', async (e) => {
+    const save = e.target && e.target.closest && e.target.closest('#dec-save');
+    if (save) {
+      const hint = document.getElementById('dec-hint');
+      const set = (t, c) => { if (hint) { hint.textContent = t || ''; hint.style.color = c || ''; } };
+      let perChat = {};
+      try { perChat = JSON.parse(dv('dec-perchat') || '{}') || {}; } catch { set('每群覆盖不是合法 JSON', 'var(--red)'); return; }
+      const key = String(dv('dec-emb-key') || '').trim();
+      const payload = {
+        decision: {
+          enabled: dc('dec-enabled'),
+          observeOnly: dc('dec-observe'),
+          embedding: {
+            baseUrl: String(dv('dec-emb-base') || '').trim(),
+            model: String(dv('dec-emb-model') || '').trim(),
+            dims: Number(dv('dec-emb-dims')) || 0,
+            corpus: {
+              semanticCards: dc('dec-corpus-cards'),
+              hourlySummaries: dc('dec-corpus-hours'),
+              recentMessages: Number(dv('dec-emb-recent')) || 200
+            },
+            ...(key ? { apiKey: key } : {})
+          },
+          thresholds: {
+            low: Number(dv('dec-low')) || 0.25,
+            high: Number(dv('dec-high')) || 0.55,
+            samplePercent: 100
+          },
+          budget: {
+            cooldownSec: Number(dv('dec-cooldown')) || 120,
+            dailyLimitPerChat: Number(dv('dec-daily')) || 200,
+            maxJudgePerChatPerDay: 300
+          },
+          judge: {
+            enabled: dc('dec-judge-on'),
+            providerId: String(dv('dec-judge-provider') || '').trim(),
+            model: String(dv('dec-judge-model') || '').trim(),
+            timeoutMs: 1500, maxTokens: 64, temperature: 0
+          },
+          perChat
+        }
+      };
+      try {
+        await api('/api/config', { method: 'POST', body: JSON.stringify(payload) });
+        set('已保存 ✅', 'var(--green)');
+      } catch (err) { set('保存失败：' + (err.message || err), 'var(--red)'); }
+      return;
+    }
+    const logsBtn = e.target && e.target.closest && e.target.closest('#dec-logs');
+    if (logsBtn) {
+      const pre = document.getElementById('dec-log-view');
+      try {
+        const r = await api('/api/decision/logs?limit=30');
+        const lines = (r.logs || []).map((x) => {
+          const t = new Date(Number(x.at) || 0).toLocaleString('zh-CN', { hour12: false });
+          const sc = x.score == null ? '—' : Number(x.score).toFixed(3);
+          return `[${t}] ${x.chatKey} score=${sc} low=${x.low} high=${x.high} action=${x.action}${x.skipped ? ' skip=' + x.skipped : ''}${x.error ? ' err=' + x.error : ''}`;
+        });
+        if (pre) { pre.style.display = ''; pre.textContent = lines.join('\n') || '（还没有记录）'; }
+      } catch (err) {
+        if (pre) { pre.style.display = ''; pre.textContent = '读取失败：' + (err.message || err); }
+      }
     }
   });
 }

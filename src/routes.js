@@ -39,6 +39,9 @@ import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, 
 import { readChunks, readSemanticCards, lastAutoCardsAt } from './memory-layers.js';
 import { skillPlacementStatus } from './prompt.js';
 import { listLinks, listHistory, addLink, setLinkMode, unlink, restore } from './identity-links.js';
+import { listDecisions, decisionStats } from './decision-log.js';
+import { decisionStatus, buildCorpus } from './decision-pipeline.js';
+import { ensureIndex, rebuildIndex, indexStatus } from './vector-store.js';
 import { getSkillConfig, setSkillConfig, setSkillEnabled, listConfiguredSkillIds } from './skills/config.js';
 import { availabilityOf, listTools, CATEGORY_META } from './tool-registry.js';
 import { safeFetchBinary, browseLockState } from './safe-fetch.js';
@@ -1490,6 +1493,37 @@ export function createRoutes(deps) {
         try {
           const r = await orchestrator.updateMemoryCardsNow(chatKey);
           return json(res, 200, r);
+        } catch (e) {
+          return json(res, 500, { ok: false, error: String(e?.message ?? e) });
+        }
+      }
+    },
+    {
+      method: 'GET', pattern: '/api/decision/status',
+      handler: async ({ res, json, url }) => {
+        const chatKey = String(url.searchParams.get('chatKey') || '').trim();
+        return json(res, 200, { ok: true, ...decisionStatus(chatKey), stats: decisionStats() });
+      }
+    },
+    {
+      method: 'GET', pattern: '/api/decision/logs',
+      handler: async ({ res, json, url }) => {
+        const limit = Number(url.searchParams.get('limit') || 100);
+        return json(res, 200, { ok: true, logs: listDecisions(limit) });
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/decision/reindex',
+      handler: async ({ req, res, json }) => {
+        const b = await readBody(req).catch(() => ({}));
+        const cfg = getConfig();
+        const chatKey = String(b.chatKey || '').trim();
+        if (!chatKey) return json(res, 400, { ok: false, error: '缺少 chatKey' });
+        try {
+          const msgs = store.recent(chatKey, { limit: 200 });
+          const items = buildCorpus(chatKey, msgs, cfg);
+          const r = b.rebuild === false ? await ensureIndex(chatKey, items, cfg) : await rebuildIndex(chatKey, items, cfg);
+          return json(res, 200, { ok: true, ...r, status: indexStatus(chatKey) });
         } catch (e) {
           return json(res, 500, { ok: false, error: String(e?.message ?? e) });
         }

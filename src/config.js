@@ -66,7 +66,22 @@ export const DEFAULT_CONFIG = {
     batchIntervalMs: 6 * 60 * 60 * 1000,   // 6 小时
     batchMaxChats: 20,                     // 单次最多处理多少个会话（控制成本）
     batchIncludeSilent: false,             // 批量整理是否包含静默会话（默认排除，静默=不花 token）
-    autoUpdate: true // auto=通用+本会话 / all=全部 / model=只给通留给模型自己查
+    autoUpdate: true
+  },
+  // ── 语义触发（P1：只观察不生效）──
+  decision: {
+    enabled: false,              // 总开关（新装默认关）
+    observeOnly: true,           // 只记录分数，不改变是否接话
+    embedding: {
+      providerId: '', baseUrl: '', apiKey: '', model: '', dims: 0,
+      autoDetectDims: false,     // 预留：自动探测维度（暂不实现）
+      corpus: { semanticCards: true, hourlySummaries: true, recentMessages: 200 },
+      batchSize: 32, timeoutMs: 8000
+    },
+    thresholds: { low: 0.25, high: 0.55, samplePercent: 100 },
+    budget: { cooldownSec: 120, dailyLimitPerChat: 200, maxJudgePerChatPerDay: 300 },
+    judge: { enabled: false, providerId: '', model: '', timeoutMs: 1500, maxTokens: 64, temperature: 0 },
+    perChat: {} // auto=通用+本会话 / all=全部 / model=只给通留给模型自己查
   },
   api: {
     // 出厂留空：这是作者本机的网关地址，对其他人毫无意义，

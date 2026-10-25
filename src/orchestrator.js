@@ -22,6 +22,7 @@ import { skillManager } from './skills/manager.js';
 import { getToolAvailability } from './tool-registry.js';
 import { rescueUnsentReply } from './reply-rescue.js';
 import { asTransport } from './transport/index.js';
+import { runDecision } from './decision-pipeline.js';
 import { upsertPerson, upsertGroup } from './memory-cards.js';
 import { readChunks, readSemanticCards, lastAutoCardsAt, markAutoCards } from './memory-layers.js';
 
@@ -208,6 +209,11 @@ export class Orchestrator {
         roll: null
       });
       if (!tierResult.shouldRespond) {
+        // 语义触发（P1 观察模式）：只算分 + 记日志，不改变是否接话；绝不阻塞主流程
+        try {
+          runDecision({ chatKey, entry, messages: this.store.recent(chatKey, { limit: 40 }), store: this.store })
+            .catch(() => {});
+        } catch { /* 忽略 */ }
         // 不触发：这条消息立即标已读（只标这一条，不动窗口外已积压的未读——
         // 那些是上一批遗留，由兜底定时器/下一次触发处理）。
         if (entry) {
