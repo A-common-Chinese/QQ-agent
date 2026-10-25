@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
-import { resolveKeys, writeKeys, canonicalKey } from './identity-links.js';
+import { resolveKeys, writeKeys, canonicalKey, personCanonical } from './identity-links.js';
 
 const ROOT = path.join(DATA_DIR, 'memory-cards');
 const PERSONS = path.join(ROOT, 'persons');
@@ -48,7 +48,10 @@ export function listCards() {
   return { general, groups, persons };
 }
 
-export function getPerson(qq) { return read(path.join(PERSONS, safeKey(qq) + '.json')); }
+export function getPerson(qq) {
+  const key = personCanonical(qq);
+  return read(path.join(PERSONS, safeKey(key) + '.json'));
+}
 export function getGroup(chatKey) {
   // 通道映射：把关联会话的群卡合并成一张虚拟卡（merge/mirror 都走这里）
   const keys = resolveKeys(chatKey);
@@ -85,6 +88,7 @@ export function getGeneral() {
 }
 
 export function updatePerson(qq, patch) {
+  qq = personCanonical(qq);
   const cur = getPerson(qq);
   if (!cur) return { ok: false, error: 'not_found' };
   const allowed = ['name', 'summary', 'tone', 'facts', 'prefs', 'events', 'pending', 'notes', 'impressions', 'aliases'];
@@ -113,7 +117,7 @@ const PERSON_FIELDS = ['name', 'summary', 'tone', 'facts', 'prefs', 'events', 'p
 
 /** 个人卡：不存在就建（自动生成用），存在则合并字段 */
 export function upsertPerson(qq, patch = {}) {
-  const id = String(qq || '').trim();
+  const id = String(personCanonical(qq) || '').trim();
   if (!id) return { ok: false, error: 'missing_qq' };
   const cur = getPerson(id) || {
     qq: id,
@@ -185,7 +189,7 @@ export function updateGeneral(patch) {
 }
 
 export function deletePerson(qq) {
-  const file = path.join(PERSONS, safeKey(qq) + '.json');
+  const file = path.join(PERSONS, safeKey(personCanonical(qq)) + '.json');
   if (!fs.existsSync(file)) return { ok: false, error: 'not_found' };
   fs.renameSync(file, file + '.deleted-' + Date.now());
   return { ok: true };

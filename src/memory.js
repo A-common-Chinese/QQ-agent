@@ -461,6 +461,18 @@ export class MemoryStore {
    */
   formatForPrompt(chatKey, { userIds = null } = {}) {
     const notes = getConfig().memberNotes || {};
+    // 通道映射（私聊共享）：把两边印象按时间轴合并成一段临时文本，再整段塞进提示词
+    if (resolveKeys(chatKey).length > 1) {
+      const flat = [];
+      for (const m of this.members(chatKey)) {
+        const who = notes[String(m.userId)] || m.name || String(m.userId || '') || '某人';
+        for (const e of (m.impressions || [])) flat.push({ who, content: e.content, at: Number(e.createdAt) || 0 });
+      }
+      if (!flat.length) return '';
+      flat.sort((a, b) => a.at - b.at);
+      const picked = flat.slice(-12);
+      return ['【对群友的印象】', ...picked.map((x) => `- ${x.who}：${x.content}`)].join('\n');
+    }
     const all = this.members(chatKey);
     if (!all.length) return '';
     const filter = userIds ? new Set([...userIds].map(String)) : null;

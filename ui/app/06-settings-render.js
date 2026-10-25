@@ -2325,8 +2325,8 @@ function renderIdentityLinksSection(c) {
       <div class="h-title">已绑定（${links.length}）</div>
       ${links.map((l) => `
         <div class="snowluma-state-row" style="flex-wrap:wrap;gap:8px">
-          <span>${esc(l.note || '未命名')}</span>
-          <span class="muted">${esc(l.onebotKey)} ↔ ${esc(l.qqbotKey)}</span>
+          <span>${esc(l.note || '未命名')}${l.stale ? ' <span style="color:var(--orange)">⚠️ openid 已失效</span>' : ''}</span>
+          <span class="muted">${esc(l.onebotKey)} ↔ ${esc(l.qqbotKey)}</span>${l.stale ? '<span class="muted" style="font-size:11.5px">（换过机器人 AppID，openid 变了，请解绑后重新绑定）</span>' : ''}
           <select data-il-mode="${esc(l.id)}" data-il-mode-cur="${esc(l.mode)}" style="width:auto">
             <option value="merge"${l.mode === 'merge' ? ' selected' : ''}>读合并</option>
             <option value="mirror"${l.mode === 'mirror' ? ' selected' : ''}>只合并未来</option>

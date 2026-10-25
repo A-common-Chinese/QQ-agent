@@ -6,9 +6,23 @@ import { getConfig, updateConfig } from './config.js';
 
 const MODES = new Set(['merge', 'mirror']);
 
+function currentAppId() {
+  try {
+    const acc = (getConfig().transport?.qqbot?.accounts || [])[0] || {};
+    return String(acc.appId || '').trim();
+  } catch { return ''; }
+}
+
 export function listLinks() {
   const raw = getConfig().identityLinks;
-  return Array.isArray(raw) ? raw.filter((x) => x && x.onebotKey && x.qqbotKey) : [];
+  const appId = currentAppId();
+  return Array.isArray(raw)
+    ? raw.filter((x) => x && x.onebotKey && x.qqbotKey).map((x) => ({
+        ...x,
+        // 换过机器人（AppID）后 openid 会变 → 标记失效，提示重新绑定
+        stale: !!(x.qqbotAppId && appId && String(x.qqbotAppId) !== appId)
+      }))
+    : [];
 }
 
 export function listHistory() {
@@ -29,6 +43,16 @@ export function canonicalKey(chatKey) {
 }
 
 /** 读取时要查哪些物理 key */
+/** 私聊个人卡的共享主键：openid 侧映射到 QQ 号（官方 bot 与 OneBot 共用同一张个人卡） */
+export function personCanonical(qq) {
+  const id = String(qq || '').trim();
+  if (!id) return id;
+  const link = listLinks().find((l) => l.qqbotKey === 'private:' + id || l.onebotKey === 'private:' + id);
+  if (!link) return id;
+  const onebotId = String(link.onebotKey).split(':')[1] || '';
+  return /^\d+$/.test(onebotId) ? onebotId : id;
+}
+
 export function resolveKeys(chatKey) {
   const key = String(chatKey || '').trim();
   const link = flowFor(key);
@@ -106,7 +130,7 @@ export function addLink({ onebotKey, qqbotKey, note = '', mode = 'merge' }) {
   if (links.some((l) => l.onebotKey === a || l.qqbotKey === a || l.onebotKey === b || l.qqbotKey === b)) {
     return { ok: false, error: '其中一边已经绑定过了，请先解绑' };
   }
-  const link = { id: 'lk' + Date.now().toString(36), onebotKey: a, qqbotKey: b, note: String(note || '').slice(0, 40), mode: MODES.has(mode) ? mode : 'merge', linkedAt: Date.now() };
+  const link = { id: 'lk' + Date.now().toString(36), onebotKey: a, qqbotKey: b, note: String(note || '').slice(0, 40), mode: MODES.has(mode) ? mode : 'merge', linkedAt: Date.now(), qqbotAppId: currentAppId() };
   updateConfig({ identityLinks: { __replace__: [...links, link] } });
   // 软绑定：自动加入两侧白名单（解绑不删除）
   const whitelistAdded = softAddWhitelist(link);
