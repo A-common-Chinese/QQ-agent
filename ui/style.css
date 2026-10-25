@@ -2400,3 +2400,6 @@ body.skin-bg-on .view { background: transparent; }
 .consumption-tips .ct-row { display: flex; gap: 10px; padding: 2px 0; }
 .consumption-tips .ct-k { flex: 0 0 190px; color: var(--tx3); }
 .consumption-tips .ct-v { flex: 1; color: var(--tx2); }
+
+/* 二级菜单（记忆页）说明条：过长时省略，避免把子页签挤成竖排 */
+#subnav .subnav-note { max-width: 42%; overflow: hidden; text-overflow: ellipsis; }
