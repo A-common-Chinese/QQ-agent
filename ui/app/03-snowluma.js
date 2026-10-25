@@ -359,11 +359,11 @@ async function loadSnowlumaPage({ quiet = false } = {}) {
         const hint = box.querySelector('#sl-uninstall-hint');
         const setHint = (t, c) => { if (hint) { hint.textContent = t; hint.style.color = c || ''; } };
         const first = typeof uiConfirm === 'function'
-          ? await uiConfirm({ title: '卸载协议端', message: '会先停止协议端进程，然后删除它的整个目录（配置、账号数据一并删除，不可恢复）。继续？', okText: '继续' })
+          ? await uiConfirm('会先停止协议端进程，然后删除它的整个目录（配置、账号数据一并删除，不可恢复）。继续？', { title: '卸载协议端', okText: '继续' })
           : window.confirm('会停止并删除协议端目录（不可恢复），继续？');
         if (!first) return;
         const second = typeof uiConfirm === 'function'
-          ? await uiConfirm({ title: '再次确认', message: '确定删除？这一步不可撤销。', okText: '删除' })
+          ? await uiConfirm('确定删除？这一步不可撤销。', { title: '再次确认', okText: '删除' })
           : window.confirm('再次确认：真的要删除协议端目录？');
         if (!second) return;
         uninstallBtn.disabled = true;

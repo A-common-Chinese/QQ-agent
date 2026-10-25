@@ -520,6 +520,13 @@ function openModelConfigModal() {
     // Key：只在用户输入了非掩码明文时才回传（掩码/留空 = 保持）
     const raw = (overlay.querySelector('#mc-apikey').value || '').trim();
     if (raw && raw !== '******') patch.apiKey = raw;
+    // 模型/提供商变了 → 二次确认（缓存不共享，前几轮全价）
+    if ((patch.model && String(patch.model) !== String(c.api?.model || '')) ||
+        (patch.provider && String(patch.provider) !== String(c.api?.provider || ''))) {
+      const tip = (typeof consumptionTip === 'function') ? consumptionTip('switch-model') : '不同模型/渠道的缓存互不共享。';
+      const ok = await uiConfirm(tip + '\n\n切换后前几轮会按全价计算，确定继续？', { title: '切换模型', okText: '继续切换' });
+      if (!ok) return;
+    }
     try {
       await api('/api/config', { method: 'POST', body: JSON.stringify({ api: patch }) });
       closeModelModal(overlay);
@@ -569,6 +576,16 @@ function openModelPicker() {
       el.addEventListener('click', async () => {
         const pid = el.dataset.pid;
         const model = el.dataset.model;
+      // 切换模型：缓存按「模型 + 渠道」隔离，换即从 0 开始 → 二次确认
+      {
+        const curApi = (typeof state !== 'undefined' && state.config && state.config.api) || {};
+        const changed = String(curApi.model || '') !== String(model) || String(curApi.provider || '') !== String(pid);
+        if (changed) {
+          const tip = (typeof consumptionTip === 'function') ? consumptionTip('switch-model') : '不同模型/渠道的缓存互不共享。';
+          const ok = await uiConfirm(tip + '\n\n切换后前几轮会按全价计算，确定继续？', { title: '切换模型', okText: '继续切换' });
+          if (!ok) return;
+        }
+      }
         // 同步规则：图片/视频专用模型如果指向**其它提供商**的旧模型，
         // 主模型一换就再也对不上（识别请求会发到已弃用的端点）。
         // 这里随主模型一起切换：专用模型属于同一提供商 → 跟随主模型 id；

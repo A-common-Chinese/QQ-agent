@@ -2563,7 +2563,7 @@ async function loadModulePage(kind, { rescan = false } = {}) {
 
 function renderModuleSkeleton(meta) {
   return `<div class="usage-wrap">
-    <div class="usage-head"><h2>${esc(meta.title)}</h2></div>
+    <div class="usage-head"><h2>${esc(meta.title)} <button class="btn btn-small module-tips-btn" data-module-tips="1" title="切换技能/插件对缓存的影响" style="padding:0 7px;line-height:1.5">！</button></h2></div>
     <div class="sk-block">${'<div class="sk-row"></div>'.repeat(5)}</div>
   </div>`;
 }
@@ -2594,7 +2594,7 @@ function renderModulePage(kind) {
 
   if (!items.length) {
     const emptyHtml = `<div class="usage-wrap">
-      <div class="usage-head"><h2>${esc(meta.title)}</h2>
+      <div class="usage-head"><h2>${esc(meta.title)} <button class="btn btn-small module-tips-btn" data-module-tips="1" title="切换技能/插件对缓存的影响" style="padding:0 7px;line-height:1.5">！</button></h2>
         <button class="btn btn-small" id="${esc(meta.tab)}-add-btn" title="从市场口令安装，或查看自建指南">＋ 添加${meta.kind === 'skill' ? '技能' : '插件'}</button>
         <div class="usage-days">
           <button class="btn btn-small" id="${esc(meta.tab)}-refresh-btn">刷新</button>
@@ -2677,7 +2677,7 @@ function renderModulePage(kind) {
   const html = `<div class="usage-wrap">
     ${meta.kind === 'skill' ? '<div id="skill-placement-hint" class="hint" style="margin:0 0 8px"></div>' : ''}
       <div class="usage-head">
-        <h2>${esc(meta.title)}</h2>
+        <h2>${esc(meta.title)} <button class="btn btn-small module-tips-btn" data-module-tips="1" title="切换技能/插件对缓存的影响" style="padding:0 7px;line-height:1.5">！</button></h2>
         <button class="btn btn-small" id="${esc(meta.tab)}-add-btn" title="从市场口令安装，或查看自建指南">＋ 添加${meta.kind === 'skill' ? '技能' : '插件'}</button>
         <input type="search" class="module-search" id="module-search-${esc(meta.tab)}"
           placeholder="搜索${meta.kind === 'skill' ? '技能' : '插件'}名称 / 简介…" autocomplete="off" />
@@ -2738,6 +2738,19 @@ function bindModulePageEvents(kind) {
     else $('#plugin-market-btn')?.click();
   });
   // 残留配置清理（只在技能页渲染，按钮也只在这一页出现）
+  document.querySelectorAll('[data-module-tips]').forEach((btn) => {
+    if (btn.__tipsBound) return;
+    btn.__tipsBound = true;
+    btn.addEventListener('click', () => {
+    const tip = (typeof consumptionTip === 'function') ? consumptionTip('switch-skill') : '开关技能会改变提示词里的技能段，下一轮命中率下降一次。';
+    const overlay = modelModalShell({
+      head: '切换技能 / 插件的影响',
+      body: `<div class="hint" style="font-size:13px;line-height:1.8">${esc(tip)}<br><br>连续开关多个技能时，只有<b>下一次</b>会重新计算；之后又会命中缓存。</div>`,
+      foot: '<button class="btn btn-primary" id="module-tips-ok">知道了</button>'
+    });
+    overlay.querySelector('#module-tips-ok').addEventListener('click', () => closeModelModal(overlay));
+    });
+  });
   $('#skills-cleanup-btn')?.addEventListener('click', async () => {
     const btn = $('#skills-cleanup-btn');
     if (!btn || !state.uninstalledSkills?.length) return;
