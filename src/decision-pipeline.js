@@ -20,6 +20,20 @@ export function channelOfChatKey(chatKey) {
   return 'onebot';
 }
 const daily = new Map();       // `${chatKey}|${day}` -> count
+const skips = new Map();       // 跳过原因计数（诊断用）
+
+function skip(reason) {
+  skips.set(reason, (skips.get(reason) || 0) + 1);
+  return { ok: false, skipped: reason };
+}
+
+/** 纯媒体/表情消息（[图片] [表情] …）对文本语义没有意义，直接跳过 */
+function isMediaOnly(text) {
+  const t = String(text || '')
+    .replace(/\[(图片|表情|视频|语音|文件|动画表情|闪照|戳一戳|回复|卡片|链接|位置|红包|音乐|分享)\]/g, '')
+    .replace(/\s/g, '');
+  return t.length < 2;
+}
 
 function dayKey() {
   const d = new Date();
@@ -94,33 +108,35 @@ async function judgeWithModel(text, recent, cfg) {
  * 观察/决策入口（不阻塞消息处理；调用方 fire-and-forget）
  * P1：observeOnly=true 时只算分 + 记录，返回 { action:'observe' }。
  */
+function eff0(cfg) { return effectiveCfg('', cfg); }
+
 export async function runDecision({ chatKey, entry, messages = [], store = null }) {
   const cfg = getConfig();
   const d = cfg.decision || {};
   const eff = effectiveCfg(chatKey, cfg);
-  if (!d.enabled || eff.enabled === false) return { ok: false, skipped: 'disabled' };
+  if (!d.enabled || eff.enabled === false) return skip('disabled');
   // 只观察「当前设置通道」的会话：避免两个通道同时配置时重复记录/口径错乱
   const active = String(cfg.transport?.active || 'onebot');
-  if (active !== 'both' && channelOfChatKey(chatKey) !== active) {
-    return { ok: false, skipped: 'channel-mismatch' };
-  }
-  if (eff.mode === 'off') return { ok: false, skipped: 'perChat-off' };
-  if (String(chatKey).startsWith('private:')) return { ok: false, skipped: 'private' };
-  if (isSilentChat(chatKey)) return { ok: false, skipped: 'silent' };
-  if (!embeddingReady(cfg)) return { ok: false, skipped: 'embedding-not-ready' };
+  if (active !== 'both' && channelOfChatKey(chatKey) !== active) return skip('channel-mismatch');
+  if (eff.mode === 'off') return skip('perChat-off');
+  if (String(chatKey).startsWith('private:')) return skip('private');
+  if (isSilentChat(chatKey)) return skip('silent');
+  if (!embeddingReady(cfg)) return skip('embedding-not-ready');
 
   const budget = eff.budget || {};
   const now = Date.now();
   const cooldown = Math.max(0, Number(budget.cooldownSec) || 0) * 1000;
-  if (cooldown && now - (lastRunAt.get(chatKey) || 0) < cooldown) return { ok: false, skipped: 'cooldown' };
+  if (cooldown && now - (lastRunAt.get(chatKey) || 0) < cooldown) return skip('cooldown');
   const dk = chatKey + '|' + dayKey();
   const limit = Math.max(1, Number(budget.dailyLimitPerChat) || 200);
   const used = daily.get(dk) || 0;
-  if (used >= limit) return { ok: false, skipped: 'daily-limit' };
+  if (used >= limit) return skip('daily-limit');
   lastRunAt.set(chatKey, now);
   daily.set(dk, used + 1);
 
   const text = String(entry?.text || '').trim();
+  if (!text) return skip('empty');
+  if (isMediaOnly(text)) return skip('media-only');
   const t0 = Date.now();
   const log = { chatKey, text: text.slice(0, 200), observeOnly: eff.observeOnly !== false };
   try {
@@ -150,6 +166,44 @@ export async function runDecision({ chatKey, entry, messages = [], store = null 
   return addDecision(log);
 }
 
+
+/** 触发批记分（observeTriggered）：被 @/关键词/档位命中时也打一个分，仅用于对照观察 */
+export async function runDecisionTriggered({ chatKey, entry, messages = [], reason = '' }) {
+  const cfg = getConfig();
+  const d = cfg.decision || {};
+  if (!d.enabled || !d.observeTriggered) return { ok: false, skipped: 'triggered-off' };
+  const active = String(cfg.transport?.active || 'onebot');
+  if (active !== 'both' && channelOfChatKey(chatKey) !== active) return { ok: false, skipped: 'channel-mismatch' };
+  if (String(chatKey).startsWith('private:')) return { ok: false, skipped: 'private' };
+  if (isSilentChat(chatKey)) return { ok: false, skipped: 'silent' };
+  if (!embeddingReady(cfg)) return { ok: false, skipped: 'embedding-not-ready' };
+  const text = String(entry?.text || '').trim();
+  if (!text) return { ok: false, skipped: 'empty' };
+  if (isMediaOnly(text)) return { ok: false, skipped: 'media-only' };
+  const t0 = Date.now();
+  const log = { chatKey, text: text.slice(0, 200), observeOnly: true, triggered: true, tierReason: String(reason || '').slice(0, 60) };
+  try {
+    await ensureIndex(chatKey, buildCorpus(chatKey, messages, cfg), cfg);
+    const s = await scoreText(chatKey, text, cfg);
+    log.score = s.ok ? Number(s.score.toFixed(4)) : null;
+    log.top = (s.top || []).slice(0, 3).map((x) => ({ kind: x.kind, score: Number(x.score.toFixed(3)), text: String(x.text).slice(0, 60) }));
+    log.low = Number((eff0(cfg).thresholds || {}).low);
+    log.high = Number((eff0(cfg).thresholds || {}).high);
+    log.highHit = typeof log.score === 'number' && log.score >= Number(log.high || 1);
+    log.tookMs = Date.now() - t0;
+    log.skipped = s.ok ? '' : s.skipped;
+    log.action = 'triggered-batch';
+  } catch (e) {
+    log.error = String(e?.message ?? e);
+    log.action = 'error';
+  }
+  return addDecision(log);
+}
+
 export function decisionStatus(chatKey = '') {
-  return { index: chatKey ? indexStatus(chatKey) : null, cooldowns: [...lastRunAt.entries()].length };
+  return {
+    index: chatKey ? indexStatus(chatKey) : null,
+    cooldowns: [...lastRunAt.entries()].length,
+    skips: Object.fromEntries(skips)
+  };
 }

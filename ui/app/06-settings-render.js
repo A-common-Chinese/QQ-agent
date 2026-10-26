@@ -3544,6 +3544,8 @@ function renderDecisionSection(c) {
         <label for="dec-enabled">启用语义触发（总开关）</label></div>
       <div class="checkbox-row"><input type="checkbox" id="dec-observe" ${d.observeOnly !== false ? 'checked' : ''} />
         <label for="dec-observe">观察模式（只记分数，不改变行为）</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="dec-triggered" ${d.observeTriggered ? 'checked' : ''} />
+        <label for="dec-triggered">触发批也记分（被 @/关键词命中的消息打标记 action=triggered-batch，仅观察）</label></div>
 
       <h4 style="margin:14px 0 6px">向量服务（OpenAI 兼容 /v1/embeddings）</h4>
       <div class="field-row">
@@ -3609,6 +3611,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
         decision: {
           enabled: dc('dec-enabled'),
           observeOnly: dc('dec-observe'),
+          observeTriggered: dc('dec-triggered'),
           embedding: {
             baseUrl: String(dv('dec-emb-base') || '').trim(),
             model: String(dv('dec-emb-model') || '').trim(),

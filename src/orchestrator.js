@@ -22,7 +22,7 @@ import { skillManager } from './skills/manager.js';
 import { getToolAvailability } from './tool-registry.js';
 import { rescueUnsentReply } from './reply-rescue.js';
 import { asTransport } from './transport/index.js';
-import { runDecision } from './decision-pipeline.js';
+import { runDecision, runDecisionTriggered } from './decision-pipeline.js';
 import { upsertPerson, upsertGroup } from './memory-cards.js';
 import { readChunks, readSemanticCards, lastAutoCardsAt, markAutoCards } from './memory-layers.js';
 
@@ -225,6 +225,12 @@ export class Orchestrator {
         return;
       }
     }
+
+    // 触发批观察（observeTriggered）：只打分、不改变行为，用于建立"该接"的正样本分布
+    try {
+      runDecisionTriggered({ chatKey, entry, messages: this.store.recent(chatKey, { limit: 40 }), reason: tierResult.reason })
+        .catch(() => {});
+    } catch { /* 忽略 */ }
 
     // 触发：进入固定的"等待中"倒计时（不重置）。verified 标记让 wake 知道
     // 这一批是"逐条判定出过触发消息"的，批边界可以信任等待会话的起点。
