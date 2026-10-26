@@ -5,8 +5,8 @@
  * 流程：角色播放 → 播放到 1.9s 时角色缩小侧移、"QQ Agent" 字样淡入 → 3.0s 整体淡出 → 露出控制台
  *
  * 播放策略 config.ui.bootAnim：
- *   'once'  （默认）装完/**每个版本更新后**第一次启动播一次，之后秒进
- *             （localStorage 记的是"播过哪个版本"，不是布尔值——否则升级后永远不会再播）
+ *   'once'  （默认）**每天第一次启动** + **每次版本更新后第一次启动**播放，其余启动秒进
+ *             （localStorage 记 { ver, date }：版本变了或日期变了就播一次）
  *   'always' 每次启动都播（仍可点击/按键跳过）
  *   'off'    关闭
  *
@@ -28,7 +28,16 @@
   const clearTimers = () => { timers.forEach((t) => (typeof t === 'function' ? t() : clearTimeout(t))); timers = []; };
   const later = (fn, ms) => { timers.push(setTimeout(fn, ms)); };
 
+  let pendingMark = null;   // { ver, date }：真正开始播放后才写，避免加载失败也占掉当天机会
+
+  function todayKey() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
   function markPlayed() {
+    if (!pendingMark) return;
+    try { localStorage.setItem(DONE_KEY, JSON.stringify(pendingMark)); } catch { /* 忽略 */ }
   }
 
   function finish(instant) {
@@ -137,20 +146,35 @@
    * /api/version 是本地接口（毫秒级），拿不到时退回旧的"播过就不再播"行为。
    */
   async function shouldPlayOnce() {
-    let played = '';
-    try { played = localStorage.getItem(DONE_KEY) || ''; } catch { /* 忽略 */ }
+    let raw = '';
+    try { raw = localStorage.getItem(DONE_KEY) || ''; } catch { /* 忽略 */ }
+    // 兼容旧格式（以前直接存版本号字符串）
+    let playedVer = '', playedDate = '';
+    if (raw) {
+      try {
+        const o = JSON.parse(raw);
+        if (o && typeof o === 'object') {
+          playedVer = String(o.ver || '');
+          playedDate = String(o.date || '');
+        } else {
+          playedVer = raw;
+        }
+      } catch { playedVer = raw; }
+    }
     let ver = '';
     try {
       const r = await fetch('/api/version', { cache: 'no-store' });
       const j = await r.json();
       ver = String((j && j.version) || '').trim();
     } catch { /* 忽略 */ }
-    const info = { ver, played, at: Date.now() };
+    const today = todayKey();
+    pendingMark = { ver, date: today };
+    const info = { ver, playedVer, playedDate, today, at: Date.now() };
     try { window.__bootInfo = info; } catch { /* 忽略 */ }
-    if (!ver) { info.play = !played; return !played; }
-    if (played === ver) { info.play = false; return false; }
+    // 今天已经播过 → 不播（无论版本）
+    if (playedDate === today) { info.play = false; return false; }
+    // 版本变了 → 播；没有版本信息时按"今天没播过"处理
     info.play = true;
-    try { localStorage.setItem(DONE_KEY, ver); } catch { /* 忽略 */ }
     return true;
   }
 
