@@ -196,8 +196,9 @@ export class Orchestrator {
     if (!String(cfg.api.model || '').trim()) return;
     // 活跃期内的群：必响应，视作触发（与旧版"跳过判定"语义一致）
     const active = this.#activeState(chatKey);
+    let tierResult = null;
     if (!active) {
-      const tierResult = resolveContextTier({
+      tierResult = resolveContextTier({
         triggerEntries: entry ? [entry] : (this.store.peekUnread(chatKey, 1) || []),
         selfNickname: cfg.persona?.selfNickname || this.transport.selfNickname || '',
         botName: cfg.persona?.botName || '',
@@ -228,7 +229,7 @@ export class Orchestrator {
 
     // 触发批观察（observeTriggered）：只打分、不改变行为，用于建立"该接"的正样本分布
     try {
-      runDecisionTriggered({ chatKey, entry, messages: this.store.recent(chatKey, { limit: 40 }), reason: tierResult.reason })
+      runDecisionTriggered({ chatKey, entry, messages: this.store.recent(chatKey, { limit: 40 }), reason: (tierResult && tierResult.reason) || (active ? '活跃期必响应' : '') })
         .catch(() => {});
     } catch { /* 忽略 */ }
 
