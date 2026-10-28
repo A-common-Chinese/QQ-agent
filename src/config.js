@@ -83,7 +83,7 @@ export const DEFAULT_CONFIG = {
     },
     thresholds: { low: 0.25, high: 0.55, samplePercent: 100 },
     budget: { cooldownSec: 120, dailyLimitPerChat: 200, maxJudgePerChatPerDay: 300 },
-    judge: { enabled: false, providerId: '', model: '', timeoutMs: 1500, maxTokens: 64, temperature: 0 },
+    judge: { enabled: false, providerId: '', baseUrl: '', apiKey: '', model: '', timeoutMs: 2500, maxTokens: 64, temperature: 0 },
     perChat: {} // auto=通用+本会话 / all=全部 / model=只给通留给模型自己查
   },
   api: {

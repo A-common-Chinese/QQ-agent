@@ -23,6 +23,7 @@ export function channelOfChatKey(chatKey) {
 }
 const daily = new Map();       // `${chatKey}|${day}` -> count
 const skips = new Map();       // 跳过原因计数（诊断用）
+const judgeDaily = new Map();  // `${chatKey}|${day}` -> 判定次数（L2 上限）
 
 function skip(reason) {
   skips.set(reason, (skips.get(reason) || 0) + 1);
@@ -110,13 +111,26 @@ export function buildCorpus(chatKey, messages, cfg) {
 
 function pickJudgeEndpoint(cfg) {
   const j = cfg.decision?.judge || {};
-  let baseUrl = '';
-  let apiKey = '';
+  const emb = cfg.decision?.embedding || {};
+  let baseUrl = String(j.baseUrl || '').trim();
+  let apiKey = String(j.apiKey || '').trim();
   if (j.providerId) {
     const p = currentProviders().find((x) => x && x.id === j.providerId);
-    if (p) { baseUrl = p.baseURL || ''; apiKey = p.apiKey || ''; }
+    if (p) {
+      if (!baseUrl) baseUrl = String(p.baseURL || '');
+      if (!apiKey) apiKey = String(p.apiKey || '');
+    }
   }
-  return { model: String(j.model || '').trim(), baseUrl, apiKey, timeoutMs: Number(j.timeoutMs) || 1500, maxTokens: Number(j.maxTokens) || 64, temperature: Number(j.temperature) || 0 };
+  // 没配渠道/地址时复用 embedding 的凭证（同一家 OpenAI 兼容服务通常都支持 chat）
+  if (!baseUrl) { baseUrl = String(emb.baseUrl || ''); apiKey = String(emb.apiKey || ''); }
+  return {
+    model: String(j.model || '').trim(),
+    baseUrl,
+    apiKey,
+    timeoutMs: Math.max(1000, Number(j.timeoutMs) || 2500),
+    maxTokens: Math.max(8, Number(j.maxTokens) || 64),
+    temperature: Number(j.temperature) || 0
+  };
 }
 
 async function judgeWithModel(text, recent, cfg) {
@@ -124,6 +138,7 @@ async function judgeWithModel(text, recent, cfg) {
   if (!ep.model) return { ok: false, skipped: 'judge-no-model' };
   const sys = '你是"该不该接话"的判定器。只输出 JSON：{"respond":true|false,"confidence":0-100,"reason":"不超过20字"}';
   const user = ['群聊最近消息：', ...(recent || []).slice(-12).map((m) => `${m.senderName || '我'}：${String(m.text || '').slice(0, 120)}`), '', '待判定消息：', String(text || '').slice(0, 400)].join('\n');
+  const t0 = Date.now();
   const resp = await chatCompletion({
     messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
     temperature: ep.temperature,
@@ -131,7 +146,8 @@ async function judgeWithModel(text, recent, cfg) {
     ...(ep.baseUrl ? { overrides: { baseUrl: ep.baseUrl, apiKey: ep.apiKey, model: ep.model, timeoutMs: ep.timeoutMs } } : {})
   });
   const raw = String(resp?.message?.content ?? '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '');
-  try { return { ok: true, ...JSON.parse(raw) }; } catch { return { ok: false, skipped: 'judge-bad-json', raw: raw.slice(0, 120) }; }
+  try { return { ok: true, ...JSON.parse(raw), ms: Date.now() - t0, model: ep.model }; }
+  catch { return { ok: false, skipped: 'judge-bad-json', raw: raw.slice(0, 120), ms: Date.now() - t0, model: ep.model }; }
 }
 
 /**
@@ -192,11 +208,19 @@ export async function runDecision({ chatKey, entry, messages = [], store = null 
       const band = sc == null ? 'unknown' : sc >= high ? 'high' : sc >= low ? 'mid' : 'low';
       log.band = band;
       let decide = band === 'high';
-      // 中间带：有 L2 判定就交给它，否则保守跳过
+      // 中间带：有 L2 判定就交给它，否则保守跳过（带每日上限，防失控）
       if (band === 'mid' && eff.judge?.enabled) {
-        const j = await judgeWithModel(text, messages, cfg);
-        log.judge = j;
-        decide = !!(j.ok && j.respond === true);
+        const cap = Math.max(1, Number(eff.budget?.maxJudgePerChatPerDay ?? cfg.decision?.budget?.maxJudgePerChatPerDay ?? 300));
+        const jkey = chatKey + '|' + dayKey();
+        const jused = judgeDaily.get(jkey) || 0;
+        if (jused >= cap) {
+          log.judge = { ok: false, skipped: 'judge-daily-limit' };
+        } else {
+          judgeDaily.set(jkey, jused + 1);
+          const j = await judgeWithModel(text, messages, cfg);
+          log.judge = j;
+          decide = !!(j.ok && j.respond === true);
+        }
       }
       log.liveReply = cfg.decision?.liveReply === true;
       if (decide && log.liveReply) log.action = 'respond';
