@@ -77,7 +77,8 @@ export const DEFAULT_CONFIG = {
     embedding: {
       providerId: '', baseUrl: '', apiKey: '', model: '', dims: 0,
       autoDetectDims: false,     // 预留：自动探测维度（暂不实现）
-      corpus: { semanticCards: true, hourlySummaries: true, recentMessages: 200 },
+      // scope: 'group' = 群消息/卡片（旧口径）；'interest' = 人设/兴趣/技能（看"与我相关"）
+      corpus: { scope: 'group', semanticCards: true, hourlySummaries: true, recentMessages: 200 },
       batchSize: 32, timeoutMs: 8000
     },
     thresholds: { low: 0.25, high: 0.55, samplePercent: 100 },

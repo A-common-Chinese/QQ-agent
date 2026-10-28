@@ -2,7 +2,9 @@
 //   L0 规则（本文件只做资格判定）
 //   L1 向量相关度（embedding 检索）
 //   L2 本地/指定模型判定（judge.enabled 且非 observeOnly 时才真正调用）
-import { getConfig, isSilentChat } from './config.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { getConfig, isSilentChat, ROOT } from './config.js';
 import { chatCompletion } from './llm.js';
 import { currentProviders } from './providers.js';
 import { readChunks, readSemanticCards } from './memory-layers.js';
@@ -55,11 +57,39 @@ export function effectiveCfg(chatKey, cfg = getConfig()) {
   };
 }
 
-/** 组装索引语料：语义卡 + 小时摘要 + 最近消息 */
+/** 组装索引语料：scope=group（群内容）或 scope=interest（人设/兴趣/技能） */
 export function buildCorpus(chatKey, messages, cfg) {
   const items = [];
   const emb = (cfg.decision?.embedding) || {};
   const corpus = emb.corpus || {};
+
+  // ── interest 口径：只看"这句话和我（人设/能力）有多相关"，不看群消息 ──
+  if (corpus.scope === 'interest') {
+    const persona = cfg.persona || {};
+    if (persona.botName) items.push({ id: 'persona:name', kind: 'persona', text: '我是' + persona.botName });
+    if (persona.roleText) items.push({ id: 'persona:role', kind: 'persona', text: '我的角色：' + persona.roleText });
+    if (persona.customRules) items.push({ id: 'persona:rules', kind: 'persona', text: '我的规则：' + persona.customRules });
+    const big = typeof cfg.personaDefault === 'string' ? cfg.personaDefault : '';
+    for (let i = 0, n = 0; i < big.length; i += 800, n += 1) {
+      const chunk = big.slice(i, i + 800).trim();
+      if (chunk) items.push({ id: 'persona:chunk' + n, kind: 'persona', text: chunk });
+    }
+    // 技能能力描述（机器人"会聊什么"）
+    try {
+      const skillsDir = path.join(ROOT, 'skills');
+      for (const d of fs.readdirSync(skillsDir)) {
+        for (const f of ['SKILL.md', 'skill.json']) {
+          const fp = path.join(skillsDir, d, f);
+          if (fs.existsSync(fp)) {
+            const t = fs.readFileSync(fp, 'utf8').replace(/^---[\s\S]*?---/, '').slice(0, 600).trim();
+            if (t) items.push({ id: 'skill:' + d, kind: 'skill', text: '我的能力：' + t });
+            break;
+          }
+        }
+      }
+    } catch { /* 无 skills 目录 */ }
+    return items;
+  }
   if (corpus.semanticCards !== false) {
     for (const c of readSemanticCards(chatKey)) {
       if (c.title || c.detail) items.push({ id: 'card:' + c.key, kind: 'semantic-card', text: String(c.title || '') + ' ' + String(c.detail || '') });

@@ -47,7 +47,7 @@ export async function rebuildIndex(chatKey, items, cfg) {
   const { vectors, dims, model } = await embedTexts(clean.map((x) => x.text), { cfg });
   const flat = new Float32Array(vectors.length * dims);
   vectors.forEach((v, i) => flat.set(v.subarray(0, dims), i * dims));
-  writeAll(chatKey, { model, dims, items: clean.map((x) => ({ id: x.id, kind: x.kind, text: String(x.text).slice(0, 400), hash: hashText(x.text) })) }, flat);
+  writeAll(chatKey, { model, dims, scope: String(cfg.decision?.embedding?.corpus?.scope || 'group'), items: clean.map((x) => ({ id: x.id, kind: x.kind, text: String(x.text).slice(0, 400), hash: hashText(x.text) })) }, flat);
   return { count: clean.length, dims, model };
 }
 
@@ -56,8 +56,9 @@ export async function ensureIndex(chatKey, items, cfg) {
   if (!embeddingReady(cfg)) return { ok: false, skipped: 'embedding-not-ready' };
   const { model } = { model: String(cfg.decision?.embedding?.model || '') };
   const meta = readMeta(chatKey);
+  const scope = String(cfg.decision?.embedding?.corpus?.scope || 'group');
   const clean = (items || []).filter((x) => x && x.text);
-  if (!meta || meta.model !== model || !meta.dims) {
+  if (!meta || meta.model !== model || !meta.dims || meta.scope !== scope) {
     const r = await rebuildIndex(chatKey, clean, cfg);
     return { ok: true, rebuilt: true, ...r };
   }
@@ -69,7 +70,7 @@ export async function ensureIndex(chatKey, items, cfg) {
   const flat = new Float32Array(oldFlat.length + vectors.length * dims);
   flat.set(oldFlat, 0);
   vectors.forEach((v, i) => flat.set(v.subarray(0, dims), oldFlat.length + i * dims));
-  writeAll(chatKey, { model: meta.model, dims: meta.dims, items: [...(meta.items || []), ...add.map((x) => ({ id: x.id, kind: x.kind, text: String(x.text).slice(0, 400), hash: hashText(x.text) }))] }, flat);
+  writeAll(chatKey, { model: meta.model, dims: meta.dims, scope: meta.scope, items: [...(meta.items || []), ...add.map((x) => ({ id: x.id, kind: x.kind, text: String(x.text).slice(0, 400), hash: hashText(x.text) }))] }, flat);
   return { ok: true, rebuilt: false, added: add.length };
 }
 
