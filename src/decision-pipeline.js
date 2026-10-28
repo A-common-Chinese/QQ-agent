@@ -24,6 +24,7 @@ export function channelOfChatKey(chatKey) {
 const daily = new Map();       // `${chatKey}|${day}` -> count
 const skips = new Map();       // 跳过原因计数（诊断用）
 const judgeDaily = new Map();  // `${chatKey}|${day}` -> 判定次数（L2 上限）
+let lastEmbedError = null;     // { at, message } 最近一次 embedding 失败（余额/网络），用于退避
 
 function skip(reason) {
   skips.set(reason, (skips.get(reason) || 0) + 1);
@@ -136,8 +137,34 @@ function pickJudgeEndpoint(cfg) {
 async function judgeWithModel(text, recent, cfg) {
   const ep = pickJudgeEndpoint(cfg);
   if (!ep.model) return { ok: false, skipped: 'judge-no-model' };
-  const sys = '你是"该不该接话"的判定器。只输出 JSON：{"respond":true|false,"confidence":0-100,"reason":"不超过20字"}';
-  const user = ['群聊最近消息：', ...(recent || []).slice(-12).map((m) => `${m.senderName || '我'}：${String(m.text || '').slice(0, 120)}`), '', '待判定消息：', String(text || '').slice(0, 400)].join('\n');
+  const persona = cfg.persona || {};
+  const brief = [];
+  if (persona.botName) brief.push('我是' + persona.botName);
+  if (persona.roleText) brief.push(String(persona.roleText).slice(0, 300));
+  if (persona.customRules) brief.push(String(persona.customRules).slice(0, 200));
+  const sys = [
+    '你是 QQ 群聊里的一名群友，负责判断"这句话值不值得我接一句"。',
+    '判定标准（按重要度）：',
+    '1. 有人在叫我 / 提到我 / 问问题 / 求助 → 值得接（true）',
+    '2. 话题跟我的角色、能力、兴趣有关，我能自然接一句 → 值得接（true）',
+    '3. 群友在聊他们自己的私事、跟我无关、我只是插嘴会打断 → 不值得（false）',
+    '4. 普通群友闲聊（天气、吃饭、吐槽）也算可以接一句 → true，不要一律拒绝。',
+    '只输出 JSON：{"respond":true|false,"confidence":0-100,"reason":"不超过20字"}',
+    brief.length ? '我的设定：' + brief.join('；') : ''
+  ].filter(Boolean).join('\n');
+  const user = [
+    '群聊最近消息：',
+    ...(recent || []).slice(-12).map((m) => `${m.senderName || '我'}：${String(m.text || '').slice(0, 120)}`),
+    '',
+    '待判定消息：',
+    String(text || '').slice(0, 400),
+    '',
+    '示例：',
+    '· 「@我 今天吃什么」→ {"respond":true,"confidence":90,"reason":"在问我"}',
+    '· 「这模型写代码怎么样」→ {"respond":true,"confidence":75,"reason":"聊我的能力"}',
+    '· 「我今天跟我妈吵架了」→ {"respond":false,"confidence":80,"reason":"私事，别插嘴"}',
+    '请只输出 JSON。'
+  ].join('\n');
   const t0 = Date.now();
   const resp = await chatCompletion({
     messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
@@ -179,6 +206,9 @@ export async function runDecision({ chatKey, entry, messages = [], store = null 
   if (used >= limit) return skip('daily-limit');
   lastRunAt.set(chatKey, now);
   daily.set(dk, used + 1);
+
+  // embedding 连续失败（如余额不足）时退避 60 秒，避免每条消息都打一次失败请求
+  if (lastEmbedError && Date.now() - lastEmbedError.at < 60_000) return skip('embedding-backoff');
 
   const text = String(entry?.text || '').trim();
   if (!text) return skip('empty');
@@ -230,6 +260,7 @@ export async function runDecision({ chatKey, entry, messages = [], store = null 
   } catch (e) {
     log.error = String(e?.message ?? e);
     log.action = 'error';
+    if (/embedding|402|balance/i.test(log.error)) lastEmbedError = { at: Date.now(), message: log.error.slice(0, 200) };
   }
   return addDecision(log);
 }
@@ -264,6 +295,7 @@ export async function runDecisionTriggered({ chatKey, entry, messages = [], reas
   } catch (e) {
     log.error = String(e?.message ?? e);
     log.action = 'error';
+    if (/embedding|402|balance/i.test(log.error)) lastEmbedError = { at: Date.now(), message: log.error.slice(0, 200) };
   }
   return addDecision(log);
 }
@@ -272,6 +304,7 @@ export function decisionStatus(chatKey = '') {
   return {
     index: chatKey ? indexStatus(chatKey) : null,
     cooldowns: [...lastRunAt.entries()].length,
-    skips: Object.fromEntries(skips)
+    skips: Object.fromEntries(skips),
+    lastError: lastEmbedError
   };
 }
