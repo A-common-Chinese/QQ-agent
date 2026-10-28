@@ -3546,6 +3546,9 @@ function renderDecisionSection(c) {
         <label for="dec-observe">观察模式（只记分数，不改变行为）</label></div>
       <div class="checkbox-row"><input type="checkbox" id="dec-triggered" ${d.observeTriggered ? 'checked' : ''} />
         <label for="dec-triggered">触发批也记分（被 @/关键词命中的消息打标记 action=triggered-batch，仅观察）</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="dec-live" ${d.liveReply ? 'checked' : ''} />
+        <label for="dec-live">实时接话（预览版：分数达到高阈值时真的开跑会话；关闭则只记 would-respond）</label></div>
+      <div class="hint" style="font-size:12px">预览版按「每群覆盖」里的 mode 生效：mode=active 且 observeOnly=false 的群才会按阈值决定是否接话，其余群继续只观察。</div>
 
       <h4 style="margin:14px 0 6px">向量服务（OpenAI 兼容 /v1/embeddings）</h4>
       <div class="field-row">
@@ -3612,6 +3615,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
           enabled: dc('dec-enabled'),
           observeOnly: dc('dec-observe'),
           observeTriggered: dc('dec-triggered'),
+          liveReply: dc('dec-live'),
           embedding: {
             baseUrl: String(dv('dec-emb-base') || '').trim(),
             model: String(dv('dec-emb-model') || '').trim(),

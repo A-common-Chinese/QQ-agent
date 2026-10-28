@@ -73,6 +73,7 @@ export const DEFAULT_CONFIG = {
     enabled: false,              // 总开关（新装默认关）
     observeOnly: true,           // 只记录分数，不改变是否接话
     observeTriggered: false,     // 连「被 @/关键词命中」的触发批也记分（标 action=triggered-batch，仅观察）
+    liveReply: false,            // 预览版：主动接话开关（true 才会真的因分数开跑会话；false 只记 would-respond/would-skip）
     embedding: {
       providerId: '', baseUrl: '', apiKey: '', model: '', dims: 0,
       autoDetectDims: false,     // 预留：自动探测维度（暂不实现）

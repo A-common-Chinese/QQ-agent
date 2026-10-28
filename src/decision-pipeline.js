@@ -151,13 +151,27 @@ export async function runDecision({ chatKey, entry, messages = [], store = null 
     log.tookMs = Date.now() - t0;
     log.skipped = s.ok ? '' : s.skipped;
 
-    // P2 才会用分数改决策；P1 只在 observeOnly=false 且阈值命中时才可能进 L2
-    if (!eff.observeOnly && log.highHit && eff.judge?.enabled) {
-      const j = await judgeWithModel(text, messages, cfg);
-      log.judge = j;
-      log.action = j.ok && j.respond ? 'respond' : 'skip';
+    // 观察模式：只记分数
+    if (eff.observeOnly !== false) {
+      log.action = 'observe';
     } else {
-      log.action = eff.observeOnly ? 'observe' : (log.highHit ? 'would-respond' : 'would-skip');
+      // 预览版（P2）：按分群阈值给出决策
+      const low = Number(eff.thresholds?.low ?? 0.25);
+      const high = Number(eff.thresholds?.high ?? 0.55);
+      const sc = typeof log.score === 'number' ? log.score : null;
+      const band = sc == null ? 'unknown' : sc >= high ? 'high' : sc >= low ? 'mid' : 'low';
+      log.band = band;
+      let decide = band === 'high';
+      // 中间带：有 L2 判定就交给它，否则保守跳过
+      if (band === 'mid' && eff.judge?.enabled) {
+        const j = await judgeWithModel(text, messages, cfg);
+        log.judge = j;
+        decide = !!(j.ok && j.respond === true);
+      }
+      log.liveReply = cfg.decision?.liveReply === true;
+      if (decide && log.liveReply) log.action = 'respond';
+      else log.action = decide ? 'would-respond' : 'would-skip';
+      log.reason = band === 'high' ? '分数高于高阈值' : band === 'mid' ? '中间带' : band === 'low' ? '分数低于低阈值' : '无分数';
     }
   } catch (e) {
     log.error = String(e?.message ?? e);

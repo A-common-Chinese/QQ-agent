@@ -210,6 +210,32 @@ export class Orchestrator {
         roll: null
       });
       if (!tierResult.shouldRespond) {
+        const dcfg = getConfig().decision || {};
+        const chatD = (dcfg.perChat && dcfg.perChat[chatKey]) || {};
+        const liveMode = dcfg.enabled === true && dcfg.liveReply === true
+          && chatD.mode === 'active' && chatD.observeOnly === false;
+        if (liveMode) {
+          // 预览版（P2）：先跑判定，决定「真的开跑会话」还是「照旧标已读」
+          const self = this;
+          const markRead = () => {
+            if (entry) self.store.markEntryRead(chatKey, entry.id);
+            else self.store.markAllRead(chatKey);
+            self.emit('chat-update', chatKey);
+          };
+          Promise.resolve()
+            .then(() => runDecision({ chatKey, entry, messages: this.store.recent(chatKey, { limit: 40 }), store: this.store }))
+            .then((d) => {
+              if (d && d.action === 'respond') {
+                // 当成一次正常触发，走完整会话流程
+                self.scheduleWake(chatKey, null, { verified: true });
+                self.emit('chat-update', chatKey);
+              } else {
+                markRead();
+              }
+            })
+            .catch(() => markRead());
+          return;
+        }
         // 语义触发（P1 观察模式）：只算分 + 记日志，不改变是否接话；绝不阻塞主流程
         try {
           runDecision({ chatKey, entry, messages: this.store.recent(chatKey, { limit: 40 }), store: this.store })
