@@ -2189,19 +2189,24 @@ return `
       </div>`
     })}
 
-    <div class="field" style="margin-top:14px">
-      <label>静默会话（只存档 / 只转发，不回复、不消耗 token）</label>
+    ${fold({
+      id: 'card-silent',
+      icon: '🔇',
+      title: '静默会话',
+      sub: '只存档 / 只转发，不回复、不消耗 token',
+      body: `
       ${renderTagInput('silent', c.store?.silentChats || [])}
       ${renderSilentAtBlock(c)}
       <div class="hint">
         命中的会话<b>永不调用模型</b>：消息照常进存档（历史与记忆素材不丢），链接转发、
         <code>/dsh</code> 命令等确定性功能照常生效，但不会产生任何回复、也不烧 token。
         多个用逗号或空格分隔；写裸号按<b>群</b>算。
-      </div>
-    </div>
+      </div>`
+    })}
     <div class="field" style="margin-top:14px">
       <button class="btn" id="blocklist-btn" style="height:44px;padding:0 28px;font-size:14px">管理屏蔽名单</button>
-    </div>\n    ${renderDecisionSection(c)}`;
+    </div>
+    ${renderDecisionSection(c, fold)}`;
 }
 
 function renderDesktopSection(c) {
@@ -3525,7 +3530,8 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
 }
 
 /** 语义触发（P1）：触发与插话 */
-function renderDecisionSection(c) {
+function renderDecisionSection(c, fold) {
+  fold = fold || ((o) => `<div class="setcard">${o.body}</div>`);
   const d = c.decision || {};
   const e = d.embedding || {};
   const th = d.thresholds || {};
@@ -3533,13 +3539,12 @@ function renderDecisionSection(c) {
   const j = d.judge || {};
   const corpus = e.corpus || {};
   const input = (id, val, ph = '') => `<input type="text" id="${id}" value="${esc(val == null ? '' : String(val))}" placeholder="${esc(ph)}" />`;
-  return `
-  <div class="setcard" style="margin-top:18px">
-    <div class="setcard-head"><div class="setcard-icon">🧠</div><div>
-      <div class="setcard-title">触发与插话（语义向量）</div>
-      <div class="setcard-sub">P1 观察模式：只记录相关度分数，不改变是否接话</div>
-    </div></div>
-    <div class="setcard-body">
+  return fold({
+    id: 'card-decision',
+    icon: '🧠',
+    title: '触发与插话（语义向量）',
+    sub: '观察 / 预览（dry-run）',
+    body: `
       <div class="checkbox-row"><input type="checkbox" id="dec-enabled" ${d.enabled ? 'checked' : ''} />
         <label for="dec-enabled">启用语义触发（总开关）</label></div>
       <div class="checkbox-row"><input type="checkbox" id="dec-observe" ${d.observeOnly !== false ? 'checked' : ''} />
@@ -3591,10 +3596,8 @@ function renderDecisionSection(c) {
         <button class="btn btn-small" id="dec-logs">查看最近判定</button>
         <button class="btn btn-small" id="dec-panel">判定数据面板</button>
         <span class="muted" id="dec-hint" style="font-size:12px"></span>
-      </div>
-      <pre id="dec-log-view" class="snowluma-logs-view" style="margin-top:8px;max-height:220px;display:none"></pre>
-    </div>
-  </div>`;
+    `
+  });
 }
 
 // 语义触发设置：保存 / 查看判定日志（事件委托）
