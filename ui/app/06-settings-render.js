@@ -3580,13 +3580,21 @@ function renderDecisionSection(c, fold) {
         <div class="field"><label>每群每日上限</label><input type="number" id="dec-daily" value="${Number(bg.dailyLimitPerChat) || 200}" /></div>
       </div>
 
-      <h4 style="margin:14px 0 6px">本地/指定模型判定（L2，P1 默认关）</h4>
+      <h4 style="margin:14px 0 6px">L2 判定（多通道兜底，按顺序尝试）</h4>
       <div class="checkbox-row"><input type="checkbox" id="dec-judge-on" ${j.enabled ? 'checked' : ''} /><label for="dec-judge-on">启用模型判定</label></div>
       <div class="field-row">
-        <div class="field"><label>渠道 ID（模型目录）</label>${input('dec-judge-provider', j.providerId)}</div>
-        <div class="field"><label>模型</label>${input('dec-judge-model', j.model)}</div>
+        <div class="field"><label>批窗口（毫秒）</label><input type="number" id="dec-judge-window" value="${Number(j.batchWindowMs) || 4000}" /></div>
+        <div class="field"><label>每批最多条数</label><input type="number" id="dec-judge-maxbatch" value="${Number(j.maxBatch) || 8}" /></div>
       </div>
-
+      <div class="field-row">
+        <div class="field"><label>判定采样（%）</label><input type="number" id="dec-judge-sample" min="1" max="100" value="${Number(j.samplePercent) || 100}" /></div>
+        <div class="field"><label>去重缓存（秒，0=关）</label><input type="number" id="dec-judge-dedupe" value="${Math.round((Number(j.dedupeMs) || 0) / 1000)}" /></div>
+      </div>
+      <div id="dec-chain-rows">${decChainRowsHtml(j.chain)}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+        <button class="btn btn-small" data-dec-chain="add">+ 添加通道</button>
+        <span class="muted" style="font-size:12px">顺序即兜底顺序：失败/超时/429/JSON 解析失败会切到下一个</span>
+      </div>
       <h4 style="margin:14px 0 6px">每群覆盖（JSON）</h4>
       <div class="hint">示例：{"group:123456":{"mode":"off"}}；mode 可为 off / observe / active；可加 thresholds/budget。</div>
       <textarea id="dec-perchat" style="min-height:70px" placeholder='{"group:123456":{"mode":"off"}}'>${esc(JSON.stringify(d.perChat || {}, null, 0))}</textarea>
@@ -3606,6 +3614,20 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
   const dv = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
   const dc = (id) => { const el = document.getElementById(id); return !!(el && el.checked); };
   document.addEventListener('click', async (e) => {
+    const chainBtn = e.target && e.target.closest && e.target.closest('[data-dec-chain]');
+    if (chainBtn) {
+      const act = chainBtn.dataset.decChain;
+      const now = readDecChainRows();
+      if (act === 'add') now.push({ id: 'j' + now.length, label: '新通道', model: '', baseUrl: '', timeoutMs: 2500 });
+      if (act === 'del') now.splice(Number(chainBtn.dataset.idx), 1);
+      if (act === 'up' || act === 'down') {
+        const i = Number(chainBtn.dataset.idx);
+        const j = act === 'up' ? i - 1 : i + 1;
+        if (j >= 0 && j < now.length) { const t = now[i]; now[i] = now[j]; now[j] = t; }
+      }
+      writeDecChainRows(now);
+      return;
+    }
     const save = e.target && e.target.closest && e.target.closest('#dec-save');
     if (save) {
       const hint = document.getElementById('dec-hint');
@@ -3642,9 +3664,12 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
           },
           judge: {
             enabled: dc('dec-judge-on'),
-            providerId: String(dv('dec-judge-provider') || '').trim(),
-            model: String(dv('dec-judge-model') || '').trim(),
-            timeoutMs: 1500, maxTokens: 64, temperature: 0
+            batchWindowMs: Number(dv('dec-judge-window')) || 4000,
+            maxBatch: Number(dv('dec-judge-maxbatch')) || 8,
+            samplePercent: Number(dv('dec-judge-sample')) || 100,
+            dedupeMs: (Number(dv('dec-judge-dedupe')) || 0) * 1000,
+            timeoutMs: 2500, maxTokens: 64, temperature: 0,
+            chain: readDecChainRows()
           },
           perChat
         }
@@ -3782,4 +3807,43 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
     if (!b) return;
     openDecisionPanel();
   });
+}
+
+// ── L2 判定通道链编辑（模板 + 读写）──────────────────────────────
+function decChainRowsHtml(chain) {
+  const list = Array.isArray(chain) ? chain : [];
+  if (!list.length) return '<div class="hint">还没有判定通道。至少加一个（例如本地 Ollama 或 SiliconFlow 的 Qwen2.5-14B）。</div>';
+  return list.map((x, i) => `
+    <div class="dec-chain-row" data-idx="${i}" style="border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0">
+      <div class="field-row">
+        <div class="field"><label>名称</label><input type="text" data-chain="label" value="${esc(x.label || '')}" /></div>
+        <div class="field"><label>模型</label><input type="text" data-chain="model" value="${esc(x.model || '')}" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Base URL（留空=用 embedding 的）</label><input type="text" data-chain="baseUrl" value="${esc(x.baseUrl || '')}" /></div>
+        <div class="field"><label>超时 ms</label><input type="number" data-chain="timeoutMs" value="${Number(x.timeoutMs) || 2500}" /></div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn btn-small" data-dec-chain="up" data-idx="${i}">↑</button>
+        <button class="btn btn-small" data-dec-chain="down" data-idx="${i}">↓</button>
+        <button class="btn btn-small btn-danger" data-dec-chain="del" data-idx="${i}">删除</button>
+        <span class="muted" style="font-size:11px">API Key 留空=沿用 embedding 的 Key</span>
+      </div>
+    </div>`).join('');
+}
+
+function readDecChainRows() {
+  const box = document.getElementById('dec-chain-rows');
+  if (!box) return [];
+  const out = [];
+  box.querySelectorAll('.dec-chain-row').forEach((row) => {
+    const get = (k) => { const el = row.querySelector('[data-chain="' + k + '"]'); return el ? el.value : ''; };
+    out.push({ id: 'j' + out.length, label: get('label').trim(), model: get('model').trim(), baseUrl: get('baseUrl').trim(), timeoutMs: Number(get('timeoutMs')) || 2500 });
+  });
+  return out;
+}
+
+function writeDecChainRows(chain) {
+  const box = document.getElementById('dec-chain-rows');
+  if (box) box.innerHTML = decChainRowsHtml(chain);
 }

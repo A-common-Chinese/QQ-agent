@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getConfig, isSilentChat, ROOT } from './config.js';
 import { chatCompletion } from './llm.js';
+import { judgeQueued, judgeStats, resolveJudgeChain } from './decision-judge.js';
 import { currentProviders } from './providers.js';
 import { readChunks, readSemanticCards } from './memory-layers.js';
 import { ensureIndex, scoreText, indexStatus } from './vector-store.js';
@@ -110,73 +111,6 @@ export function buildCorpus(chatKey, messages, cfg) {
   return items;
 }
 
-function pickJudgeEndpoint(cfg) {
-  const j = cfg.decision?.judge || {};
-  const emb = cfg.decision?.embedding || {};
-  let baseUrl = String(j.baseUrl || '').trim();
-  let apiKey = String(j.apiKey || '').trim();
-  if (j.providerId) {
-    const p = currentProviders().find((x) => x && x.id === j.providerId);
-    if (p) {
-      if (!baseUrl) baseUrl = String(p.baseURL || '');
-      if (!apiKey) apiKey = String(p.apiKey || '');
-    }
-  }
-  // 没配渠道/地址时复用 embedding 的凭证（同一家 OpenAI 兼容服务通常都支持 chat）
-  if (!baseUrl) { baseUrl = String(emb.baseUrl || ''); apiKey = String(emb.apiKey || ''); }
-  return {
-    model: String(j.model || '').trim(),
-    baseUrl,
-    apiKey,
-    timeoutMs: Math.max(1000, Number(j.timeoutMs) || 2500),
-    maxTokens: Math.max(8, Number(j.maxTokens) || 64),
-    temperature: Number(j.temperature) || 0
-  };
-}
-
-async function judgeWithModel(text, recent, cfg) {
-  const ep = pickJudgeEndpoint(cfg);
-  if (!ep.model) return { ok: false, skipped: 'judge-no-model' };
-  const persona = cfg.persona || {};
-  const brief = [];
-  if (persona.botName) brief.push('我是' + persona.botName);
-  if (persona.roleText) brief.push(String(persona.roleText).slice(0, 300));
-  if (persona.customRules) brief.push(String(persona.customRules).slice(0, 200));
-  const sys = [
-    '你是 QQ 群聊里的一名群友，负责判断"这句话值不值得我接一句"。',
-    '判定标准（按重要度）：',
-    '1. 有人在叫我 / 提到我 / 问问题 / 求助 → 值得接（true）',
-    '2. 话题跟我的角色、能力、兴趣有关，我能自然接一句 → 值得接（true）',
-    '3. 群友在聊他们自己的私事、跟我无关、我只是插嘴会打断 → 不值得（false）',
-    '4. 普通群友闲聊（天气、吃饭、吐槽）也算可以接一句 → true，不要一律拒绝。',
-    '只输出 JSON：{"respond":true|false,"confidence":0-100,"reason":"不超过20字"}',
-    brief.length ? '我的设定：' + brief.join('；') : ''
-  ].filter(Boolean).join('\n');
-  const user = [
-    '群聊最近消息：',
-    ...(recent || []).slice(-12).map((m) => `${m.senderName || '我'}：${String(m.text || '').slice(0, 120)}`),
-    '',
-    '待判定消息：',
-    String(text || '').slice(0, 400),
-    '',
-    '示例：',
-    '· 「@我 今天吃什么」→ {"respond":true,"confidence":90,"reason":"在问我"}',
-    '· 「这模型写代码怎么样」→ {"respond":true,"confidence":75,"reason":"聊我的能力"}',
-    '· 「我今天跟我妈吵架了」→ {"respond":false,"confidence":80,"reason":"私事，别插嘴"}',
-    '请只输出 JSON。'
-  ].join('\n');
-  const t0 = Date.now();
-  const resp = await chatCompletion({
-    messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
-    temperature: ep.temperature,
-    maxTokens: ep.maxTokens,
-    ...(ep.baseUrl ? { overrides: { baseUrl: ep.baseUrl, apiKey: ep.apiKey, model: ep.model, timeoutMs: ep.timeoutMs } } : {})
-  });
-  const raw = String(resp?.message?.content ?? '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '');
-  try { return { ok: true, ...JSON.parse(raw), ms: Date.now() - t0, model: ep.model }; }
-  catch { return { ok: false, skipped: 'judge-bad-json', raw: raw.slice(0, 120), ms: Date.now() - t0, model: ep.model }; }
-}
-
 /**
  * 观察/决策入口（不阻塞消息处理；调用方 fire-and-forget）
  * P1：observeOnly=true 时只算分 + 记录，返回 { action:'observe' }。
@@ -247,7 +181,7 @@ export async function runDecision({ chatKey, entry, messages = [], store = null 
           log.judge = { ok: false, skipped: 'judge-daily-limit' };
         } else {
           judgeDaily.set(jkey, jused + 1);
-          const j = await judgeWithModel(text, messages, cfg);
+          const j = await judgeQueued({ text, recent: messages, cfg, chatKey });
           log.judge = j;
           decide = !!(j.ok && j.respond === true);
         }
@@ -305,6 +239,7 @@ export function decisionStatus(chatKey = '') {
     index: chatKey ? indexStatus(chatKey) : null,
     cooldowns: [...lastRunAt.entries()].length,
     skips: Object.fromEntries(skips),
+    judge: judgeStats(),
     lastError: lastEmbedError
   };
 }
