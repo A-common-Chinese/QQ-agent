@@ -107,10 +107,14 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
     for (const p of persons) {
       // 印象按 impressionScope 取：auto=通用+本会话 / all=通用+所有 / model=只给通用
       const imp = p.impressions || {};
-      const chatNotes = imp.byChat?.[chatKey] || [];
-      const allNotes = Object.values(imp.byChat || {}).flat();
+      // 个人卡只有「通用印象」和「私聊印象」：群里只用通用，私聊再加当前会话的私聊印象
+      const isPrivate = String(chatKey).startsWith('private:');
+      const privateNotes = Object.entries(imp.byChat || {})
+        .filter(([k]) => k.startsWith('private:'))
+        .flatMap(([, v]) => (Array.isArray(v) ? v : []));
+      const chatNotes = isPrivate ? (imp.byChat?.[chatKey] || []) : [];
       let notes = [];
-      if (scope === 'all') notes = allNotes;
+      if (scope === 'all') notes = [...(isPrivate ? [] : []), ...privateNotes];
       else if (scope === 'model') notes = [];
       else notes = chatNotes.length ? chatNotes : [];
       const one = notes[0] || imp.general || p.summary || '';

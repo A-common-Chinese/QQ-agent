@@ -49,9 +49,47 @@ export function listCards() {
   return { general, groups, persons };
 }
 
+const TERMS = new Set(['short', 'long', 'permanent']);
+
+/** 个人卡归一化：impressions 只保留通用+私聊（群聊并入通用）；约定补 at/term */
+export function normalizePersonCard(card) {
+  if (!card || typeof card !== 'object') return card;
+  const out = { ...card };
+  // 印象
+  let imp = out.impressions;
+  if (Array.isArray(imp)) imp = { general: imp.join('\n'), byChat: {} };
+  if (!imp || typeof imp !== 'object') imp = { general: '', byChat: {} };
+  const byChat = { ...(imp.byChat || {}) };
+  const merged = [];
+  const pushGeneral = (v) => {
+    const parts = Array.isArray(v) ? v : String(v || '').split(/\n/);
+    for (const x of parts) { const t = String(x || '').trim(); if (t && !merged.includes(t)) merged.push(t); }
+  };
+  pushGeneral(imp.general);
+  for (const k of Object.keys(byChat)) {
+    if (k.startsWith('private:')) continue;
+    pushGeneral(byChat[k]);
+    delete byChat[k];       // 群聊印象不再保留
+  }
+  out.impressions = { general: merged.join('\n'), byChat };
+  // 约定
+  const at = Date.parse(out.updatedAt || '') || Date.now();
+  out.pending = (Array.isArray(out.pending) ? out.pending : []).map((x) => {
+    if (typeof x === 'string') return { text: x, at, term: 'long' };
+    const term = String(x?.term || '').toLowerCase();
+    return {
+      ...x,
+      text: String(x?.text || ''),
+      at: Number(x?.at) || at,
+      term: TERMS.has(term) ? term : 'long'
+    };
+  }).filter((x) => x.text);
+  return out;
+}
+
 export function getPerson(qq) {
   const key = personCanonical(qq);
-  return read(path.join(PERSONS, safeKey(key) + '.json'));
+  return normalizePersonCard(read(path.join(PERSONS, safeKey(key) + '.json')));
 }
 export function getGroup(chatKey) {
   // 通道映射：把关联会话的群卡合并成一张虚拟卡（merge/mirror 都走这里）

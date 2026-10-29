@@ -591,7 +591,12 @@ function renderSearchSection(c) {
     const facts = (d.facts || []).map((f) => memFactLine(f)).join('\n');
     const notes = (d.notes || []).join('\n');
     const prefs = (d.prefs || []).map((x) => esc(x.what || x.text || JSON.stringify(x))).join('\n');
-    const pending = (d.pending || []).map((x) => esc(x.text || JSON.stringify(x))).join('\n');
+    const TERM_LABEL = { short: '短期', long: '长期', permanent: '永久' };
+    const pending = (d.pending || []).map((x) => {
+      if (typeof x === 'string') return esc(x);
+      const date = x.at ? new Date(Number(x.at)).toLocaleDateString('zh-CN') : '';
+      return esc(String(x.text || '')) + ' | ' + (TERM_LABEL[x.term] || '长期') + (date ? ' | ' + date : '');
+    }).join('\n');
     const members = (d.members || []).map((m) => esc(m.name || m.id) + ' · ' + (m.msgs || 0) + ' 条').join('、');
     const groupsOf = (d.groups || []).map((g) => esc(g.chatKey) + ' · ' + (g.msgs || 0) + ' 条').join('\n');
     return `
@@ -603,7 +608,7 @@ ${st.tab === 'persons' ? memImpressionsHtml(d) : ''}
       <div class="field"><label>事实（一行一条，key=value）</label><textarea id="memv-facts" class="persona-role-text" style="min-height:110px">${facts}</textarea></div>
 ${st.tab === 'general' ? memScopeHtml(d) : ''}
       ${st.tab === 'persons' ? '<div class="field"><label>偏好（一行一条）</label><textarea id="memv-prefs" class="persona-role-text" style="min-height:80px">' + prefs + '</textarea></div>' : ''}
-      ${st.tab === 'persons' ? '<div class="field"><label>待办/约定（一行一条）</label><textarea id="memv-pending" class="persona-role-text" style="min-height:70px">' + pending + '</textarea></div>' : ''}
+      ${st.tab === 'persons' ? '<div class="field"><label>待办/约定（一行一条：内容 | 长期/短期/永久 | 日期）</label><textarea id="memv-pending" class="persona-role-text" style="min-height:70px">' + pending + '</textarea><div class="hint">期限由模型判断，也可以手动改；日期格式 YYYY-MM-DD，留空=今天</div></div>' : ''}
       ${st.tab === 'general' ? '' : (st.tab === 'groups' ? '<div class="field"><label>成员（点名字跳到个人卡）</label><div style="font-size:13px;line-height:1.9">' + ((d.members || []).map((m) => '<a class="mem-link" href="#" data-mem="sel" data-json=\'' + esc(JSON.stringify({ tab: 'persons', qq: m.id })) + '\'>' + esc(m.name || m.id) + '</a> · ' + (m.msgs || 0) + ' 条').join('　') || '<span class="muted">（空）</span>') + '</div></div>' : '<div class="field"><label>所在群聊/私聊（点名字跳到会话卡）</label><div style="font-size:13px;line-height:1.9">' + ((d.groups || []).map((g) => '<a class="mem-link" href="#" data-mem="sel" data-json=\'' + esc(JSON.stringify({ tab: 'groups', chatKey: g.chatKey })) + '\'>' + esc((g.kind === 'private' ? '私聊 ' : '群 ') + (g.name || g.chatKey)) + '</a> · ' + (g.msgs || 0) + ' 条').join('　') || '<span class="muted">（空）</span>') + '</div></div>')}
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
         <button class="btn btn-small btn-primary" data-mem="save" data-key="${esc(key)}">保存</button>
@@ -611,26 +616,24 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
         <span class="hint" id="memv-hint"></span>
       </div>`;
   }
-  // 个人卡三层印象（通用 / 群聊 / 私聊）
+  // 个人卡两层印象（通用 / 私聊）——群聊印象已取消，历史群聊印象在读取时并入通用
   function memImpressionsHtml(d) {
     const imp = d.impressions || {};
     const byChat = imp.byChat || {};
-    const block = (entries, kind) => entries.map(([k, list]) =>
-      '<div class="field" style="margin-top:6px"><label style="font-size:12px">' + (kind === 'group' ? '群聊：' : '私聊：') + esc(k) + '</label>' +
+    const ps = Object.entries(byChat).filter(([k]) => String(k).startsWith('private:'));
+    const block = ps.map(([k, list]) =>
+      '<div class="field" style="margin-top:6px"><label style="font-size:12px">私聊：' + esc(k) + '</label>' +
       '<textarea class="memv-imp" data-chat="' + esc(k) + '" style="min-height:64px">' + esc((list || []).join(String.fromCharCode(10))) + '</textarea></div>'
     ).join('') || '<div class="muted" style="font-size:12px">（无）</div>';
-    const gs = Object.entries(byChat).filter(([k]) => String(k).startsWith('group:'));
-    const ps = Object.entries(byChat).filter(([k]) => String(k).startsWith('private:'));
     return '<div class="field"><label>通用印象（跨群）</label><textarea id="memv-imp-general" style="min-height:64px">' + esc(imp.general || '') + '</textarea></div>' +
-      '<div class="field"><label>群聊印象</label>' + block(gs, 'group') + '</div>' +
-      '<div class="field"><label>私聊印象</label>' + block(ps, 'private') + '</div>';
+      '<div class="field"><label>私聊印象</label>' + block + '</div>';
   }
   // 印象调用方式选择（基本事实 tab）
   function memScopeHtml(d) {
     const cur = d.impressionScope || 'auto';
     return '<div class="field"><label>个人印象的调用方式</label><select id="memv-scope">' +
-      '<option value="auto"' + (cur === 'auto' ? ' selected' : '') + '>自动（通用印象 + 当前会话的印象）</option>' +
-      '<option value="all"' + (cur === 'all' ? ' selected' : '') + '>全部（通用 + 所有群聊/私聊印象）</option>' +
+      '<option value="auto"' + (cur === 'auto' ? ' selected' : '') + '>自动（通用印象 + 当前私聊的印象）</option>' +
+      '<option value="all"' + (cur === 'all' ? ' selected' : '') + '>全部（通用 + 所有私聊印象）</option>' +
       '<option value="model"' + (cur === 'model' ? ' selected' : '') + '>由模型自己调（需要时用工具查）</option>' +
       '</select><div class="hint">只影响注入提示词时带多少印象；不影响界面里看到的全部内容。</div></div>';
   }
@@ -709,14 +712,24 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       if (g('memv-tone')) body.tone = g('memv-tone').value;
     // 笔记已拆进 impressions.byChat，不再单独保存 body.notes
       if (g('memv-prefs')) body.prefs = memParseLines(g('memv-prefs').value).map((x) => ({ what: x }));
-      if (g('memv-pending')) body.pending = memParseLines(g('memv-pending').value).map((x) => ({ text: x, status: 'open' }));
+      if (g('memv-pending')) {
+        const TERM_MAP = { 短期: 'short', 长期: 'long', 永久: 'permanent', short: 'short', long: 'long', permanent: 'permanent' };
+        body.pending = memParseLines(g('memv-pending').value).map((line) => {
+          const parts = line.split('|').map((x) => x.trim());
+          const text = parts[0] || '';
+          const term = TERM_MAP[parts[1] || ''] || 'long';
+          const rawDate = parts[2] || '';
+          const ts = rawDate ? Date.parse(rawDate) : NaN;
+          return { text, status: 'open', term, at: Number.isFinite(ts) ? ts : Date.now() };
+        }).filter((x) => x.text);
+      }
     }
     if (st.tab === 'persons') {
       const generalEl = document.getElementById('memv-imp-general');
       const byChat = {};
       document.querySelectorAll('.memv-imp').forEach((el) => {
         const list = String(el.value || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
-        if (list.length) byChat[el.dataset.chat] = list;
+        if (list.length && String(el.dataset.chat || '').startsWith('private:')) byChat[el.dataset.chat] = list;
       });
       if (generalEl) body.impressions = { general: generalEl.value, byChat };
     }

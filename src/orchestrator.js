@@ -1653,8 +1653,10 @@ export class Orchestrator {
       '',
       '请输出 JSON：',
       '{"group":{"name":"会话或群名","summary":"1-3 句定位","facts":["稳定事实，最多6条"],"topics":["常聊话题，最多6条"]},',
-      ' "persons":[{"qq":"数字QQ号","name":"昵称","summary":"1-2 句概括","tone":"说话风格","facts":["稳定事实，最多5条"],"prefs":[],"notes":[]}]}',
-      '要求：只写稳定信息，不写一次性事件；persons 最多 5 人；没有数字QQ号的人不要输出；信息不足就留空字符串或空数组。'
+      ' "persons":[{"qq":"数字QQ号","name":"昵称","summary":"1-2 句概括","tone":"说话风格","facts":["稳定事实，最多5条"],"prefs":[],"notes":[],"pending":[{"text":"约定内容","term":"short|long|permanent"}]}]}',
+      '要求：只写稳定信息，不写一次性事件；persons 最多 5 人；没有数字QQ号的人不要输出；信息不足就留空字符串或空数组。',
+      '约定（pending）只写明确的约定/待办；term 由你判断：short=几天内、long=几周~几个月、permanent=长期有效（如"喜欢被叫小鲸鱼"这类偏好不算约定，放 facts/prefs）。',
+      '个人卡印象只保留「通用印象」和「私聊印象」，不要写群聊专属印象；跨群通用的写进 summary/tone/facts。'
     ].join('\n');
     const resp = await this.#memoryChat([{ role: 'system', content: sys }, { role: 'user', content: user }]);
     // chatCompletion 返回 { message: { content }, ... }，不是 content 顶层字段
@@ -1689,6 +1691,14 @@ export class Orchestrator {
       if (Array.isArray(p.facts)) patch.facts = p.facts.map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 10);
       if (Array.isArray(p.prefs)) patch.prefs = p.prefs.map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 10);
       if (Array.isArray(p.notes)) patch.notes = p.notes.map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 10);
+      if (Array.isArray(p.pending)) {
+        const now = Date.now();
+        patch.pending = p.pending.slice(0, 8).map((x) => {
+          const text = String((x && x.text) || x || '').slice(0, 200).trim();
+          const term = String((x && x.term) || '').toLowerCase();
+          return { text, at: Number(x && x.at) || now, term: ['short', 'long', 'permanent'].includes(term) ? term : 'long' };
+        }).filter((x) => x.text);
+      }
       if (Object.keys(patch).length) { if (upsertPerson(qq, patch).ok) touched += 1; }
     }
     if (touched) {
