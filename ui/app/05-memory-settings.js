@@ -1065,7 +1065,9 @@ function renderHealthCard() {
       const sel = st.sel && st.sel.tab === 'persons' && String(st.sel.qq) === String(x.qq);
       const payload = JSON.stringify({ tab: 'persons', qq: x.qq });
       const sub = 'QQ ' + String(x.qq || '') + (x.summary ? ' · ' + String(x.summary).slice(0, 20) : '');
-      return '<div class="mem-card' + (sel ? ' sel' : '') + '" data-mem="sel" data-json=\'' + esc(payload) + '\'>' +
+      const bs = memBatchState();
+      const bsel = bs.active && bs.sel.has(String(x.qq));
+      return '<div class="mem-card' + (sel && !bs.active ? ' sel' : '') + (bsel ? ' batch-sel' : '') + '" data-mem="sel" data-pqq="' + esc(String(x.qq)) + '" data-json=\'' + esc(payload) + '\'>' +
         '<div class="mem-card-title">' + esc(x.name || ('QQ' + x.qq)) + '</div>' +
         '<div class="mem-card-sub">' + esc(sub) + '</div></div>';
     }).join('') || '<div class="mem-empty">（没有匹配的个人卡）</div>';
@@ -1088,8 +1090,12 @@ function renderHealthCard() {
           (isPersons ? personsAll.length : groups.length) + '</span></div>' +
         '<input type="text" data-mem="search" id="memv-q" class="mem-search" placeholder="' +
           (isPersons ? '搜索昵称 / QQ 号…' : '搜索会话名…') + '" value="' + esc(st.q || '') + '" />' +
-        (isPersons ? '<div style="padding:6px 0"><button class="btn btn-small" data-mem="prune-persons">清理空卡…</button></div>' : '') +
-        '<div class="mem-cards">' + (isPersons ? personCards : chatCards) + '</div>' +
+        (isPersons ? ('<div style="display:flex;gap:6px;padding:6px 0;flex-wrap:wrap">' +
+          '<button class="btn btn-small" data-mem="prune-persons">清理空卡…</button>' +
+          '<button class="btn btn-small" data-mem="batch-toggle">' + (memBatchState().active ? '退出批量' : '批量删除') + '</button>' +
+          (memBatchState().active ? '<button class="btn btn-small btn-danger" data-mem="batch-confirm">确认删除 (' + memBatchState().sel.size + ')</button>' : '') +
+          '</div>') : '') +
+        '<div class="mem-cards' + (isPersons && memBatchState().active ? ' batch-mode' : '') + '">' + (isPersons ? personCards : chatCards) + '</div>' +
       '</div>';
 
     // ── 右栏：子页签 + 内容（点进会话后才显示） ──
@@ -1283,6 +1289,39 @@ function renderHealthCard() {
       if (act === 'save') { memSave(el.dataset.key, st); return; }
       if (act === 'prune-persons') {
         openPersonPruneModal(st);
+        return;
+      }
+      if (act === 'batch-toggle') {
+        const bs = memBatchState();
+        bs.active = !bs.active;
+        bs.sel.clear();
+        loadMemoryView();
+        return;
+      }
+      if (act === 'batch-confirm') {
+        const bs = memBatchState();
+        const qqs = [...bs.sel];
+        if (!qqs.length) { alert('先点几张卡片选中'); return; }
+        (async () => {
+          if (!(await uiConfirm('确定删除选中的 ' + qqs.length + ' 张个人卡？\n删除会移到 .deleted 备份，可从文件夹恢复。'))) return;
+          try {
+            const r = await api('/api/memory-cards/persons/prune', { method: 'POST', body: JSON.stringify({ qqs, dryRun: false }) });
+            bs.active = false; bs.sel.clear();
+            st.sel = null; st.detail = null; st.list = null;
+            alert('已删除 ' + (r.count || 0) + ' 张个人卡');
+            loadMemoryView();
+          } catch (err) { alert('删除失败：' + (err?.message || err)); }
+        })();
+        return;
+      }
+      if (act === 'sel' && memBatchState().active) {
+        const qq = String(el.dataset.pqq || '');
+        const bs = memBatchState();
+        if (!qq) return;
+        if (bs.sel.has(qq)) bs.sel.delete(qq); else bs.sel.add(qq);
+        el.classList.toggle('batch-sel', bs.sel.has(qq));
+        const btn = document.querySelector('[data-mem="batch-confirm"]');
+        if (btn) btn.textContent = '确认删除 (' + bs.sel.size + ')';
         return;
       }
       if (act === 'del') {
@@ -2481,6 +2520,11 @@ function memBatchMount() {
 }
 
 /** 批量清理个人卡：按内容/时间筛选，先预览再删除 */
+function memBatchState() {
+  if (!window.__memBatchDel) window.__memBatchDel = { active: false, sel: new Set() };
+  return window.__memBatchDel;
+}
+
 function openPersonPruneModal(st) {
   const overlay = modelModalShell({
     head: '清理个人卡',
@@ -2495,7 +2539,7 @@ function openPersonPruneModal(st) {
       <div class="checkbox-row"><input type="radio" name="prune-mode" id="prune-low" value="low-activity" />
         <label for="prune-low">在群里发言不超过</label>
         <input type="number" id="prune-maxmsgs" value="1" style="width:70px" min="0" />
-        <label for="prune-low">条的卡</label></div>
+        <label for="prune-low">条的卡（按卡片里各群发言数之和，不含私聊）</label></div>
       <div class="checkbox-row"><input type="radio" name="prune-mode" id="prune-stale" value="stale" />
         <label for="prune-stale">超过</label>
         <input type="number" id="prune-days" value="30" style="width:70px" min="1" />
@@ -2516,6 +2560,13 @@ function openPersonPruneModal(st) {
     };
   };
   overlay.querySelector('#prune-cancel').addEventListener('click', () => closeModelModal(overlay));
+  // 切换条件/改数字时自动预览，避免"改了 N 条但计数没变"的困惑
+  const autoPreview = () => { const b = overlay.querySelector('#prune-preview'); if (b) b.click(); };
+  overlay.querySelectorAll('input[name="prune-mode"]').forEach((el) => el.addEventListener('change', autoPreview));
+  ['prune-days', 'prune-maxmsgs'].forEach((id) => {
+    const el = overlay.querySelector('#' + id);
+    if (el) el.addEventListener('change', autoPreview);
+  });
   overlay.querySelector('#prune-preview').addEventListener('click', async () => {
     try {
       const r = await api('/api/memory-cards/persons/prune', { method: 'POST', body: JSON.stringify({ ...payload(), dryRun: true }) });
@@ -2533,4 +2584,23 @@ function openPersonPruneModal(st) {
       loadMemoryView();
     } catch (err) { alert('清理失败：' + (err?.message || err)); }
   });
+}
+
+// 批量选择：捕获阶段拦截卡片点击，避免被「打开详情」的其它委托先处理
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function' && !window.__memBatchCapture) {
+  window.__memBatchCapture = true;
+  document.addEventListener('click', (e) => {
+    const bs = window.__memBatchDel;
+    if (!bs || !bs.active) return;
+    const card = e.target && e.target.closest && e.target.closest('#memory-items .mem-card[data-pqq]');
+    if (!card) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const qq = String(card.dataset.pqq || '');
+    if (!qq) return;
+    if (bs.sel.has(qq)) bs.sel.delete(qq); else bs.sel.add(qq);
+    card.classList.toggle('batch-sel', bs.sel.has(qq));
+    const btn = document.querySelector('[data-mem="batch-confirm"]');
+    if (btn) btn.textContent = '确认删除 (' + bs.sel.size + ')';
+  }, true);
 }

@@ -2403,3 +2403,10 @@ body.skin-bg-on .view { background: transparent; }
 
 /* 二级菜单（记忆页）说明条：过长时省略，避免把子页签挤成竖排 */
 #subnav .subnav-note { max-width: 42%; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── 个人卡批量选择 ───────────────────────────────────────────── */
+.mem-cards.batch-mode .mem-card { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.mem-card.batch-sel {
+  background: repeating-linear-gradient(45deg, rgba(220,38,38,.20) 0 8px, rgba(220,38,38,.06) 8px 16px);
+  border-color: rgba(220,38,38,.55);
+}
