@@ -174,6 +174,14 @@ export class Orchestrator {
 
   // 静默会话：只存档、不调模型（0 token）。确定性功能（链接转发、/dsh）不走这里，照常生效。
   if (isSilentChat(chatKey)) {
+    // 静默会话也可参与「语义观察」（仅当 perChat.observeSilent=true）：只打分、不发消息
+    try {
+      const dcfg = getConfig().decision || {};
+      const pc = (dcfg.perChat || {})[chatKey] || {};
+      if (dcfg.enabled === true && pc.observeSilent === true) {
+        runDecision({ chatKey, entry, messages: this.store.recent(chatKey, { limit: 40 }), store: this.store }).catch(() => {});
+      }
+    } catch { /* 忽略 */ }
     // ⚠️ 开了「静默会话被 @」处理且这条正是 @：**先不标已读**。
     // 否则 maybeSilentAt 判定为「要求转发」→ scheduleWake 后 wake 里 peekUnread 拿到 0 条，
     // 会话会以 aborted / 0 token 直接结束（2026-10-22 实测：转发永远不生效）。

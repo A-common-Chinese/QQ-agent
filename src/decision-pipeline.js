@@ -56,7 +56,8 @@ export function effectiveCfg(chatKey, cfg = getConfig()) {
     thresholds: { ...(base.thresholds || {}), ...(over.thresholds || {}) },
     budget: { ...(base.budget || {}), ...(over.budget || {}) },
     judge: { ...(base.judge || {}), ...(over.judge || {}) },
-    mode: over.mode || 'inherit'
+    mode: over.mode || 'inherit',
+    observeSilent: over.observeSilent === true
   };
 }
 
@@ -127,7 +128,8 @@ export async function runDecision({ chatKey, entry, messages = [], store = null 
   if (active !== 'both' && channelOfChatKey(chatKey) !== active) return skip('channel-mismatch');
   if (eff.mode === 'off') return skip('perChat-off');
   if (String(chatKey).startsWith('private:')) return skip('private');
-  if (isSilentChat(chatKey)) return skip('silent');
+  // 静默会话默认跳过；显式配置 observeSilent=true 时允许只观察（不发消息、不调回复模型）
+  if (isSilentChat(chatKey) && eff.observeSilent !== true) return skip('silent');
   if (!embeddingReady(cfg)) return skip('embedding-not-ready');
 
   const budget = eff.budget || {};
