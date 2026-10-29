@@ -190,9 +190,70 @@ export function updateGeneral(patch) {
 
 export function deletePerson(qq) {
   const file = path.join(PERSONS, safeKey(personCanonical(qq)) + '.json');
-  if (!fs.existsSync(file)) return { ok: false, error: 'not_found' };
+  // 幂等：不存在也算成功（避免重复点击/双事件导致删成功后又报 404）
+  if (!fs.existsSync(file)) return { ok: true, removed: false };
   fs.renameSync(file, file + '.deleted-' + Date.now());
-  return { ok: true };
+  return { ok: true, removed: true };
+}
+
+/**
+ * 批量清理个人卡
+ * mode: 'no-content'（没有任何事实/印象等实质内容，只剩名称与概述）
+ *      | 'empty'（连名称/概述/语气都空）
+ *      | 'stale'（updatedAt 早于 olderThanDays 天）
+ * qqs: 显式指定要删的号（优先级最高）
+ */
+export function prunePersons({ mode = 'no-content', olderThanDays = 30, maxMsgs = 1, dryRun = true, qqs = [] } = {}) {
+  ensure(PERSONS);
+  const files = fs.readdirSync(PERSONS).filter((f) => f.endsWith('.json'));
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const str = (v) => String(v || '').trim();
+  const wanted = new Set((qqs || []).map((x) => String(x)));
+  const cut = Date.now() - Math.max(1, Number(olderThanDays) || 30) * 24 * 3600 * 1000;
+  const matched = [];
+  for (const f of files) {
+    const full = path.join(PERSONS, f);
+    const c = read(full);
+    if (!c) continue;
+    const qq = String(c.qq || f.replace(/\.json$/, ''));
+    if (wanted.size) {
+      if (wanted.has(qq)) matched.push({ qq, name: str(c.name), file: full });
+      continue;
+    }
+    // impressions 可能是对象 { general, byChat }
+    const imp = c.impressions;
+    let impCount = 0;
+    if (Array.isArray(imp)) impCount = imp.length;
+    else if (imp && typeof imp === 'object') {
+      const g = str(imp.general);
+      if (g && g.indexOf('暂无') < 0) impCount += 1;
+      const by = imp.byChat;
+      if (by && typeof by === 'object') impCount += Object.values(by).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0);
+    }
+    const hasData = arr(c.facts).length || arr(c.prefs).length || arr(c.preferences).length
+      || arr(c.events).length || arr(c.pending).length || impCount
+      || arr(c.notes).length || arr(c.groupImpressions).length || arr(c.privateImpressions).length
+      || str(c.tone) || str(c.generalImpression);
+    const totalMsgs = arr(c.groups).reduce((n, g) => n + (Number(g && g.msgs) || 0), 0);
+    if (mode === 'empty') {
+      if (!hasData && !str(c.summary) && !str(c.name)) matched.push({ qq, name: str(c.name), file: full });
+    } else if (mode === 'stale') {
+      if (Number(c.updatedAt || 0) < cut) matched.push({ qq, name: str(c.name), file: full });
+    } else if (mode === 'low-activity') {
+      if (totalMsgs <= Math.max(0, Number(maxMsgs) || 0)) matched.push({ qq, name: str(c.name), file: full });
+    } else if (!hasData) {
+      // no-content：只剩名称/概述
+      matched.push({ qq, name: str(c.name), file: full });
+    }
+  }
+  const out = { count: matched.length, dryRun: !!dryRun, deleted: [], sample: matched.slice(0, 20).map((x) => ({ qq: x.qq, name: x.name })) };
+  if (!dryRun) {
+    for (const m of matched) {
+      try { fs.renameSync(m.file, m.file + '.deleted-' + Date.now()); out.deleted.push(m.qq); } catch { /* 忽略 */ }
+    }
+    out.count = out.deleted.length;
+  }
+  return out;
 }
 
 export function stats() {

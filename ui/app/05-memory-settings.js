@@ -1088,6 +1088,7 @@ function renderHealthCard() {
           (isPersons ? personsAll.length : groups.length) + '</span></div>' +
         '<input type="text" data-mem="search" id="memv-q" class="mem-search" placeholder="' +
           (isPersons ? '搜索昵称 / QQ 号…' : '搜索会话名…') + '" value="' + esc(st.q || '') + '" />' +
+        (isPersons ? '<div style="padding:6px 0"><button class="btn btn-small" data-mem="prune-persons">清理空卡…</button></div>' : '') +
         '<div class="mem-cards">' + (isPersons ? personCards : chatCards) + '</div>' +
       '</div>';
 
@@ -1280,7 +1281,13 @@ function renderHealthCard() {
         return;
       }
       if (act === 'save') { memSave(el.dataset.key, st); return; }
+      if (act === 'prune-persons') {
+        openPersonPruneModal(st);
+        return;
+      }
       if (act === 'del') {
+        if (el.dataset.busy) return;
+        el.dataset.busy = '1';
         (async () => {
           if (!(await uiConfirm('删除该记忆卡？'))) return;
           try {
@@ -1288,7 +1295,7 @@ function renderHealthCard() {
             st.sel = null; st.detail = null; st.list = null;
             loadMemoryView();
           } catch (err) { alert('删除失败：' + (err?.message || err)); }
-        })();
+        })().finally(() => { delete el.dataset.busy; });
         return;
       }
     });
@@ -2471,4 +2478,59 @@ function memBatchMount() {
       }
     });
   }
+}
+
+/** 批量清理个人卡：按内容/时间筛选，先预览再删除 */
+function openPersonPruneModal(st) {
+  const overlay = modelModalShell({
+    head: '清理个人卡',
+    body: `
+      <div class="hint" style="font-size:13px;line-height:1.9">
+        选一个清理条件，先「预览数量」，确认后再删除（删除是移到 .deleted 备份，不直接抹掉）。
+      </div>
+      <div class="checkbox-row"><input type="radio" name="prune-mode" id="prune-no-content" value="no-content" checked />
+        <label for="prune-no-content">只剩名称/概述、没有任何事实·印象·备注的卡（推荐）</label></div>
+      <div class="checkbox-row"><input type="radio" name="prune-mode" id="prune-empty" value="empty" />
+        <label for="prune-empty">完全空卡（连名称/概述/语气都没有）</label></div>
+      <div class="checkbox-row"><input type="radio" name="prune-mode" id="prune-low" value="low-activity" />
+        <label for="prune-low">在群里发言不超过</label>
+        <input type="number" id="prune-maxmsgs" value="1" style="width:70px" min="0" />
+        <label for="prune-low">条的卡</label></div>
+      <div class="checkbox-row"><input type="radio" name="prune-mode" id="prune-stale" value="stale" />
+        <label for="prune-stale">超过</label>
+        <input type="number" id="prune-days" value="30" style="width:70px" min="1" />
+        <label for="prune-stale">天未更新</label></div>
+      <div class="hint" id="prune-hint" style="margin-top:8px;font-size:12.5px"></div>`,
+    foot: `<button class="btn" id="prune-cancel">取消</button>
+           <button class="btn btn-small" id="prune-preview">预览数量</button>
+           <button class="btn btn-danger" id="prune-run" disabled>确认清理</button>`
+  });
+  const hint = overlay.querySelector('#prune-hint');
+  const runBtn = overlay.querySelector('#prune-run');
+  const payload = () => {
+    const mode = (overlay.querySelector('input[name="prune-mode"]:checked') || {}).value || 'no-content';
+    return {
+      mode,
+      olderThanDays: Number((overlay.querySelector('#prune-days') || {}).value) || 30,
+      maxMsgs: Number((overlay.querySelector('#prune-maxmsgs') || {}).value) || 0
+    };
+  };
+  overlay.querySelector('#prune-cancel').addEventListener('click', () => closeModelModal(overlay));
+  overlay.querySelector('#prune-preview').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/memory-cards/persons/prune', { method: 'POST', body: JSON.stringify({ ...payload(), dryRun: true }) });
+      const sample = (r.sample || []).map((x) => x.name || x.qq).slice(0, 8).join('、');
+      hint.textContent = r.count ? ('将清理 ' + r.count + ' 张：' + sample + (r.count > 8 ? '…' : '')) : '没有匹配的卡';
+      runBtn.disabled = !r.count;
+    } catch (err) { hint.textContent = '预览失败：' + (err?.message || err); }
+  });
+  overlay.querySelector('#prune-run').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/memory-cards/persons/prune', { method: 'POST', body: JSON.stringify({ ...payload(), dryRun: false }) });
+      closeModelModal(overlay);
+      st.sel = null; st.detail = null; st.list = null;
+      alert('已清理 ' + (r.count || 0) + ' 张个人卡');
+      loadMemoryView();
+    } catch (err) { alert('清理失败：' + (err?.message || err)); }
+  });
 }

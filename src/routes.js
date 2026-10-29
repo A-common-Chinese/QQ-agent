@@ -35,7 +35,7 @@ import { installUpdate, cleanUpdateTemp } from './updater.js';
 import { analyzeExtension } from './plugin-compat.js';
 import { exportToFile, previewImport, applyImport, buildBundle, bundleStats } from './memory-bundle.js';
 import { redactText, getSafeModeConfig } from './safe-mode.js';
-import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral, listTopics, getTopic, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
+import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, prunePersons, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral, listTopics, getTopic, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
 import { readChunks, readSemanticCards, lastAutoCardsAt } from './memory-layers.js';
 import { skillPlacementStatus } from './prompt.js';
 import { listLinks, listHistory, addLink, setLinkMode, unlink, restore } from './identity-links.js';
@@ -1712,10 +1712,23 @@ export function createRoutes(deps) {
       }
     },
     {
+      method: 'POST', pattern: '/api/memory-cards/persons/prune',
+      handler: async ({ req, res, json }) => {
+        const b = await bodyOf(req).catch(() => ({}));
+        const out = prunePersons({
+          mode: String(b.mode || 'no-content'),
+          olderThanDays: Number(b.olderThanDays) || 30,
+          maxMsgs: b.maxMsgs == null ? 1 : Number(b.maxMsgs),
+          dryRun: b.dryRun !== false,
+          qqs: Array.isArray(b.qqs) ? b.qqs : []
+        });
+        return json(res, 200, { ok: true, ...out });
+      }
+    },
+    {
       method: 'DELETE', pattern: /^\/api\/memory-cards\/person\/(\d+)$/,
       handler: async ({ res, json, match }) => {
         const r = deletePerson(match[1]);
-        if (!r.ok) return json(res, 404, { ok: false, error: '没有这个人的卡' });
         return json(res, 200, r);
       }
     },

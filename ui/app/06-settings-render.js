@@ -774,6 +774,8 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       }
       if (act === 'del') {
         e.preventDefault();
+        if (el.dataset.busy) return;
+        el.dataset.busy = '1';
         (async () => {
           if (!(await uiConfirm('删除这个人（QQ ' + el.dataset.qq + '）的记忆卡？\n会移到同目录的 .deleted 备份。'))) return;
           try {
@@ -781,7 +783,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
             st.sel = null; st.detail = null; st.list = null;
             memRerender();
           } catch (err) { alert('删除失败：' + (err?.message || err)); }
-        })();
+        })().finally(() => { delete el.dataset.busy; });
         return;
       }
     });
