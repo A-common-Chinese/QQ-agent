@@ -522,3 +522,36 @@ export function deleteTopic(chatKey, id) {
   fs.renameSync(file, file + '.deleted-' + Date.now());
   return { ok: true };
 }
+
+/** 递归列出记忆卡目录下的 .deleted-<ts> 备份；olderThanDays=0 表示不过滤 */
+export function listDeletedBackups({ olderThanDays = 30 } = {}) {
+  const out = [];
+  const days = Math.max(0, Number(olderThanDays) || 0);
+  const cut = days ? Date.now() - days * 24 * 3600 * 1000 : Infinity;
+  const walk = (dir) => {
+    let ents = [];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(full); continue; }
+      const m = /\.deleted-(\d+)$/.exec(e.name);
+      if (!m) continue;
+      const ts = Number(m[1]) || 0;
+      if (ts < cut) out.push({ file: full, rel: path.relative(ROOT, full), ts });
+    }
+  };
+  walk(ROOT);
+  return out;
+}
+
+/** 清理超过保留期的 .deleted 备份（dryRun 默认 true） */
+export function purgeDeletedBackups({ olderThanDays = 30, dryRun = true } = {}) {
+  const list = listDeletedBackups({ olderThanDays });
+  const out = { count: list.length, dryRun: !!dryRun, olderThanDays, deleted: [], sample: list.slice(0, 10).map((x) => x.rel) };
+  if (dryRun) return out;
+  for (const x of list) {
+    try { fs.unlinkSync(x.file); out.deleted.push(x.rel); } catch { /* 忽略 */ }
+  }
+  out.count = out.deleted.length;
+  return out;
+}

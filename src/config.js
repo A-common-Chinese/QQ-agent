@@ -66,7 +66,8 @@ export const DEFAULT_CONFIG = {
     batchIntervalMs: 6 * 60 * 60 * 1000,   // 6 小时
     batchMaxChats: 20,                     // 单次最多处理多少个会话（控制成本）
     batchIncludeSilent: false,             // 批量整理是否包含静默会话（默认排除，静默=不花 token）
-    autoUpdate: true
+    autoUpdate: true,
+    backupRetentionDays: 30,   // 删除产生的 .deleted-* 备份保留天数（0 = 永不自动清理）
   },
   // ── 语义触发（P1：只观察不生效）──
   decision: {

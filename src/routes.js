@@ -35,7 +35,7 @@ import { installUpdate, cleanUpdateTemp } from './updater.js';
 import { analyzeExtension } from './plugin-compat.js';
 import { exportToFile, previewImport, applyImport, buildBundle, bundleStats } from './memory-bundle.js';
 import { redactText, getSafeModeConfig } from './safe-mode.js';
-import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, prunePersons, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral, listTopics, getTopic, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
+import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, prunePersons, purgeDeletedBackups, listDeletedBackups, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral, listTopics, getTopic, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
 import { readChunks, readSemanticCards, lastAutoCardsAt } from './memory-layers.js';
 import { skillPlacementStatus } from './prompt.js';
 import { listLinks, listHistory, addLink, setLinkMode, unlink, restore } from './identity-links.js';
@@ -1709,6 +1709,15 @@ export function createRoutes(deps) {
       handler: async ({ req, res, json }) => {
         const body = await bodyOf(req);
         return json(res, 200, updateGeneral(body || {}));
+      }
+    },
+    {
+      method: 'POST', pattern: '/api/memory-cards/backups/purge',
+      handler: async ({ req, res, json }) => {
+        const b = await readBody(req).catch(() => ({}));
+        const days = b.olderThanDays == null ? (getConfig().memoryCards?.backupRetentionDays ?? 30) : Number(b.olderThanDays);
+        if (b.listOnly === true) return json(res, 200, { ok: true, backups: listDeletedBackups({ olderThanDays: days }).length, olderThanDays: days });
+        return json(res, 200, { ok: true, ...purgeDeletedBackups({ olderThanDays: days, dryRun: b.dryRun !== false }) });
       }
     },
     {
