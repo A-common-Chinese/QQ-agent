@@ -3668,7 +3668,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
             maxBatch: Number(dv('dec-judge-maxbatch')) || 8,
             samplePercent: Number(dv('dec-judge-sample')) || 100,
             dedupeMs: (Number(dv('dec-judge-dedupe')) || 0) * 1000,
-            timeoutMs: 2500, maxTokens: 64, temperature: 0,
+            timeoutMs: 2500, maxTokens: 128, temperature: 0,
             chain: readDecChainRows()
           },
           perChat

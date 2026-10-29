@@ -23,6 +23,7 @@ const stats = {
   rate429: 0,
   cacheHits: 0,
   sampledOut: 0,
+  retries: 0,
   msSum: 0,
   byDay: {}
 };
@@ -38,7 +39,7 @@ function touchDay() {
   stats.day = t;
   stats.items = 0; stats.batches = 0; stats.calls = 0; stats.ok = 0;
   stats.errors = 0; stats.fallbacks = 0; stats.rate429 = 0;
-  stats.cacheHits = 0; stats.sampledOut = 0; stats.msSum = 0;
+  stats.cacheHits = 0; stats.sampledOut = 0; stats.retries = 0; stats.msSum = 0;
 }
 
 function hashText(s) {
@@ -82,7 +83,7 @@ export function resolveJudgeChain(cfg, chatKey = '') {
       model: String(x.model || '').trim(),
       baseUrl, apiKey,
       timeoutMs: Math.max(1000, Number(x.timeoutMs) || Number(j.timeoutMs) || 2500),
-      maxTokens: Math.max(8, Number(x.maxTokens) || Number(j.maxTokens) || 64),
+      maxTokens: Math.max(8, Number(x.maxTokens) || Number(j.maxTokens) || 128),
       temperature: Number(x.temperature ?? j.temperature) || 0
     };
   });
@@ -156,6 +157,18 @@ async function callChain(entries, prompt) {
     }
   }
   return { ok: false, skipped: lastErr || 'judge-failed' };
+}
+
+async function retrySingle(item, chain) {
+  // bad-json 兜底：单条再试一次（更简单、更窄的 prompt）
+  stats.retries += 1;
+  const prompt = buildPrompt([{ text: item.text, recent: item.recent }]);
+  prompt.user += '\n\n只输出一个 JSON 对象，不要数组、不要解释。';
+  const entries = chain.slice(0, 2);
+  const res = await callChain(entries, prompt);
+  if (!res.ok) return res;
+  const row = res.parsed.get(0) || {};
+  return { ok: true, parsed: new Map([[0, row]]), ms: res.ms, chainId: res.chainId, model: res.model };
 }
 
 async function flush(sig, items, entries) {
@@ -232,7 +245,16 @@ async function runBucket(sig) {
   for (let start = 0; start < items.length; start += maxBatch) {
     const group = items.slice(start, start + maxBatch);
     const t0 = Date.now();
-    const res = await flush(sig, group.map((x) => ({ text: x.text, recent: x.recent })), chain);
+    let res = await flush(sig, group.map((x) => ({ text: x.text, recent: x.recent })), chain);
+    if (!res.ok && res.skipped === 'bad-json') {
+      // 整批 JSON 解析失败 → 逐条重试一次
+      const retried = [];
+      for (const it of group) {
+        const r = await retrySingle(it, chain);
+        retried.push(r);
+      }
+      res = { ok: retried.every((r) => r.ok), parsed: new Map(retried.flatMap((r, i) => (r.ok ? [[i, r.parsed.get(0) || {}]] : []))) };
+    }
     const ms = Date.now() - t0;
     stats.msSum += ms;
     group.forEach((it, idx) => {
@@ -266,6 +288,7 @@ export function judgeStats() {
   const avg = stats.batches ? Math.round(stats.msSum / stats.batches) : 0;
   return {
     day: stats.day,
+    retries: stats.retries,
     items: stats.items,
     batches: stats.batches,
     calls: stats.calls,

@@ -86,11 +86,11 @@ export const DEFAULT_CONFIG = {
     // L2 判定：chain 为多通道（按顺序兜底），支持本地/远程混合；perChat.judgeChainIds 可指定某群用哪些
     judge: {
       enabled: false,
-      batchWindowMs: 4000, maxBatch: 8,
+      batchWindowMs: 2000, maxBatch: 8,
       dedupeMs: 300000, samplePercent: 100,
       chain: [],
       providerId: '', baseUrl: '', apiKey: '', model: '',
-      timeoutMs: 2500, maxTokens: 64, temperature: 0, perChat: {}
+      timeoutMs: 2500, maxTokens: 128, temperature: 0, perChat: {}
     },
     perChat: {} // auto=通用+本会话 / all=全部 / model=只给通留给模型自己查
   },
