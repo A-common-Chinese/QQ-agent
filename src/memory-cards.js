@@ -10,6 +10,7 @@ import { resolveKeys, writeKeys, canonicalKey, personCanonical } from './identit
 
 const ROOT = path.join(DATA_DIR, 'memory-cards');
 const PERSONS = path.join(ROOT, 'persons');
+const MESSAGES = path.join(DATA_DIR, 'messages');
 const read = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
 const dirOf = (chatKey) => path.join(ROOT, String(chatKey || '').replace(/[:\\/]/g, '_'));
 const clip = (s, n) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n) + '…' : t; };
@@ -203,7 +204,33 @@ export function deletePerson(qq) {
  *      | 'stale'（updatedAt 早于 olderThanDays 天）
  * qqs: 显式指定要删的号（优先级最高）
  */
-export function prunePersons({ mode = 'no-content', olderThanDays = 30, maxMsgs = 1, dryRun = true, qqs = [] } = {}) {
+/** 扫一遍消息存档，统计每个 QQ 的发言数（群聊 / 私聊分开），60 秒缓存 */
+let archiveCache = null;
+export function archivePersonCounts({ maxAgeMs = 60000 } = {}) {
+  if (archiveCache && Date.now() - archiveCache.at < maxAgeMs) return archiveCache.map;
+  const map = new Map();
+  try {
+    for (const f of fs.readdirSync(MESSAGES)) {
+      if (!f.endsWith('.json')) continue;
+      let data;
+      try { data = JSON.parse(fs.readFileSync(path.join(MESSAGES, f), 'utf8')); } catch { continue; }
+      const chatKey = String(data.chatKey || f.replace(/\.json$/, '').replace('_', ':'));
+      const isGroup = chatKey.startsWith('group:');
+      for (const m of (data.messages || [])) {
+        const uid = String(m.senderId ?? m.sender_id ?? '').trim();
+        if (!uid) continue;
+        const rec = map.get(uid) || { group: 0, private: 0, total: 0 };
+        if (isGroup) rec.group += 1; else rec.private += 1;
+        rec.total += 1;
+        map.set(uid, rec);
+      }
+    }
+  } catch { /* 存档读不到就退化为卡片统计 */ }
+  archiveCache = { at: Date.now(), map };
+  return map;
+}
+
+export function prunePersons({ mode = 'no-content', olderThanDays = 30, maxMsgs = 1, scope = 'group', dryRun = true, qqs = [] } = {}) {
   ensure(PERSONS);
   const files = fs.readdirSync(PERSONS).filter((f) => f.endsWith('.json'));
   const arr = (v) => (Array.isArray(v) ? v : []);
@@ -234,19 +261,28 @@ export function prunePersons({ mode = 'no-content', olderThanDays = 30, maxMsgs 
       || arr(c.events).length || arr(c.pending).length || impCount
       || arr(c.notes).length || arr(c.groupImpressions).length || arr(c.privateImpressions).length
       || str(c.tone) || str(c.generalImpression);
-    const totalMsgs = arr(c.groups).reduce((n, g) => n + (Number(g && g.msgs) || 0), 0);
+    const archive = archivePersonCounts();
+    const ac = archive.get(qq);
+    const cardGroupMsgs = arr(c.groups).reduce((n, g) => n + (String(g && g.chatKey || '').startsWith('group:') ? (Number(g && g.msgs) || 0) : 0), 0);
+    const cardTotalMsgs = arr(c.groups).reduce((n, g) => n + (Number(g && g.msgs) || 0), 0);
+    const groupMsgs = ac ? ac.group : cardGroupMsgs;
+    const totalMsgs = ac ? ac.total : cardTotalMsgs;
+    const usedMsgs = scope === 'all' ? totalMsgs : groupMsgs;
     if (mode === 'empty') {
       if (!hasData && !str(c.summary) && !str(c.name)) matched.push({ qq, name: str(c.name), file: full });
     } else if (mode === 'stale') {
       if (Number(c.updatedAt || 0) < cut) matched.push({ qq, name: str(c.name), file: full });
     } else if (mode === 'low-activity') {
-      if (totalMsgs <= Math.max(0, Number(maxMsgs) || 0)) matched.push({ qq, name: str(c.name), file: full });
+      if (usedMsgs <= Math.max(0, Number(maxMsgs) || 0)) matched.push({ qq, name: str(c.name), file: full, groupMsgs, totalMsgs });
     } else if (!hasData) {
       // no-content：只剩名称/概述
-      matched.push({ qq, name: str(c.name), file: full });
+      matched.push({ qq, name: str(c.name), file: full, groupMsgs, totalMsgs });
     }
   }
-  const out = { count: matched.length, dryRun: !!dryRun, deleted: [], sample: matched.slice(0, 20).map((x) => ({ qq: x.qq, name: x.name })) };
+  const out = {
+    count: matched.length, dryRun: !!dryRun, deleted: [], scope,
+    sample: matched.slice(0, 20).map((x) => ({ qq: x.qq, name: x.name, group: x.groupMsgs, total: x.totalMsgs }))
+  };
   if (!dryRun) {
     for (const m of matched) {
       try { fs.renameSync(m.file, m.file + '.deleted-' + Date.now()); out.deleted.push(m.qq); } catch { /* 忽略 */ }

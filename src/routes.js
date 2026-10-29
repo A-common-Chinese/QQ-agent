@@ -1719,6 +1719,7 @@ export function createRoutes(deps) {
           mode: String(b.mode || 'no-content'),
           olderThanDays: Number(b.olderThanDays) || 30,
           maxMsgs: b.maxMsgs == null ? 1 : Number(b.maxMsgs),
+          scope: String(b.scope || 'group') === 'all' ? 'all' : 'group',
           dryRun: b.dryRun !== false,
           qqs: Array.isArray(b.qqs) ? b.qqs : []
         });

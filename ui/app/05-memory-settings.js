@@ -2539,7 +2539,12 @@ function openPersonPruneModal(st) {
       <div class="checkbox-row"><input type="radio" name="prune-mode" id="prune-low" value="low-activity" />
         <label for="prune-low">在群里发言不超过</label>
         <input type="number" id="prune-maxmsgs" value="1" style="width:70px" min="0" />
-        <label for="prune-low">条的卡（按卡片里各群发言数之和，不含私聊）</label></div>
+        <label for="prune-low">条</label>
+        <select id="prune-scope" style="width:auto">
+          <option value="group">只看群聊</option>
+          <option value="all">群+私聊</option>
+        </select>
+        <span class="muted" style="font-size:12px">按消息存档统计</span></div>
       <div class="checkbox-row"><input type="radio" name="prune-mode" id="prune-stale" value="stale" />
         <label for="prune-stale">超过</label>
         <input type="number" id="prune-days" value="30" style="width:70px" min="1" />
@@ -2556,21 +2561,22 @@ function openPersonPruneModal(st) {
     return {
       mode,
       olderThanDays: Number((overlay.querySelector('#prune-days') || {}).value) || 30,
-      maxMsgs: Number((overlay.querySelector('#prune-maxmsgs') || {}).value) || 0
+      maxMsgs: Number((overlay.querySelector('#prune-maxmsgs') || {}).value) || 0,
+      scope: (overlay.querySelector('#prune-scope') || {}).value || 'group'
     };
   };
   overlay.querySelector('#prune-cancel').addEventListener('click', () => closeModelModal(overlay));
   // 切换条件/改数字时自动预览，避免"改了 N 条但计数没变"的困惑
   const autoPreview = () => { const b = overlay.querySelector('#prune-preview'); if (b) b.click(); };
   overlay.querySelectorAll('input[name="prune-mode"]').forEach((el) => el.addEventListener('change', autoPreview));
-  ['prune-days', 'prune-maxmsgs'].forEach((id) => {
+  ['prune-days', 'prune-maxmsgs', 'prune-scope'].forEach((id) => {
     const el = overlay.querySelector('#' + id);
     if (el) el.addEventListener('change', autoPreview);
   });
   overlay.querySelector('#prune-preview').addEventListener('click', async () => {
     try {
       const r = await api('/api/memory-cards/persons/prune', { method: 'POST', body: JSON.stringify({ ...payload(), dryRun: true }) });
-      const sample = (r.sample || []).map((x) => x.name || x.qq).slice(0, 8).join('、');
+      const sample = (r.sample || []).map((x) => (x.name || x.qq) + '(' + (r.scope === 'all' ? x.total : x.group) + ')').slice(0, 8).join('、');
       hint.textContent = r.count ? ('将清理 ' + r.count + ' 张：' + sample + (r.count > 8 ? '…' : '')) : '没有匹配的卡';
       runBtn.disabled = !r.count;
     } catch (err) { hint.textContent = '预览失败：' + (err?.message || err); }
