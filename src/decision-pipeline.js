@@ -24,7 +24,9 @@ export function channelOfChatKey(chatKey) {
 }
 const daily = new Map();       // `${chatKey}|${day}` -> count
 const skips = new Map();       // 跳过原因计数（诊断用）
-const judgeDaily = new Map();  // `${chatKey}|${day}` -> 判定次数（L2 上限）
+const judgeDaily = new Map();
+const liveDaily = new Map();    // `${chatKey}|${day}` -> 主动接话次数
+const lastLiveAt = new Map();    // chatKey -> ts（主动接话间隔）  // `${chatKey}|${day}` -> 判定次数（L2 上限）
 let lastEmbedError = null;     // { at, message } 最近一次 embedding 失败（余额/网络），用于退避
 
 function skip(reason) {
@@ -234,6 +236,22 @@ export async function runDecisionTriggered({ chatKey, entry, messages = [], reas
     if (/embedding|402|balance/i.test(log.error)) lastEmbedError = { at: Date.now(), message: log.error.slice(0, 200) };
   }
   return addDecision(log);
+}
+
+/** 主动接话安全阀：每群每日上限 + 最小间隔；通过才消耗一次配额 */
+export function tryConsumeLive(chatKey, cfg) {
+  const d = cfg.decision || {};
+  const pc = (d.perChat || {})[chatKey] || {};
+  const max = Math.max(1, Number(pc.maxLivePerDay ?? d.liveMaxPerDay ?? 5));
+  const gap = Math.max(0, Number(pc.minLiveIntervalMs ?? d.liveMinIntervalMs ?? 600000));
+  const key = chatKey + '|' + dayKey();
+  const used = liveDaily.get(key) || 0;
+  if (used >= max) return { ok: false, reason: 'live-daily-limit', used, max };
+  const last = lastLiveAt.get(chatKey) || 0;
+  if (gap && Date.now() - last < gap) return { ok: false, reason: 'live-interval', used, max };
+  liveDaily.set(key, used + 1);
+  lastLiveAt.set(chatKey, Date.now());
+  return { ok: true, used: used + 1, max };
 }
 
 export function decisionStatus(chatKey = '') {

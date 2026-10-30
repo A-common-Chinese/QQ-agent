@@ -74,7 +74,9 @@ export const DEFAULT_CONFIG = {
     enabled: false,              // 总开关（新装默认关）
     observeOnly: true,           // 只记录分数，不改变是否接话
     observeTriggered: false,     // 连「被 @/关键词命中」的触发批也记分（标 action=triggered-batch，仅观察）
-    liveReply: false,            // 预览版：主动接话开关（true 才会真的因分数开跑会话；false 只记 would-respond/would-skip）
+    liveReply: false,            // 主动接话总开关（需配合 perChat[chatKey].live=true 才对某群生效）
+    liveMaxPerDay: 5,            // 每群每天最多主动接话次数
+    liveMinIntervalMs: 600000,   // 同群两次主动接话的最小间隔（默认 10 分钟）
     embedding: {
       providerId: '', baseUrl: '', apiKey: '', model: '', dims: 0,
       autoDetectDims: false,     // 预留：自动探测维度（暂不实现）

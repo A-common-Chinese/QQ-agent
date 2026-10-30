@@ -22,7 +22,7 @@ import { skillManager } from './skills/manager.js';
 import { getToolAvailability } from './tool-registry.js';
 import { rescueUnsentReply } from './reply-rescue.js';
 import { asTransport } from './transport/index.js';
-import { runDecision, runDecisionTriggered } from './decision-pipeline.js';
+import { runDecision, runDecisionTriggered, tryConsumeLive } from './decision-pipeline.js';
 import { upsertPerson, upsertGroup } from './memory-cards.js';
 import { readChunks, readSemanticCards, lastAutoCardsAt, markAutoCards } from './memory-layers.js';
 
@@ -221,7 +221,7 @@ export class Orchestrator {
         const dcfg = getConfig().decision || {};
         const chatD = (dcfg.perChat && dcfg.perChat[chatKey]) || {};
         const liveMode = dcfg.enabled === true && dcfg.liveReply === true
-          && chatD.mode === 'active' && chatD.observeOnly === false;
+          && chatD.live === true && chatD.mode === 'active' && chatD.observeOnly === false;
         if (liveMode) {
           // 预览版（P2）：先跑判定，决定「真的开跑会话」还是「照旧标已读」
           const self = this;
@@ -234,6 +234,14 @@ export class Orchestrator {
             .then(() => runDecision({ chatKey, entry, messages: this.store.recent(chatKey, { limit: 40 }), store: this.store }))
             .then((d) => {
               if (d && d.action === 'respond') {
+                // 安全阀：每群每日上限 + 最小间隔；不通过就当没接
+                const cap = tryConsumeLive(chatKey, getConfig());
+                if (!cap.ok) {
+                  console.log(`[decision] 主动接话被限流 ${chatKey}：${cap.reason}（今日 ${cap.used}/${cap.max}）`);
+                  markRead();
+                  return;
+                }
+                console.log(`[decision] 主动接话 ${chatKey}：今日第 ${cap.used}/${cap.max} 次`);
                 // 当成一次正常触发，走完整会话流程
                 self.scheduleWake(chatKey, null, { verified: true });
                 self.emit('chat-update', chatKey);
