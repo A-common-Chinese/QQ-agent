@@ -3611,7 +3611,7 @@ function renderDecisionSection(c, fold) {
         <span class="muted" style="font-size:12px">顺序即兜底顺序：失败/超时/429/JSON 解析失败会切到下一个</span>
       </div>
       <h4 style="margin:14px 0 6px">每群覆盖（JSON）</h4>
-      <div class="hint">示例：{"group:123456":{"mode":"off"}}；mode 可为 off / observe / active；可加 thresholds/budget。</div>
+      <div class="hint">示例：{"group:123456":{"mode":"off"}}；mode 可为 off / observe / active；可加 thresholds/budget、corpusScope(group|interest)、live 等。</div>
       <textarea id="dec-perchat" style="min-height:70px" placeholder='{"group:123456":{"mode":"off"}}'>${esc(JSON.stringify(d.perChat || {}, null, 0))}</textarea>
 
       <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">

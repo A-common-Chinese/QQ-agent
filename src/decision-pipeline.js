@@ -63,6 +63,13 @@ export function effectiveCfg(chatKey, cfg = getConfig()) {
   };
 }
 
+/** 该会话实际使用的语料口径：perChat[chatKey].corpusScope 优先，其次全局 corpus.scope */
+export function corpusScopeFor(chatKey, cfg) {
+  const over = (cfg.decision?.perChat || {})[chatKey] || {};
+  const s = String(over.corpusScope || cfg.decision?.embedding?.corpus?.scope || 'group');
+  return s === 'interest' ? 'interest' : 'group';
+}
+
 /** 组装索引语料：scope=group（群内容）或 scope=interest（人设/兴趣/技能） */
 export function buildCorpus(chatKey, messages, cfg) {
   const items = [];
@@ -70,7 +77,7 @@ export function buildCorpus(chatKey, messages, cfg) {
   const corpus = emb.corpus || {};
 
   // ── interest 口径：只看"这句话和我（人设/能力）有多相关"，不看群消息 ──
-  if (corpus.scope === 'interest') {
+  if (corpusScopeFor(chatKey, cfg) === 'interest') {
     const persona = cfg.persona || {};
     if (persona.botName) items.push({ id: 'persona:name', kind: 'persona', text: '我是' + persona.botName });
     if (persona.roleText) items.push({ id: 'persona:role', kind: 'persona', text: '我的角色：' + persona.roleText });

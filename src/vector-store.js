@@ -8,6 +8,13 @@ import { embedTexts, embeddingReady } from './embeddings.js';
 const ROOT = path.join(DATA_DIR, 'embeddings');
 const VERSION = 1;
 
+/** 与 decision-pipeline.corpusScopeFor 同口径（避免循环 import，这里独立实现） */
+function scopeOf(chatKey, cfg) {
+  const over = (cfg.decision?.perChat || {})[chatKey] || {};
+  const scope = String(over.corpusScope || cfg.decision?.embedding?.corpus?.scope || 'group');
+  return scope === 'interest' ? 'interest' : 'group';
+}
+
 function dirOf(chatKey) {
   return path.join(ROOT, String(chatKey || 'none').replace(/[^a-z0-9_]/gi, '_'));
 }
@@ -47,7 +54,7 @@ export async function rebuildIndex(chatKey, items, cfg) {
   const { vectors, dims, model } = await embedTexts(clean.map((x) => x.text), { cfg });
   const flat = new Float32Array(vectors.length * dims);
   vectors.forEach((v, i) => flat.set(v.subarray(0, dims), i * dims));
-  writeAll(chatKey, { model, dims, scope: String(cfg.decision?.embedding?.corpus?.scope || 'group'), items: clean.map((x) => ({ id: x.id, kind: x.kind, text: String(x.text).slice(0, 400), hash: hashText(x.text) })) }, flat);
+  writeAll(chatKey, { model, dims, scope: scopeOf(chatKey, cfg), items: clean.map((x) => ({ id: x.id, kind: x.kind, text: String(x.text).slice(0, 400), hash: hashText(x.text) })) }, flat);
   return { count: clean.length, dims, model };
 }
 
@@ -56,7 +63,7 @@ export async function ensureIndex(chatKey, items, cfg) {
   if (!embeddingReady(cfg)) return { ok: false, skipped: 'embedding-not-ready' };
   const { model } = { model: String(cfg.decision?.embedding?.model || '') };
   const meta = readMeta(chatKey);
-  const scope = String(cfg.decision?.embedding?.corpus?.scope || 'group');
+  const scope = scopeOf(chatKey, cfg);
   const clean = (items || []).filter((x) => x && x.text);
   if (!meta || meta.model !== model || !meta.dims || meta.scope !== scope) {
     const r = await rebuildIndex(chatKey, clean, cfg);
