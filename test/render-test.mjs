@@ -244,8 +244,8 @@ const ctx = vm.createContext(sandbox);
   // 的孤本 —— 页面整体看着正常，唯独"添加"能力整个没了。
   console.log('\n=== 添加入口 ===');
   for (const [fnName, addId, label] of [
-    ['renderSkillsPage', 'skills-add-btn', '添加技能'],
-    ['renderPluginsPage', 'plugins-add-btn', '添加插件']
+    ['renderSkillsPage', 'skills-import-btn', '导入本地'],
+    ['renderPluginsPage', 'plugins-import-btn', '导入本地']
   ]) {
     const fn = ctx[fnName] || sandbox[fnName];
     if (typeof fn !== 'function') { fail++; console.log(`  FAIL  ${fnName} 未定义`); continue; }

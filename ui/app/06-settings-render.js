@@ -2866,6 +2866,26 @@ function bindModulePageEvents(kind) {
       openSkillSettings(btn.dataset.skillId);
     });
   });
+  // 本地 zip 导入（📥 钮）：选择文件 → base64 → 后端解压安装
+  $(`#${meta.tab}-import-btn`)?.addEventListener('click', () => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.zip,application/zip';
+    inp.onchange = async () => {
+      const f = inp.files && inp.files[0];
+      if (!f) return;
+      try {
+        const buf = await f.arrayBuffer();
+        let bin = '';
+        const bytes = new Uint8Array(buf);
+        for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
+        await api('/api/skills/import-local', { method: 'POST', body: JSON.stringify({ kind, filename: f.name, dataBase64: btoa(bin) }) });
+        alert('导入成功，正在刷新…');
+        location.reload();
+      } catch (e) { alert('导入失败：' + (e.message || e)); }
+    };
+    inp.click();
+  });
   // 导出为 zip（⬇ 钮）：本地导出，不再上传市场
   scope.querySelectorAll('.mcard-export').forEach((btn) => {
     btn.addEventListener('click', (e) => {
