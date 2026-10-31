@@ -1067,6 +1067,7 @@ function renderHealthCard() {
       '<span class="subnav-sep"></span>' +
       (compress ? pill(compress) : '') +
     '<button class="mem-subtab' + (memActiveSub === 'batch' ? ' act' : '') + '" data-mem="subtab" data-sub="batch">记忆整理</button>' +
+    '<button class="mem-subtab" data-mem="rules" title="记忆卡是怎么建立的、怎么注入的">？规则</button>' +
     '<span class="subnav-note" title="' + esc(typeof consumptionTip === 'function' ? consumptionTip('memory-compress') : '') + '">压缩只改注入内容，不动原始记忆</span>';
   };
 
@@ -1240,6 +1241,10 @@ function renderHealthCard() {
         st.sel = { tab: 'groups', chatKey: st.chatSel.chatKey, name: st.chatSel.name };
         st.detail = null;
         memLoadDetail().then(async () => { if (state.tab === 'memory') await loadMemoryView(); });
+        return;
+      }
+      if (act === 'rules') {
+        if (typeof window.__openMemoryRulesModal === 'function') window.__openMemoryRulesModal();
         return;
       }
       if (act === 'subtab') {

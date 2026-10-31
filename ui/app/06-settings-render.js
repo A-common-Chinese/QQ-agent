@@ -746,6 +746,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
   });
   overlay.querySelector('#mem-rules-ok')?.addEventListener('click', () => closeModelModal(overlay));
 }
+window.__openMemoryRulesModal = openMemoryRulesModal;
 
 async function memSave(key, st) {
     const g = (id) => document.getElementById(id);
