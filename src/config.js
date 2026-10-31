@@ -68,6 +68,7 @@ export const DEFAULT_CONFIG = {
       weekDays: 7,          // 七天
       monthDays: 30,        // 三十天
       defaultTerm: 'day',   // 模型没给 term 时按一天算（鼓励短期）
+      skipEphemeral: true,  // 只持续几十分钟~几小时的即时话题不建卡
       quota: { month: 4, week: 8 },   // 长期/一周卡配额，超了自动降级
       sensitiveFilter: {    // 敏感话题过滤（标题/关键词命中即不生成、不注入）
         enabled: true,

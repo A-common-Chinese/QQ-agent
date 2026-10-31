@@ -5,7 +5,7 @@
 import { listTopics, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
 import { getConfig } from './config.js';
 
-const TERMS = ['halfday', 'day', 'week', 'month'];
+const TERMS = ['ephemeral', 'halfday', 'day', 'week', 'month'];
 const LEGACY = { short: 'week', long: 'month', permanent: 'month' };
 const RANK = { halfday: 0, day: 1, week: 2, month: 3 };
 // 内置敏感词（可用 config.memoryCards.topics.sensitiveFilter.words 追加）
@@ -74,6 +74,11 @@ export function upsertTopicCard(chatKey, item = {}) {
     term: termOf(item.term)
   };
   if (isSensitiveTopic(patch)) return { ok: false, action: 'blocked', reason: 'sensitive' };
+  // 即时话题（几十分钟~几小时）默认不建卡；关掉 skipEphemeral 则按 day 处理
+  if (String(item.term || '').toLowerCase() === 'ephemeral') {
+    if (cfg.skipEphemeral !== false) return { ok: false, action: 'skipped', reason: 'ephemeral' };
+    patch.term = 'day';
+  }
   const same = findSimilar(topics, title, patch.keywords);
   // 配额：month/week 超限时自动降级（month→week→day）
   const quota = cfg.quota || { month: 4, week: 8 };

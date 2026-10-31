@@ -912,6 +912,10 @@ function renderHealthCard() {
           '<input type="checkbox" id="mem-filter-topic-sensitive" />' +
           '<span class="track"><span class="thumb"></span></span></label>' +
         '<span class="hint" style="font-size:11px;margin-right:4px">过滤敏感</span>' +
+        '<label class="switch" style="padding:0;display:inline-flex;align-items:center;gap:4px" title="只持续几十分钟~几小时的即时话题不建卡">' +
+          '<input type="checkbox" id="mem-skip-ephemeral" />' +
+          '<span class="track"><span class="thumb"></span></span></label>' +
+        '<span class="hint" style="font-size:11px;margin-right:4px">排除瞬时</span>' +
         '<button class="btn btn-small" data-topic="new">＋ 新建话题</button>' +
       '</div>' +
       '<div class="hint" style="font-size:12px;margin:4px 0 6px">关键词命中时整段注入提示词；未命中只出现在标题索引里。</div>';
@@ -936,7 +940,15 @@ function renderHealthCard() {
     window.__memTopicsFilterBound = true;
     document.addEventListener('change', async (e) => {
       const el = e.target;
-      if (!el || el.id !== 'mem-filter-topic-sensitive') return;
+      if (!el) return;
+      if (el.id === 'mem-skip-ephemeral') {
+        try {
+          await api('/api/config', { method: 'POST', body: JSON.stringify({ memoryCards: { topics: { skipEphemeral: !!el.checked } } }) });
+          if (state.config?.memoryCards?.topics) state.config.memoryCards.topics.skipEphemeral = !!el.checked;
+        } catch (err) { alert('保存失败：' + ((err && err.message) || err)); }
+        return;
+      }
+      if (el.id !== 'mem-filter-topic-sensitive') return;
       try {
         await api('/api/config', { method: 'POST', body: JSON.stringify({ memoryCards: { topics: { sensitiveFilter: { enabled: !!el.checked } } } }) });
         if (state.config?.memoryCards?.topics) state.config.memoryCards.topics.sensitiveFilter.enabled = !!el.checked;
@@ -947,6 +959,9 @@ function renderHealthCard() {
       const box = document.getElementById('mem-filter-topic-sensitive');
       const on = state.config?.memoryCards?.topics?.sensitiveFilter?.enabled !== false;
       if (box) box.checked = on;
+      const eph = document.getElementById('mem-skip-ephemeral');
+      const ephOn = state.config?.memoryCards?.topics?.skipEphemeral !== false;
+      if (eph) eph.checked = ephOn;
     };
     document.addEventListener('DOMContentLoaded', syncFilter);
     setInterval(syncFilter, 1200);

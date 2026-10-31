@@ -1717,7 +1717,7 @@ export class Orchestrator {
       topicsAuto ? ' "topics":[{"title":"话题标题","summary":"一句话概括","body":"关键信息 2-4 句","keywords":["能命中该话题的词"],"term":"halfday|day|week|month"}]}' : ' "topics":[]}',
       '要求：只写稳定信息，不写一次性事件；persons 最多 5 人；没有数字QQ号的人不要输出；信息不足就留空字符串或空数组。',
       '约定（pending）只写明确的约定/待办；term 由你判断：short=几天内、long=几周~几个月、permanent=长期有效（如"喜欢被叫小鲸鱼"这类偏好不算约定，放 facts/prefs）。',
-      topicsAuto ? '话题（topics）：从最近聊天里抽 1-3 个仍在延续的话题；term 只能取 halfday（半天）/ day（一天）/ week（七天）/ month（三十天）。**默认偏短期**：大多数话题用 halfday/day/week；只有长期项目（如每周固定开黑）、长期梗/设定、已多次被提起的话题才用 month；拿不准就选 day。keywords 要含未来消息可能出现的词。' : '',
+      topicsAuto ? '话题（topics）：从最近聊天里抽 1-3 个仍在延续的话题；term 只能取 ephemeral / halfday / day / week / month。**默认偏短期**：大多数话题用 halfday/day/week；只有长期项目（如每周固定开黑）、长期梗/设定、已多次被提起的话题才用 month；拿不准就选 day。\n只持续几十分钟到几小时的即时话题（约今晚开黑、现在在干嘛、临时组队、此刻谁在线）用 ephemeral（不建卡）；但周期性安排（每周五开黑）不是瞬时话题，用 week/month。keywords 要含未来消息可能出现的词。' : '',
       '个人卡印象只保留「通用印象」和「私聊印象」，不要写群聊专属印象；跨群通用的写进 summary/tone/facts。'
     ].join('\n');
     const resp = await this.#memoryChat([{ role: 'system', content: sys }, { role: 'user', content: user }]);
