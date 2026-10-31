@@ -649,7 +649,7 @@ function openFeedbackModal() {
 // Electron 里 window.open 会被 main.js 的 setWindowOpenHandler 转给系统默认浏览器；
 // 开发模式（纯浏览器）则正常开新标签页。
 function openSite() {
-  window.open('https://kondius.cn/qq-agent', '_blank', 'noopener');
+  window.open('https://q.qq.com/', '_blank', 'noopener');
 }
 
 // ── 自动检查更新 ──
