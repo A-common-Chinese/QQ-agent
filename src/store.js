@@ -44,6 +44,7 @@ function saveChat(state) {
 }
 
 import { redactForArchive } from './safe-mode.js';
+import { getConfig } from './config.js';
 
 export class ChatStore {
   constructor(maxPerChat = 0) {
@@ -106,6 +107,7 @@ export class ChatStore {
       self: false,
       read: false,
       reply: reply || null,
+      // 媒体先保留（本轮看图/文件要用），由 retention 定时清掉旧消息的媒体引用（默认 24h）
       media: Array.isArray(media) ? media : [],
       // 拍一拍事件：可作触发批（resolveContextTier 按 1 档响应），但不进【已读信息】
       isPoke: Boolean(isPoke),

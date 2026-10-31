@@ -3309,7 +3309,8 @@ function renderSafeModeSection(c) {
       '<div class="field"><label>试一下（输入一段文字看脱敏结果）</label>' +
         '<input type="text" id="safe-test-in" placeholder="例如：我手机号 13800138000，密码 abc12345" />' +
         '<div class="hint" id="safe-test-out" style="margin-top:6px"></div>' +
-      '</div>'
+      '</div>' +
+      '<div style="margin-top:10px"><button class="btn btn-small" id="safe-audit-btn" type="button">🔍 查看操作审计</button></div>'
   });
 }
 

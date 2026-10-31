@@ -27,6 +27,7 @@ import { builtinVisionResults } from './model-vision-docs.js';
 import { todayKey } from './util.js';
 import { setPresence, presenceSummary, restoreIfDnd } from './presence.js';
 import { getPrivacyFilter } from './privacy.js';
+import { appendAudit, readAudit } from './audit.js';
 import { logger } from './logger.js';
 import { skillManager } from './skills/manager.js';
 import { parseLegacyCard } from './persona-import.js';
@@ -1133,7 +1134,11 @@ export function createRoutes(deps) {
       method: 'POST', pattern: '/api/config',
       handler: async ({ req, res, json }) => {
         const patch = await readBody(req);
+        const prevSafe = getConfig().safeMode?.enabled;
         const next = updateConfig(patch);
+        const nowSafe = next.safeMode?.enabled;
+        if (prevSafe !== false && nowSafe === false) appendAudit('safe-mode-off', { via: 'api-config' });
+        if (prevSafe === false && nowSafe !== false) appendAudit('safe-mode-on', { via: 'api-config' });
         store.setMaxPerChat(next.store?.maxMessagesPerChat ?? 0);
         sessions?.setKeepFiles?.(next.store?.keepSessionFiles ?? 0);
         if (next.proactive?.enabled) orchestrator.startProactiveLoop(); else orchestrator.stopProactiveLoop();
@@ -1144,6 +1149,10 @@ export function createRoutes(deps) {
         //    这里漏掉会让"任何一次保存设置"把全部明文密钥回传给浏览器。
         return json(res, 200, { ok: true, config: sanitizeConfig(next) });
       }
+    },
+    {
+      method: 'GET', pattern: '/api/audit',
+      handler: async ({ res, json, url }) => json(res, 200, { ok: true, items: readAudit(Number(url?.searchParams?.get('limit')) || 200) })
     },
     {
       method: 'GET', pattern: '/api/tools',

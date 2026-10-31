@@ -1124,11 +1124,21 @@ async function safeModeSave(patch, rerender = false) {
     if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(e?.message || e));
   }
 }
-document.addEventListener('change', (e) => {
+document.addEventListener('change', async (e) => {
   const el = e.target.closest('#view-settings [data-safe]');
   if (!el) return;
   const field = el.dataset.safe;
-  if (field === 'enabled') { safeModeSave({ enabled: !!el.checked }); return; }
+  if (field === 'enabled') {
+    if (!el.checked) {
+      const ok = await uiConfirm(
+        '确定关闭安全模式？\n\n关闭后，新收到的消息里的手机号、身份证号、银行卡号、密码/密钥等会**原样写入本地存档**，任何能访问 data 目录的程序都能读到。\n\n建议只在临时调试时关闭，用完立刻打开。',
+        { title: '关闭安全模式', okText: '仍然关闭', danger: true }
+      );
+      if (!ok) { el.checked = true; return; }
+    }
+    safeModeSave({ enabled: !!el.checked });
+    return;
+  }
   if (field === 'level') {
     const lvl = Number(el.value) === 2 ? 2 : 1;
     const wrap = document.getElementById('safe-custom-wrap');
@@ -1510,3 +1520,36 @@ document.addEventListener('change', async (e) => {
     memBundleHint('读取失败：' + (err?.message || err), 'var(--red)');
   }
 });
+
+// ── 操作审计查看 ───────────────────────────────────────────────
+async function openSafeAudit() {
+  try {
+    const r = await api('/api/audit?limit=30');
+    const items = Array.isArray(r.items) ? r.items : [];
+    if (!items.length) { showNoticeModal('操作审计', '还没有记录。关闭安全模式、清理消息存档等操作会自动记入。'); return; }
+    const lines = items.map((x) => {
+      const d = new Date(x.ts);
+      const pad = (n) => String(n).padStart(2, '0');
+      const t = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      const detail = x.detail && Object.keys(x.detail).length ? ' ' + JSON.stringify(x.detail) : '';
+      return `${t} ${x.action}${detail}`;
+    }).join('\n');
+    showNoticeModal('操作审计（最近 30 条）', lines);
+  } catch (err) { showNoticeModal('读取失败', String(err?.message || err)); }
+}
+function bindSafeAuditBtn() {
+  const b = document.getElementById('safe-audit-btn');
+  if (!b || b.__bound) return;
+  b.__bound = true;
+  b.addEventListener('click', (e) => { e.stopPropagation(); openSafeAudit(); });
+}
+if (typeof window !== 'undefined' && !window.__safeAuditHook) {
+  window.__safeAuditHook = true;
+  const orig = window.renderSettings;
+  if (typeof orig === 'function') {
+    window.renderSettings = function () { const r = orig.apply(this, arguments); try { bindSafeAuditBtn(); } catch { /* ignore */ } return r; };
+  }
+  document.addEventListener('DOMContentLoaded', bindSafeAuditBtn);
+  setInterval(bindSafeAuditBtn, 1500);
+  try { new MutationObserver(() => bindSafeAuditBtn()).observe(document.body, { childList: true, subtree: true }); } catch { /* ignore */ }
+}

@@ -34,6 +34,7 @@ import { skillManager } from './skills/manager.js';
 import { extractCandidateUrls, dispatchMediaLinks } from './media-links.js';
 import { createRoutes } from './routes.js';
 import { purgeDeletedBackups } from './memory-cards.js';
+import { purgeOldMessagesByConfig } from './retention.js';
 import * as instanceLockModule from './instance-lock.js';
 import { logger } from './logger.js';
 import { startCommunitySync, isGloballyBlocked, FIXED_PRICE_FEED_URL } from './community.js';
@@ -1646,7 +1647,11 @@ export function createApp({ log = console.log } = {}) {
       sseClients.add(res);
       // 心跳：半开 TCP（拔网线 / NAT 超时，没有 FIN）不会触发 req 'close'，
       // 少了心跳这些客户端会永久留在 sseClients 里，之后每次 emit 都白写一遍。
-      const heartbeat = setInterval(() => {
+      // 消息存档保留：启动后 65s 跑一次，之后每 12 小时一次（默认保留 7 天，只清消息不碰记忆卡）
+  setTimeout(() => { try { purgeOldMessagesByConfig(); } catch { /* ignore */ } }, 65_000);
+  setInterval(() => { try { purgeOldMessagesByConfig(); } catch { /* ignore */ } }, 12 * 60 * 60 * 1000);
+
+  const heartbeat = setInterval(() => {
         try { res.write(': ping\n\n'); } catch { /* 下面 error/close 会清理 */ }
       }, 15000);
       heartbeat.unref?.();

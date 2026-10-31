@@ -352,6 +352,13 @@ export const DEFAULT_CONFIG = {
     encourage: 1
   },
   // 存储
+  storage: {
+    messageRetentionDays: 7,   // 消息存档保留天数（0=永久）；只清消息，不碰记忆卡
+  },
+  privacy: {
+    storeMedia: false,         // 预留：true 时额外保留媒体副本
+    mediaRetentionHours: 24,   // 图片/文件/语音等媒体引用保留小时数（0 不自动清）
+  },
   store: {
     // 单群 JSON 最大保留条数。**0 = 不限制**。
     // 用户明确要求取消上限（原为 2000）。配套措施：
