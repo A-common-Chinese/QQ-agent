@@ -13,6 +13,7 @@ import path from 'node:path';
 import { getConfig, storeConfigForChat, personaForChat, isSilentChat, DATA_DIR } from './config.js';
 import { vendorOfConfig } from './model-prices.js';
 import { randInt } from './util.js';
+import { applyDynamicHistory } from './dynamic-history.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier, prepareSkillSections, splitSkillSections } from './prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from './llm.js';
 import { buildToolDefs, toOpenAiTools, executeTool } from './tools.js';
@@ -211,7 +212,7 @@ export class Orchestrator {
         selfNickname: cfg.persona?.selfNickname || this.transport.selfNickname || '',
         botName: cfg.persona?.botName || '',
         selfId: cfg.onebot?.selfId || this.transport.selfId || '',
-        cfg: storeConfigForChat(chatKey),
+        cfg: this.#storeCfg(chatKey),
         isPrivate: String(chatKey).startsWith('private:'),
         // 单条判定当场掷骰、当场出结果 —— 没有"预判/实跑"两阶段了，
         // 骰子结果由 resolveContextTier 的 reason 带回（含当时的值）。
@@ -528,7 +529,7 @@ export class Orchestrator {
             selfNickname: cfgForJudge.persona?.selfNickname || this.transport.selfNickname || '',
             botName: cfgForJudge.persona?.botName || '',
             selfId: cfgForJudge.onebot?.selfId || this.transport.selfId || '',
-            cfg: storeConfigForChat(chatKey),
+            cfg: this.#storeCfg(chatKey),
             isPrivate: String(chatKey).startsWith('private:'),
             roll: null
           });
@@ -594,13 +595,13 @@ export class Orchestrator {
     // 固定在本次运行里，会话记录（session.contextReason）记录的就是这里的值。
     const cfgNow = getConfig();
     const tierResult = proactive
-      ? { tier: 4, count: Math.max(0, Number(storeConfigForChat(chatKey).historyCount) || 80), reason: '主动机会（带历史）', shouldRespond: true }
+      ? { tier: 4, count: Math.max(0, Number(this.#storeCfg(chatKey).historyCount) || 80), reason: '主动机会（带历史）', shouldRespond: true }
       : resolveContextTier({
         triggerEntries,
         selfNickname: cfgNow.persona?.selfNickname || this.transport.selfNickname || '',
         botName: cfgNow.persona?.botName || '',
         selfId: cfgNow.onebot?.selfId || this.transport.selfId || '',
-        cfg: storeConfigForChat(chatKey),
+        cfg: this.#storeCfg(chatKey),
         isPrivate: String(chatKey).startsWith('private:'),   // 私聊恒响应
         roll: null
       });
@@ -608,7 +609,7 @@ export class Orchestrator {
     // reason 标注活跃来源，会话页可解释"为什么 1 档设置却响应了"。
     const activeState = this.#activeState(chatKey);
     const effectiveTier = activeState
-      ? { tier: 3, count: Math.max(0, Number(storeConfigForChat(chatKey).historyCount) || 80), reason: `活跃期（话题：${activeState.topic}）`, shouldRespond: true }
+      ? { tier: 3, count: Math.max(0, Number(this.#storeCfg(chatKey).historyCount) || 80), reason: `活跃期（话题：${activeState.topic}）`, shouldRespond: true }
       : tierResult;
 
     this.runningChats.add(chatKey);
@@ -1724,6 +1725,12 @@ export class Orchestrator {
     } else {
       markAutoCards(chatKey);   // 没内容也记一次，避免每轮都调模型
     }
+  }
+
+  /** 当前会话的 store 配置（含动态已读条数；shadow 时行为不变，只记日志） */
+  #storeCfg(chatKey) {
+    const base = storeConfigForChat(chatKey);
+    try { return applyDynamicHistory(base, { store: this.store, chatKey, cfg: getConfig() }); } catch { return base; }
   }
 
   #maybeConsolidateMemory(chatKey) {

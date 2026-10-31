@@ -378,6 +378,16 @@ export const DEFAULT_CONFIG = {
     historyCount: 70,           // 各档统一：响应时随【已读信息】带多少条历史
     historyCountPerChatEnabled: false,   // 是否按群单独设置已读条数
     historyCountByChat: {},     // { chatKey: 条数 }，仅 perChat 开启时生效
+    dynamicHistory: {           // 动态上下文条数（按群活跃度分档）
+      enabled: true,
+      shadow: true,             // 先影子模式：只记录推荐值，不改变实际行为
+      windowMinutes: 10,
+      hysteresisMinutes: 10,
+      min: 20,
+      max: 150,
+      budgetChars: 4000,
+      buckets: [{ maxRate: 3, count: 30 }, { maxRate: 8, count: 70 }, { maxRate: Number.POSITIVE_INFINITY, count: 110 }]
+    },
     keywords: [],               // 2 档的关键词表
     randomPercent: 10,          // 3 档：y% 概率
     // ── 提示词锚点（前缀缓存深化，2026-09-25）──
