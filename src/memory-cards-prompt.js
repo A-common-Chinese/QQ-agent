@@ -130,6 +130,8 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
     .filter((t) => !(Number(t.expiresAt) > 0 && Number(t.expiresAt) < nowMs))   // 过期话题不再注入
     .filter((t) => !isSensitiveTopic(t));   // 敏感话题不注入
   if (topics.length) {
+    // 优先最近更新过的话题（长期/一周卡不挤占短期卡）
+    topics.sort((a, b) => (Date.parse(b.updatedAt || '') || 0) - (Date.parse(a.updatedAt || '') || 0));
     const textAll = scan.map((m) => String(m.text || '')).join('\n');
     const hit = [];
     const rest = [];

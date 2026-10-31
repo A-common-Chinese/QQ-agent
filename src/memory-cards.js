@@ -462,7 +462,7 @@ export function topicExpiresAt(term, baseMs = Date.now()) {
 function normalizeTopicTerm(v) {
   const raw = String(v || '').toLowerCase();
   if (TOPIC_TERMS.includes(raw)) return raw;
-  return LEGACY_TERM[raw] || 'long';
+  return LEGACY_TERM[raw] || String((() => { try { return getConfig().memoryCards?.topics?.defaultTerm || 'day'; } catch { return 'day'; } })());
 }
 const isChatKey = (k) => /^(group|private):\d+$/.test(String(k || ''));
 const timeOf = (v) => {

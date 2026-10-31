@@ -67,6 +67,8 @@ export const DEFAULT_CONFIG = {
       dayHours: 24,         // 一天
       weekDays: 7,          // 七天
       monthDays: 30,        // 三十天
+      defaultTerm: 'day',   // 模型没给 term 时按一天算（鼓励短期）
+      quota: { month: 4, week: 8 },   // 长期/一周卡配额，超了自动降级
       sensitiveFilter: {    // 敏感话题过滤（标题/关键词命中即不生成、不注入）
         enabled: true,
         words: []

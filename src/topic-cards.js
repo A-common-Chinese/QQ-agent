@@ -75,6 +75,16 @@ export function upsertTopicCard(chatKey, item = {}) {
   };
   if (isSensitiveTopic(patch)) return { ok: false, action: 'blocked', reason: 'sensitive' };
   const same = findSimilar(topics, title, patch.keywords);
+  // 配额：month/week 超限时自动降级（month→week→day）
+  const quota = cfg.quota || { month: 4, week: 8 };
+  const countTerm = (term, excludeId) => topics.filter((t) => t.term === term && String(t.id) !== String(excludeId || '')).length;
+  const downgrade = (term, excludeId) => {
+    let t = term;
+    if (t === 'month' && countTerm('month', excludeId) >= Math.max(1, Number(quota.month) || 4)) t = 'week';
+    if (t === 'week' && countTerm('week', excludeId) >= Math.max(1, Number(quota.week) || 8)) t = 'day';
+    return t;
+  };
+  patch.term = downgrade(patch.term, same?.id);
   if (same) {
     // 期限取更"长寿"的那个，避免长期话题被一次短期更新降级
     const term = RANK[termOf(patch.term)] >= RANK[termOf(same.term)] ? patch.term : same.term;
