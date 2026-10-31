@@ -28,6 +28,7 @@ import { todayKey } from './util.js';
 import { setPresence, presenceSummary, restoreIfDnd } from './presence.js';
 import { getPrivacyFilter } from './privacy.js';
 import { appendAudit, readAudit } from './audit.js';
+import { summaryDynamicHistory } from './dynamic-history.js';
 import { logger } from './logger.js';
 import { skillManager } from './skills/manager.js';
 import { parseLegacyCard } from './persona-import.js';
@@ -1149,6 +1150,10 @@ export function createRoutes(deps) {
         //    这里漏掉会让"任何一次保存设置"把全部明文密钥回传给浏览器。
         return json(res, 200, { ok: true, config: sanitizeConfig(next) });
       }
+    },
+    {
+      method: 'GET', pattern: '/api/decision/dynamic-history',
+      handler: async ({ res, json, url }) => json(res, 200, { ok: true, ...summaryDynamicHistory(Number(url?.searchParams?.get('limit')) || 500) })
     },
     {
       method: 'GET', pattern: '/api/audit',

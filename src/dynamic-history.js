@@ -70,3 +70,32 @@ export function applyDynamicHistory(base, { store, chatKey, cfg }) {
     return { ...base, historyCount: rec.count };
   } catch { return base; }
 }
+
+/** 汇总最近 N 条记录（供数据面板）：每群推荐值分布 / 平均速率 / 预算夹紧比例 */
+export function summaryDynamicHistory(limit = 500) {
+  const out = { total: 0, chats: [] };
+  try {
+    if (!fs.existsSync(LOG_FILE)) return out;
+    const lines = fs.readFileSync(LOG_FILE, 'utf8').split('\n').filter(Boolean).slice(-Math.max(1, Math.min(5000, limit)));
+    const by = new Map();
+    for (const line of lines) {
+      let rec = null; try { rec = JSON.parse(line); } catch { continue; }
+      out.total += 1;
+      const k = String(rec.chatKey || '?');
+      const d = by.get(k) || { chatKey: k, n: 0, sumRec: 0, sumRate: 0, capped: 0, dist: {} };
+      d.n += 1; d.sumRec += Number(rec.recommended) || 0; d.sumRate += Number(rec.rate) || 0;
+      if (rec.capped) d.capped += 1;
+      const r = Number(rec.recommended) || 0;
+      d.dist[r] = (d.dist[r] || 0) + 1;
+      by.set(k, d);
+    }
+    out.chats = [...by.values()].map((d) => ({
+      chatKey: d.chatKey, n: d.n,
+      avgRec: Math.round(d.sumRec / d.n),
+      avgRate: Math.round((d.sumRate / d.n) * 100) / 100,
+      cappedPct: Math.round((d.capped / d.n) * 100),
+      dist: d.dist
+    })).sort((a, b) => b.n - a.n);
+  } catch { /* ignore */ }
+  return out;
+}

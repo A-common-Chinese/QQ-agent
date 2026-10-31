@@ -3734,9 +3734,10 @@ async function renderDecisionPanelBody(body, filters = {}) {
   if (filters.chatKey) q.set('chatKey', filters.chatKey);
   if (filters.minScore !== '' && filters.minScore != null) q.set('minScore', filters.minScore);
   if (filters.maxScore !== '' && filters.maxScore != null) q.set('maxScore', filters.maxScore);
-  const [st, lg] = await Promise.all([
+  const [st, lg, dyn] = await Promise.all([
     api('/api/decision/status').catch(() => null),
-    api('/api/decision/logs?limit=200&' + q.toString()).catch(() => ({ logs: [] }))
+    api('/api/decision/logs?limit=200&' + q.toString()).catch(() => ({ logs: [] })),
+    api('/api/decision/dynamic-history?limit=500').catch(() => ({ chats: [], total: 0 }))
   ]);
   const stats = (st && st.stats) || { total: 0, scored: 0, histogram: [], chats: [] };
   const hist = Array.isArray(stats.histogram) ? stats.histogram : new Array(10).fill(0);
@@ -3757,6 +3758,12 @@ async function renderDecisionPanelBody(body, filters = {}) {
       <td>${Number(c.p90 || 0).toFixed(3)}</td><td>${Number(c.max || 0).toFixed(3)}</td>
       <td><button class="btn btn-small" data-dec-pick="${esc(c.chatKey)}">筛选</button></td>
     </tr>`).join('') || '<tr><td colspan="8" class="muted">（还没有数据）</td></tr>';
+  const dynRows = (dyn.chats || []).map((d) => `<tr>
+      <td style="font-size:11.5px">${esc(String(d.chatKey).slice(0, 26))}</td>
+      <td>${d.n}</td><td><b>${d.avgRec}</b></td><td>${d.avgRate}</td>
+      <td style="font-size:11px;color:var(--tx2)">${Object.entries(d.dist || {}).map(([k, v]) => k + '×' + v).join(' ')}</td>
+      <td>${d.cappedPct}%</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">（还没有样本）</td></tr>';
   const rows = (lg.logs || []).slice().reverse().map((x) => `<tr>
       <td style="font-size:11px">${esc(new Date(Number(x.at) || 0).toLocaleString('zh-CN', { hour12: false }))}</td>
       <td style="font-size:11px">${esc(String(x.chatKey || '').slice(0, 22))}</td>
@@ -3789,6 +3796,12 @@ async function renderDecisionPanelBody(body, filters = {}) {
           </tr></thead><tbody>${chats}</tbody></table>
         </div>
       </div>
+    </div>
+    <div style="font-weight:600;margin:12px 0 4px;font-size:12.5px">动态上下文条数（影子模式，共 ${dyn.total || 0} 条建议）</div>
+    <div style="max-height:180px;overflow:auto">
+      <table style="width:100%;font-size:11.5px"><thead><tr>
+        <th align="left">会话</th><th>样本</th><th>平均推荐</th><th>平均速率/分</th><th>推荐分布</th><th>预算夹紧</th>
+      </tr></thead><tbody>${dynRows}</tbody></table>
     </div>
     <div style="font-weight:600;margin:12px 0 4px;font-size:12.5px">最近判定（新→旧）</div>
     <div style="max-height:260px;overflow:auto">
