@@ -2691,10 +2691,9 @@ function renderModulePage(kind) {
   if (!items.length) {
     const emptyHtml = `<div class="usage-wrap">
       <div class="usage-head"><h2>${esc(meta.title)} <button class="btn btn-small module-tips-btn" data-module-tips="1" title="切换技能/插件对缓存的影响" style="padding:0 7px;line-height:1.5">！</button></h2>
-        <button class="btn btn-small" id="${esc(meta.tab)}-add-btn" title="从市场口令安装，或查看自建指南">＋ 添加${meta.kind === 'skill' ? '技能' : '插件'}</button>
-        <div class="usage-days">
+                <div class="usage-days">
           <button class="btn btn-small" id="${esc(meta.tab)}-refresh-btn">刷新</button>
-          <button class="btn btn-small btn-primary" id="${esc(meta.tab)}-market-btn" title="${meta.kind === 'skill' ? '打开 Skill 市场' : '打开插件市场'}" >${meta.kind === 'skill' ? '打开 Skill 市场' : '打开插件市场'}</button>
+          <button class="btn btn-small btn-primary" id="${esc(meta.tab)}-import-btn" title="从本地 zip 导入（不联网）">📥 导入本地</button>
         </div></div>
       <div class="empty-hint">${meta.emptyHint}</div>
       <div class="hint" style="margin-top:10px">${meta.lead}</div>
@@ -2735,7 +2734,7 @@ function renderModulePage(kind) {
     const settingsBtn = allFields.length
       ? `<button class="mcard-gear" data-skill-id="${esc(s.id)}" title="设置（${allFields.length} 项）" aria-label="打开 ${esc(s.name)} 的设置">⚙</button>`
       : '';
-    const uploadBtn = `<button class="mcard-upload" data-skill-id="${esc(s.id)}" data-skill-kind="${kind}" title="上传到市场" aria-label="上传 ${esc(s.name)} 到市场">⬆</button>`;
+    const uploadBtn = `<button class="mcard-export" data-skill-id="${esc(s.id)}" data-skill-kind="${kind}" title="导出为 zip" aria-label="导出 ${esc(s.name)}">⬇</button>`;
       const delBtn = `<button class="mcard-del" data-skill-id="${esc(s.id)}" data-skill-name="${esc(s.name)}" title="删除（移到回收站，可恢复）" aria-label="删除 ${esc(s.name)}">🗑</button>`;
     const haystack = [s.id, s.name, s.description, s.dir].filter(Boolean).join(' ').toLowerCase();
     return `
@@ -2774,13 +2773,12 @@ function renderModulePage(kind) {
     ${meta.kind === 'skill' ? '<div id="skill-placement-hint" class="hint" style="margin:0 0 8px"></div>' : ''}
       <div class="usage-head">
         <h2>${esc(meta.title)} <button class="btn btn-small module-tips-btn" data-module-tips="1" title="切换技能/插件对缓存的影响" style="padding:0 7px;line-height:1.5">！</button></h2>
-        <button class="btn btn-small" id="${esc(meta.tab)}-add-btn" title="从市场口令安装，或查看自建指南">＋ 添加${meta.kind === 'skill' ? '技能' : '插件'}</button>
-        <input type="search" class="module-search" id="module-search-${esc(meta.tab)}"
+                <input type="search" class="module-search" id="module-search-${esc(meta.tab)}"
           placeholder="搜索${meta.kind === 'skill' ? '技能' : '插件'}名称 / 简介…" autocomplete="off" />
         <div class="usage-days">
           <span class="uc-tag" title="生效中 / 这一页的总数">${mine.active} / ${mine.total} 生效</span>
           <button class="btn btn-small" id="${esc(meta.tab)}-refresh-btn">刷新</button>
-          <button class="btn btn-small btn-primary" id="${esc(meta.tab)}-market-btn" title="${meta.kind === 'skill' ? '打开 Skill 市场' : '打开插件市场'}" >${meta.kind === 'skill' ? '打开 Skill 市场' : '打开插件市场'}</button>
+          <button class="btn btn-small btn-primary" id="${esc(meta.tab)}-import-btn" title="从本地 zip 导入（不联网）">📥 导入本地</button>
         </div>
       </div>
       <div class="hint" style="margin-bottom:14px">
@@ -2823,16 +2821,10 @@ async function refreshSkillPlacementHint() {
 function bindModulePageEvents(kind) {
   const meta = MODULE_KINDS[kind];
   if (!meta) return;
-  // 「＋ 添加」入口（标题旁）：打开添加模态框（去市场口令安装 / 自建指南）。
+  // （已移除线上市场/口令入口：插件与技能只支持本地 zip 导入）
   // ⚠️ 这个入口曾经从模板里消失过 —— openAddModuleModal 变成没人调用的孤本，
   // 技能/插件页直接失去"添加"能力。按钮与绑定必须成对存在（2026-09-26 修复）。
-  $(`#${meta.tab}-add-btn`)?.addEventListener('click', () => openAddModuleModal(kind));
   $(`#${meta.tab}-refresh-btn`)?.addEventListener('click', () => loadModulePage(kind, { rescan: true }));
-  // 「打开市场」页面内按钮（2026-10 改版：市场入口从顶栏挪进技能/插件页）
-  $(`#${meta.tab}-market-btn`)?.addEventListener('click', () => {
-    if (kind === 'skill') $('#skill-market-btn')?.click();
-    else $('#plugin-market-btn')?.click();
-  });
   // 残留配置清理（只在技能页渲染，按钮也只在这一页出现）
   document.querySelectorAll('[data-module-tips]').forEach((btn) => {
     if (btn.__tipsBound) return;
@@ -2874,11 +2866,12 @@ function bindModulePageEvents(kind) {
       openSkillSettings(btn.dataset.skillId);
     });
   });
-  // 上传到市场（⬆ 钮）：同样 stopPropagation，且带上卡片所属类型
-  scope.querySelectorAll('.mcard-upload').forEach((btn) => {
+  // 导出为 zip（⬇ 钮）：本地导出，不再上传市场
+  scope.querySelectorAll('.mcard-export').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      openMarketUploadModal(btn.dataset.skillKind || kind, btn.dataset.skillId);
+      const k = btn.dataset.skillKind || kind;
+      window.open('/api/skills/export?kind=' + encodeURIComponent(k) + '&id=' + encodeURIComponent(btn.dataset.skillId), '_blank');
     });
   });
     // 删除（🗑）：移到回收站 + 清配置段，然后重扫

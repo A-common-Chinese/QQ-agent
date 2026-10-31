@@ -33,6 +33,10 @@ import { parseLegacyCard } from './persona-import.js';
 import { runBackup, listBackups } from './backup.js';
 import { installUpdate, cleanUpdateTemp } from './updater.js';
 import { analyzeExtension } from './plugin-compat.js';
+import { unzipToModuleDir } from './zip-install.js';
+import { zipDirectory } from './zip-write.js';
+import { execFileSync } from 'node:child_process';
+
 import { exportToFile, previewImport, applyImport, buildBundle, bundleStats } from './memory-bundle.js';
 import { redactText, getSafeModeConfig } from './safe-mode.js';
 import { listCards, getPerson, getGroup, getGeneral, updatePerson, updateGroup, updateGeneral, deletePerson, prunePersons, purgeDeletedBackups, listDeletedBackups, stats as memoryCardStats, listGenerals, getGeneralById, createGeneral, updateGeneralById, deleteGeneral, listTopics, getTopic, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
@@ -298,7 +302,7 @@ export function createRoutes(deps) {
           const key = String(url.searchParams.get('key') || '');
           const by = String(url.searchParams.get('by') || '');
           const r = await buildUsageBreakdown({ range: raw, dim, key, by });
-          return json(res, 200, { ok: true, ...r });
+          return json(res, 200, { ok: true, module: String(r || '') });
         } catch (error) {
           return json(res, 500, { ok: false, error: String(error?.message ?? error) });
         }
@@ -928,6 +932,45 @@ export function createRoutes(deps) {
         if (!username) return json(res, 400, { ok: false, error: '缺少 username' });
         const accounts = await removeAccount(username);
         return json(res, 200, { ok: true, accounts: accounts.map((a) => ({ username: a.username, savedAt: a.savedAt })) });
+      }
+    },
+    {
+      // 本地 zip 导入（替代线上市场下载）：kind=plugin|skill，body.dataBase64
+      method: 'POST', pattern: '/api/skills/import-local',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        const kind = body?.kind === 'plugin' ? 'plugin' : 'skill';
+        const b64 = String(body?.dataBase64 || '');
+        if (!b64) return json(res, 400, { ok: false, error: '缺少文件内容' });
+        try {
+          const buf = Buffer.from(b64, 'base64');
+          const r = await unzipToModuleDir(buf, { root: ROOT, type: kind });
+          try { await reloadSkills({ reason: 'local-import' }); } catch { /* ignore */ }
+          return json(res, 200, { ok: true, module: String(r || '') });
+        } catch (e) {
+          return json(res, 400, { ok: false, error: String(e?.message || e) });
+        }
+      }
+    },
+    {
+      // 导出已安装的插件/技能为 zip（本地下载）
+      method: 'GET', pattern: '/api/skills/export',
+      handler: async ({ res, json, url }) => {
+        const kind = String(url?.searchParams?.get('kind') || 'plugin') === 'skill' ? 'skill' : 'plugin';
+        const id = String(url?.searchParams?.get('id') || '').replace(/[^\w.-]/g, '');
+        if (!id) return json(res, 400, { ok: false, error: '缺少 id' });
+        const dir = path.join(ROOT, kind === 'plugin' ? 'plugins' : 'skills', id);
+        if (!fs.existsSync(dir)) return json(res, 404, { ok: false, error: '未找到该模块' });
+        try {
+          const buf = zipDirectory(dir);
+          res.writeHead(200, {
+            'Content-Type': 'application/zip',
+            'Content-Disposition': `attachment; filename="${kind}-${id}.zip"`
+          });
+          res.end(buf);
+        } catch (e) {
+          return json(res, 500, { ok: false, error: '打包失败：' + String(e?.message || e) });
+        }
       }
     },
     {

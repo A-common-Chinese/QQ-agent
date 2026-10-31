@@ -860,9 +860,6 @@ async function doUploadQuote(nickname, picked, captchaVerifyParam, overlay, hint
 if (COMMUNITY_UPLOADS_ENABLED) $('#feedback-btn')?.addEventListener('click', () => openFeedbackModal());
 else { const _b = $('#feedback-btn'); if (_b) _b.style.display = 'none'; }
 $('#open-site-btn')?.addEventListener('click', () => openSite());
-$('#skill-market-btn')?.addEventListener('click', () => window.open('https://www.kondius.cn/qq-agent/skill-market/', '_blank', 'noopener'));
-$('#plugin-market-btn')?.addEventListener('click', () => window.open('https://www.kondius.cn/qq-agent/plugin-market/', '_blank', 'noopener'));
-$('#persona-plaza-btn')?.addEventListener('click', () => window.open('https://www.kondius.cn/qq-agent/persona-plaza/', '_blank', 'noopener'));
 if (COMMUNITY_UPLOADS_ENABLED) $('#quote-btn')?.addEventListener('click', () => {
   if (state.quoteMode) exitQuoteMode(); else enterQuoteMode();
 });
