@@ -1932,23 +1932,32 @@ return `
       <div class="hint">改动即时生效（自动保存），无需单独点保存。</div>`
     })}
     ${fold({
+      id: 'card-silent',
+      icon: '🔇',
+      title: '静默会话',
+      sub: '只存档 / 只转发，不回复、不消耗 token',
+      body: `
+      ${renderTagInput('silent', c.store?.silentChats || [])}
+      ${renderSilentAtBlock(c)}
+      <div class="hint">
+        命中的会话<b>永不调用模型</b>：消息照常进存档（历史与记忆素材不丢），链接转发、
+        <code>/dsh</code> 命令等确定性功能照常生效，但不会产生任何回复、也不烧 token。
+        多个用逗号或空格分隔；写裸号按<b>群</b>算。
+      </div>`
+    })}
+    ${fold({
       id: 'card-active-config',
       icon: '⚡',
       title: '活跃设置',
-      sub: '响应档位 / 峰谷',
+      sub: '响应档位 / 关键词',
       val: tierSummary(sliderToTierUI_tierToSlider(st)),
       // 卡头插槽：竖分割线 + 三件套（峰谷时段 / 档位参数 / 统一设置），
       // 紧贴标题块左侧排布，与右上角档位摘要之间留白。
-      extra: `<span class="ac-head-controls"><span class="ac-head-div"></span>
-        <div class="btn ac-peak-btn" id="ac-peak-btn" role="button" tabindex="0" title="点击设置高峰时段（开始 / 结束与预设方案）">
-          <span>🌅 峰谷时段</span>
-          <label class="switch ac-peak-switch" title="启用 / 停用峰谷切换（高峰时段用高峰档，其余时间用低谷档）"><input type="checkbox" id="ac-peak-enabled" ${st.peakSchedule?.enabled === true ? 'checked' : ''} /><span class="track"><span class="thumb"></span></span></label>
-        </div>
-        <button class="btn" id="ac-tier-params-btn" title="档位参数：各档条数 / 关键词表 / 被召唤后持续参与">⚙ 档位参数</button>
-        <label class="switch" style="padding:0" title="开 = 所有群共用同一套档位 / 峰谷时段；关 = 每个群单独设置"><input type="checkbox" id="ac-unifiedtier" ${st.unifiedTier !== false ? 'checked' : ''} /><span class="track"><span class="thumb"></span></span><span style="font-size:12px">统一设置</span></label>
+      extra: `<span class="ac-head-controls">
+        <button class="btn" id="ac-tier-params-btn" title="档位参数：关键词表">⚙ 档位参数</button>
       </span>`,
       open: true,
-      body: `<div id="ac-editor"></div>`
+      body: `<div id="ac-editor"></div>${renderDecisionSection(c, fold)}`
     })}
 
     ${fold({
@@ -2042,20 +2051,6 @@ return `
       <div class="hint">只影响送进模型的那份文本；存档、归档页、导出仍然是原文，不受影响。</div>`
     })}
 
-    ${fold({
-      id: 'card-proactive',
-      icon: '💬',
-      title: '主动开话题',
-      sub: '冷场时按概率主动开话题',
-      body: `
-      <div class="checkbox-row"><input type="checkbox" id="cfg-proactive" ${c.proactive.enabled ? 'checked' : ''} />
-        <label for="cfg-proactive">冷场时按概率主动开话题</label></div>
-      <div class="field-row">
-        <div class="field"><label>检查间隔下限（毫秒）</label><input type="number" id="cfg-pro-min" min="60000" value="${esc(c.proactive.checkIntervalMinMs)}" /></div>
-        <div class="field"><label>检查间隔上限（毫秒）</label><input type="number" id="cfg-pro-max" min="120000" value="${esc(c.proactive.checkIntervalMaxMs)}" /></div>
-        <div class="field"><label>触发概率 0~1</label><input type="number" id="cfg-pro-prob" step="0.05" min="0" max="1" value="${esc(c.proactive.probability)}" /></div>
-      </div>`
-    })}
 
     ${fold({
       id: 'card-sticker',
@@ -2204,24 +2199,9 @@ return `
       </div>`
     })}
 
-    ${fold({
-      id: 'card-silent',
-      icon: '🔇',
-      title: '静默会话',
-      sub: '只存档 / 只转发，不回复、不消耗 token',
-      body: `
-      ${renderTagInput('silent', c.store?.silentChats || [])}
-      ${renderSilentAtBlock(c)}
-      <div class="hint">
-        命中的会话<b>永不调用模型</b>：消息照常进存档（历史与记忆素材不丢），链接转发、
-        <code>/dsh</code> 命令等确定性功能照常生效，但不会产生任何回复、也不烧 token。
-        多个用逗号或空格分隔；写裸号按<b>群</b>算。
-      </div>`
-    })}
     <div class="field" style="margin-top:14px">
       <button class="btn" id="blocklist-btn" style="height:44px;padding:0 28px;font-size:14px">管理屏蔽名单</button>
-    </div>
-    ${renderDecisionSection(c, fold)}`;
+    </div>`;
 }
 
 function renderDesktopSection(c) {

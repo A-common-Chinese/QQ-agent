@@ -629,23 +629,9 @@ function mountActiveConfigEditor(root) {
     const sub = modelModalShell({
       head: '档位参数',
       body: `
-        <h4 class="tp-h">响应时随【已读信息】带多少条历史（各档位相同）</h4>
-        <div class="tp-row">发送
-          <input class="inp mono tp-count" type="number" id="tp-historycount" min="1" max="500" value="${esc(stNow.historyCount ?? stNow.allCount ?? 80)}" />
-          条已读历史。</div>
-        <h4 class="tp-h" style="margin-top:12px">连续触发时的前缀缓存锚定</h4>
-        <div class="checkbox-row"><input type="checkbox" id="tp-anchor" ${stNow.promptAnchor?.enabled !== false ? 'checked' : ''} />
-          <label for="tp-anchor">复用上一轮的记忆+已读前缀，只追加新内容（推荐开启，缓存命中大幅省 token）</label></div>
-        <div class="tp-row">最多额外追加
-          <input class="inp mono tp-count" type="number" id="tp-anchor-extra" min="1" max="50" value="${esc(Number(stNow.promptAnchor?.maxExtraRead ?? 5))}" />
-          条已读，超出则整体重置窗口。</div>
-        <div class="field"><label>② 的关键词表（每行一个，不区分大小写）</label>
-          <textarea id="tp-keywords" rows="4" placeholder="小鲸鱼&#10;bot">${esc((stNow.keywords || []).join('\n'))}</textarea></div>
-        <h4 class="tp-h" style="margin-top:12px">被召唤后持续参与</h4>
-        <div class="checkbox-row"><input type="checkbox" id="tp-chatactive" ${cNow.chatActive?.enabled === true ? 'checked' : ''} />
-          <label for="tp-chatactive">被召唤后可持续参与话题（1/2/3 档触发时生效）</label></div>
-        <div class="field"><label>活跃期最长持续（分钟，到期自动潜水）</label>
-          <input type="number" id="tp-chatactive-ttl" min="1" max="240" value="${esc(Number(cNow.chatActive?.ttlMinutes ?? 30))}" style="max-width:160px" /></div>`,
+        <div class="field"><label>关键词表（每行一个，不区分大小写）</label>
+          <textarea id="tp-keywords" rows="6" placeholder="小鲸鱼&#10;bot">${esc((stNow.keywords || []).join('\n'))}</textarea>
+          <div class="hint">命中关键词会让机器人当作"被叫到"来处理（2 档及以上生效）。</div></div>`,
       foot: `<button class="btn" id="tp-cancel">取消</button>
              <button class="btn btn-primary" id="tp-save">保存</button>`
     });
@@ -654,16 +640,7 @@ function mountActiveConfigEditor(root) {
       try {
         await saveAll({
           tierParams: {
-            historyCount: clampInt(sub.querySelector('#tp-historycount')?.value, 1, 500, 80),
-            promptAnchor: {
-              enabled: sub.querySelector('#tp-anchor')?.checked === true,
-              maxExtraRead: clampInt(sub.querySelector('#tp-anchor-extra')?.value, 1, 50, 5)
-            },
             keywords: String(sub.querySelector('#tp-keywords')?.value || '').split('\n').map((x) => x.trim()).filter(Boolean)
-          },
-          chatActive: {
-            enabled: sub.querySelector('#tp-chatactive')?.checked === true,
-            ttlMinutes: Math.min(240, Math.max(1, Number(sub.querySelector('#tp-chatactive-ttl')?.value) || 30))
           }
         });
         closeModelModal(sub);
