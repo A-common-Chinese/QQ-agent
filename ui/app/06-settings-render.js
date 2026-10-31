@@ -1950,6 +1950,8 @@ return `
         <div class="field"><label>每分钟最多发送</label><input type="number" id="sc-maxpermin" min="1" value="${esc(c.send?.maxPerMinute ?? 80)}" /></div>
         <div class="field"><label>每小时最多发送</label><input type="number" id="sc-maxperhour" min="1" value="${esc(c.send?.maxPerHour ?? 500)}" /></div>
       </div>
+      <div class="checkbox-row" style="margin-top:6px"><input type="checkbox" id="sc-fallback-text" ${c.reply?.fallbackTextReply !== false ? 'checked' : ''} />
+        <label for="sc-fallback-text">被艾特/私聊时，模型只写了正文没走工具 → 兜底把正文发出去</label></div>
       <div class="hint">改动即时生效（自动保存），无需单独点保存。</div>`
     })}
     ${fold({
@@ -3898,6 +3900,10 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
   document.addEventListener('change', async (e) => {
     const t = e.target;
     if (!t || !t.id && !t.classList) return;
+    if (t.id === 'sc-fallback-text') {
+      try { await api('/api/config', { method: 'POST', body: JSON.stringify({ reply: { fallbackTextReply: t.checked === true } }) }); } catch (err) { alert('保存失败：' + (err.message || err)); }
+      return;
+    }
     if (t.id === 'sc-historycount') {
       const n = Math.max(1, Math.min(300, Number(t.value) || 70));
       try { await saveStore({ historyCount: n }); } catch (err) { alert('保存失败：' + (err.message || err)); }

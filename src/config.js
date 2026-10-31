@@ -364,6 +364,9 @@ export const DEFAULT_CONFIG = {
     encourage: 1
   },
   // 存储
+  reply: {
+    fallbackTextReply: true,   // 被艾特/私聊/拍一拍时，模型只写正文没调工具 → 兜底发送
+  },
   storage: {
     messageRetentionDays: 7,   // 消息存档保留天数（0=永久）；只清消息，不碰记忆卡
   },

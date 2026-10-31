@@ -1359,7 +1359,8 @@ export class Orchestrator {
     let status = session.error ? 'error' : (session.sent.length > 0 ? 'done' : 'noreply');
     // ── 兜底：被艾特/私聊/拍一拍时，模型有时把回复写在正文里却没调 send_message ──
     // 这条路径只救"应该回但没走工具"的情况，正常不发言（2/3 档）不受影响。
-    if (status === 'noreply' && Number(tierInfo?.tier) === 1 && Number(tierInfo?.shouldRespond) !== 0) {
+    if (status === 'noreply' && getConfig().reply?.fallbackTextReply !== false
+      && Number(tierInfo?.tier) === 1 && Number(tierInfo?.shouldRespond) !== 0) {
       try {
         const lastText = (() => {
           const list = Array.isArray(session.messages) ? session.messages : [];
