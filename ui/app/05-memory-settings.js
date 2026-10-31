@@ -859,6 +859,9 @@ function renderHealthCard() {
     return '<div class="mem-topic-editor" style="margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:6px">' +
       '<div class="field"><label>标题</label><input type="text" id="memt-title" value="' + esc(card ? card.title || '' : '') + '" placeholder="如：周末爬山计划" /></div>' +
       '<div class="field"><label>摘要（一句话；随机闪回时注入）</label><input type="text" id="memt-summary" value="' + esc(card ? card.summary || '' : '') + '" /></div>' +
+      '<div class="field"><label>期限（模型判断/可手改）</label><select id="memt-term">' +
+        ['short|短期（几天内）','long|长期（几周~几个月）','permanent|永久（长期存在）'].map((x) => { const [v, l] = x.split('|'); const cur = card && card.term === v; return '<option value="' + v + '"' + (cur ? ' selected' : '') + '>' + l + '</option>'; }).join('') +
+      '</select><div class="hint">短期 7 天、长期 90 天后自动过期并从提示词移除；永久不过期。</div></div>' +
       '<div class="field"><label>关键词（逗号或空格分隔；命中就把正文注入提示词）</label><input type="text" id="memt-keywords" value="' + esc(card && Array.isArray(card.keywords) ? card.keywords.join('，') : '') + '" /></div>' +
       '<div class="field"><label>正文</label><textarea id="memt-body" style="min-height:96px">' + esc(card ? card.body || '' : '') + '</textarea></div>' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
@@ -876,11 +879,14 @@ function renderHealthCard() {
     const bodyPreview = body && body !== summary
       ? '<div class="mem-topic-body muted" style="font-size:12px;margin-top:2px">' + esc(body.slice(0, 160)) + (body.length > 160 ? '…' : '') + '</div>'
       : '';
-    const when = t.updatedAt ? '<span class="muted" style="font-size:11px">更新于 ' + esc(fmtTime(Date.parse(t.updatedAt) || 0)) + '</span>' : '';
+    const TERM_LABEL = { short: '短期', long: '长期', permanent: '永久' };
+    const termBadge = '<span class="mem-topic-term" style="display:inline-block;margin-left:6px;padding:0 6px;border-radius:99px;border:1px solid var(--line);font-size:11px;color:var(--tx2)">' + (TERM_LABEL[t.term] || '长期') + '</span>';
+    const expTxt = t.expiresAt > 0 ? ' · ' + esc(new Date(Number(t.expiresAt)).toLocaleDateString('zh-CN')) + ' 过期' : ' · 不过期';
+    const when = '<span class="muted" style="font-size:11px">' + (t.updatedAt ? '更新于 ' + esc(fmtTime(Date.parse(t.updatedAt) || 0)) : '') + expTxt + '</span>';
     return '<div class="mem-topic-card' + (editing ? ' editing' : '') + '" data-topic-id="' + esc(id) + '" style="padding:8px 0;border-bottom:1px solid var(--line)">' +
       '<div style="display:flex;gap:8px;align-items:flex-start">' +
         '<div style="flex:1;min-width:0">' +
-          '<div class="mem-topic-title" style="font-weight:600">' + esc(t.title || '未命名话题') + '</div>' +
+          '<div class="mem-topic-title" style="font-weight:600">' + esc(t.title || '未命名话题') + termBadge + '</div>' +
           (summary ? '<div class="mem-topic-summary muted" style="font-size:12px;margin-top:2px">' + esc(summary) + '</div>' : '') +
           bodyPreview +
           '<div class="mem-topic-kws" style="margin-top:4px">' + memTopicChipsHtml(t.keywords) + '</div>' +
@@ -966,7 +972,8 @@ function renderHealthCard() {
             title: val('memt-title'),
             summary: val('memt-summary'),
             keywords: val('memt-keywords').split(/[,，、\s]+/).map((x) => x.trim()).filter(Boolean),
-            body: val('memt-body')
+            body: val('memt-body'),
+            term: val('memt-term') || 'long'
           };
           if (!payload.title.trim()) { alert('话题卡标题不能为空'); return; }
           try {

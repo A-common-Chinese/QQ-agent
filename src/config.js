@@ -60,6 +60,12 @@ export const DEFAULT_CONFIG = {
     presenceWindow: true,   // 在场判定：用"最近 N 条出现过的人"
     presenceMention: true,  // 在场判定：用"被点名的人"
     flashbackCount: 2,      // 随机闪回几张话题卡（0=关）
+    topics: {               // 话题卡自动生成（与「约定」同思路：模型判断期限）
+      autoEnabled: false,   // 默认关，打开后记忆整理时顺带抽取话题
+      maxPerChat: 20,       // 每个会话最多保留多少张话题卡
+      shortDays: 7,         // 短期话题保留天数
+      longDays: 90          // 长期话题保留天数（永久不自动过期）
+    },
     impressionScope: 'auto',
     // 记忆卡批量整理（一次性处理所有有新消息的会话）
     batchEnabled: true,

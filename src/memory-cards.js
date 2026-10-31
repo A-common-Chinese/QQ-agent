@@ -5,7 +5,7 @@
 //   data/memory-cards/persons/<QQ>.json            个人卡
 import fs from 'node:fs';
 import path from 'node:path';
-import { DATA_DIR } from './config.js';
+import { DATA_DIR, getConfig } from './config.js';
 import { resolveKeys, writeKeys, canonicalKey, personCanonical } from './identity-links.js';
 
 const ROOT = path.join(DATA_DIR, 'memory-cards');
@@ -441,7 +441,22 @@ export function statsGenerals() {
 //    writeTopic 用同一套映射：**先按 id 扫一遍现有文件，命中就复用那个文件名；
 //    没命中才新建**（新建用历史命名：去掉 topic: 前缀后 sanitize）。
 const TOPIC_FILE_RE = /^topic_.*\.json$/;
-const TOPIC_ALLOWED = ['title', 'body', 'summary', 'keywords', 'updatedAt'];
+const TOPIC_ALLOWED = ['title', 'body', 'summary', 'keywords', 'updatedAt', 'term', 'at', 'expiresAt'];
+const TOPIC_TERMS = ['short', 'long', 'permanent'];
+
+/** 话题期限 → 过期时间（permanent = 不过期） */
+export function topicExpiresAt(term, baseMs = Date.now()) {
+  const t = TOPIC_TERMS.includes(String(term)) ? String(term) : 'long';
+  if (t === 'permanent') return 0;
+  let days = 90;
+  try {
+    const cfg = (getConfig().memoryCards?.topics) || {};
+    days = t === 'short' ? Number(cfg.shortDays ?? 7) : Number(cfg.longDays ?? 90);
+  } catch { /* ignore */ }
+  return baseMs + Math.max(1, days) * 24 * 60 * 60 * 1000;
+}
+
+function normalizeTopicTerm(v) { return TOPIC_TERMS.includes(String(v)) ? String(v) : 'long'; }
 const isChatKey = (k) => /^(group|private):\d+$/.test(String(k || ''));
 const timeOf = (v) => {
   const t = Date.parse(String(v || ''));
@@ -490,7 +505,12 @@ function findTopicFile(chatKey, id) {
 /** 该会话的全部话题卡（按 updatedAt 倒序；chatKey 缺省补上，方便界面/导出使用） */
 export function listTopics(chatKey) {
   if (!isChatKey(chatKey)) return [];
-  const list = readTopicFiles(chatKey).map(({ card }) => ({ ...card, chatKey: card.chatKey || String(chatKey) }));
+  const list = readTopicFiles(chatKey).map(({ card }) => {
+    const term = normalizeTopicTerm(card.term);
+    const at = Number(card.at) || timeOf(card.updatedAt) || Date.now();
+    const expiresAt = card.expiresAt === 0 ? 0 : (Number.isFinite(Number(card.expiresAt)) ? Number(card.expiresAt) : topicExpiresAt(term, at));
+    return { ...card, term, at, expiresAt, chatKey: card.chatKey || String(chatKey) };
+  });
   list.sort((a, b) => timeOf(b.updatedAt) - timeOf(a.updatedAt) || String(a.title || '').localeCompare(String(b.title || ''), 'zh'));
   return list;
 }
@@ -522,6 +542,9 @@ export function createTopic(chatKey, patch = {}) {
     summary: String(patch.summary || '').trim().slice(0, 200),
     body: String(patch.body || '').trim(),
     keywords: normalizeKeywords(patch.keywords),
+    term: normalizeTopicTerm(patch.term),
+    at: Number.isFinite(Number(patch.at)) ? Number(patch.at) : Date.now(),
+    expiresAt: Number.isFinite(Number(patch.expiresAt)) ? Number(patch.expiresAt) : topicExpiresAt(patch.term),
     createdAt: now,
     updatedAt: Number.isFinite(Date.parse(String(patch.updatedAt || ''))) ? new Date(patch.updatedAt).toISOString() : now
   };
@@ -545,6 +568,11 @@ export function updateTopic(chatKey, id, patch = {}) {
   next.summary = String(next.summary || '').trim().slice(0, 200);
   next.body = String(next.body || '');
   next.keywords = normalizeKeywords(next.keywords);
+  next.term = normalizeTopicTerm(patch && patch.term !== undefined ? patch.term : next.term);
+  if (patch && (patch.term !== undefined || patch.expiresAt !== undefined)) {
+    next.at = Number(patch.at) || Number(next.at) || Date.now();
+    next.expiresAt = Number.isFinite(Number(patch.expiresAt)) ? Number(patch.expiresAt) : topicExpiresAt(next.term, next.at);
+  }
   const ts = Date.parse(String((patch && patch.updatedAt) || ''));
   next.updatedAt = Number.isFinite(ts) ? new Date(ts).toISOString() : new Date().toISOString();
   writeAtomic(file, next);

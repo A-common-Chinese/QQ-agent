@@ -14,6 +14,7 @@ import { getConfig, storeConfigForChat, personaForChat, isSilentChat, DATA_DIR }
 import { vendorOfConfig } from './model-prices.js';
 import { randInt } from './util.js';
 import { applyDynamicHistory } from './dynamic-history.js';
+import { upsertTopicCard } from './topic-cards.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier, prepareSkillSections, splitSkillSections } from './prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from './llm.js';
 import { buildToolDefs, toOpenAiTools, executeTool } from './tools.js';
@@ -1646,6 +1647,7 @@ export class Orchestrator {
     const chunks = readChunks(chatKey, 40).slice(0, 12);
     const sem = readSemanticCards(chatKey).slice(0, 12);
     const isGroup = String(chatKey).startsWith('group:');
+    const topicsAuto = getConfig().memoryCards?.topics?.autoEnabled === true;
     const names = [...new Set(recent.map((m) => (m.senderId ? `${m.senderName || m.senderId}(${m.senderId})` : '')).filter(Boolean))].slice(0, 10);
     const lines = recent.slice(-60).map((m) => `${m.senderName || '我'}: ${String(m.text || '').replace(/\s+/g, ' ').slice(0, 120)}`).join('\n');
     const memText = impressions.map((i) => `- ${i.target}: ${i.content}`).join('\n');
@@ -1670,9 +1672,11 @@ export class Orchestrator {
       '',
       '请输出 JSON：',
       '{"group":{"name":"会话或群名","summary":"1-3 句定位","facts":["稳定事实，最多6条"],"topics":["常聊话题，最多6条"]},',
-      ' "persons":[{"qq":"数字QQ号","name":"昵称","summary":"1-2 句概括","tone":"说话风格","facts":["稳定事实，最多5条"],"prefs":[],"notes":[],"pending":[{"text":"约定内容","term":"short|long|permanent"}]}]}',
+      ' "persons":[{"qq":"数字QQ号","name":"昵称","summary":"1-2 句概括","tone":"说话风格","facts":["稳定事实，最多5条"],"prefs":[],"notes":[],"pending":[{"text":"约定内容","term":"short|long|permanent"}]}],',
+      topicsAuto ? ' "topics":[{"title":"话题标题","summary":"一句话概括","body":"关键信息 2-4 句","keywords":["能命中该话题的词"],"term":"short|long|permanent"}]}' : ' "topics":[]}',
       '要求：只写稳定信息，不写一次性事件；persons 最多 5 人；没有数字QQ号的人不要输出；信息不足就留空字符串或空数组。',
       '约定（pending）只写明确的约定/待办；term 由你判断：short=几天内、long=几周~几个月、permanent=长期有效（如"喜欢被叫小鲸鱼"这类偏好不算约定，放 facts/prefs）。',
+      topicsAuto ? '话题（topics）：从最近聊天里抽 1-3 个仍在延续的话题；term 判断同上（短期=几天内会结束，长期=持续数周，永久=长期存在的设定/梗）。keywords 要含未来消息可能出现的词。' : '',
       '个人卡印象只保留「通用印象」和「私聊印象」，不要写群聊专属印象；跨群通用的写进 summary/tone/facts。'
     ].join('\n');
     const resp = await this.#memoryChat([{ role: 'system', content: sys }, { role: 'user', content: user }]);
@@ -1717,6 +1721,14 @@ export class Orchestrator {
         }).filter((x) => x.text);
       }
       if (Object.keys(patch).length) { if (upsertPerson(qq, patch).ok) touched += 1; }
+    }
+    if (topicsAuto && Array.isArray(json.topics)) {
+      for (const t of json.topics.slice(0, 3)) {
+        try {
+          const r = upsertTopicCard(chatKey, t);
+          if (r.ok) touched += 1;
+        } catch { /* ignore */ }
+      }
     }
     if (touched) {
       markAutoCards(chatKey);

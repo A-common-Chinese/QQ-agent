@@ -124,7 +124,9 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
   }
 
   // ④ 话题卡：关键词命中拉全文 + 标题索引 + 随机闪回
-  const topics = readJsonDir(dirOf(chatKey), 'topic_');
+  const nowMs = Date.now();
+  const topics = readJsonDir(dirOf(chatKey), 'topic_')
+    .filter((t) => !(Number(t.expiresAt) > 0 && Number(t.expiresAt) < nowMs));   // 过期话题不再注入
   if (topics.length) {
     const textAll = scan.map((m) => String(m.text || '')).join('\n');
     const hit = [];
