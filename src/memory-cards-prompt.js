@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
-import { resolveGeneralForChat } from './memory-cards.js';
+import { resolveGeneralForChat, isEmptyPersonCard } from './memory-cards.js';
 import { isSensitiveTopic } from './topic-cards.js';
 
 const ROOT = path.join(DATA_DIR, 'memory-cards');
@@ -90,7 +90,7 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
     }
   }
   // 被点名的成员：从消息文本里找名字（用个人卡的 name/aliases 反查）
-  const allPersons = readJsonDir(PERSONS, '');
+  const allPersons = readJsonDir(PERSONS, '').filter((p) => !isEmptyPersonCard(p));   // 空卡（隐藏区）不注入
   const byQq = new Map(allPersons.map((p) => [String(p.qq), p]));
   if (useMention) {
     const textAll = scan.map((m) => String(m.text || '')).join('\n');

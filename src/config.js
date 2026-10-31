@@ -60,6 +60,9 @@ export const DEFAULT_CONFIG = {
     presenceWindow: true,   // 在场判定：用"最近 N 条出现过的人"
     presenceMention: true,  // 在场判定：用"被点名的人"
     flashbackCount: 2,      // 随机闪回几张话题卡（0=关）
+    autoCreatePersons: true,   // 群友第一次出现就建空卡（不调模型，空卡进隐藏区）
+    hiddenMax: 500,            // 隐藏区（空卡）全库上限，超出按最久未更新清理
+    hiddenRetentionDays: 30,   // 隐藏区空卡保留天数（0=不按时间清）
     topics: {               // 话题卡自动生成（时限与个人卡「约定」不同：半天/一天/七天/长期）
       autoEnabled: false,   // 默认关，打开后记忆整理时顺带抽取话题
       maxPerChat: 12,       // 每个会话最多保留多少张话题卡

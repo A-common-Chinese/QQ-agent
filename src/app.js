@@ -13,7 +13,7 @@ import { QqBotTransport } from './transport/qqbot.js';
 import { OneBotClient, segmentsToText, extractMediaFromSegments, expandForwardNodes } from './onebot.js';
 import { isAtMe } from './prompt.js';
 import { ChatStore } from './store.js';
-import { ensureGroupCard } from './memory-cards.js';
+import { ensureGroupCard, ensurePersonCard, purgeHiddenPersons } from './memory-cards.js';
 import { MemoryStore } from './memory.js';
 import { StickerManager } from './sticker-manager.js';
 import { SendQueue } from './sender.js';
@@ -1025,6 +1025,14 @@ export function createApp({ log = console.log } = {}) {
       atMe,
       atNames
     });
+    // 群友第一次出现就建一张空卡（不调模型）：空卡进「隐藏区」，不进提示词；
+    // 记忆整理把内容填进去后自动出现在正常列表里。
+    try {
+      if (getConfig().memoryCards?.autoCreatePersons !== false) {
+        const qq = String(senderId || '');
+        if (/^\d{4,12}$/.test(qq)) ensurePersonCard(qq, senderName, `${kind}:${id}`);
+      }
+    } catch { /* 建卡失败不影响消息 */ }
     emit('chat-update', `${kind}:${id}`);
 
     // DSH 桥（确定性，2026-10-10）：/dsh 前缀的命令不进大模型，直接交给本机
@@ -1647,7 +1655,11 @@ export function createApp({ log = console.log } = {}) {
       sseClients.add(res);
       // 心跳：半开 TCP（拔网线 / NAT 超时，没有 FIN）不会触发 req 'close'，
       // 少了心跳这些客户端会永久留在 sseClients 里，之后每次 emit 都白写一遍。
-      // 消息存档保留：启动后 65s 跑一次，之后每 12 小时一次（默认保留 7 天，只清消息不碰记忆卡）
+      // 隐藏区清理：启动后 90s 跑一次，之后每 12 小时一次（上限 + 保留天数）
+  setTimeout(() => { try { purgeHiddenPersons({ dryRun: false }); } catch { /* ignore */ } }, 90_000);
+  setInterval(() => { try { purgeHiddenPersons({ dryRun: false }); } catch { /* ignore */ } }, 12 * 60 * 60 * 1000);
+
+  // 消息存档保留：启动后 65s 跑一次，之后每 12 小时一次（默认保留 7 天，只清消息不碰记忆卡）
   setTimeout(() => { try { purgeOldMessagesByConfig(); } catch { /* ignore */ } }, 65_000);
   setInterval(() => { try { purgeOldMessagesByConfig(); } catch { /* ignore */ } }, 12 * 60 * 60 * 1000);
 

@@ -1107,7 +1107,9 @@ function renderHealthCard() {
     // 个人卡子页签：左侧列个人卡（而不是会话）
     const isPersons = st.tab === 'persons';
     const personsAll = (st.list.persons || []).filter((x) => hit(x.name || '') || hit(x.qq) || hit(x.summary || ''));
-    const personCards = personsAll.map((x) => {
+    const personsVisible = personsAll.filter((x) => !x.hidden);
+    const personsHidden = personsAll.filter((x) => x.hidden);
+    const personCards = personsVisible.map((x) => {
       const sel = st.sel && st.sel.tab === 'persons' && String(st.sel.qq) === String(x.qq);
       const payload = JSON.stringify({ tab: 'persons', qq: x.qq });
       const sub = 'QQ ' + String(x.qq || '') + (x.summary ? ' · ' + String(x.summary).slice(0, 20) : '');
@@ -1117,6 +1119,20 @@ function renderHealthCard() {
         '<div class="mem-card-title">' + esc(x.name || ('QQ' + x.qq)) + '</div>' +
         '<div class="mem-card-sub">' + esc(sub) + '</div></div>';
     }).join('') || '<div class="mem-empty">（没有匹配的个人卡）</div>';
+    let personHiddenHtml = '';
+    if (isPersons && personsHidden.length) {
+      personHiddenHtml = '<div class="mem-hidden-head" data-mem="toggle-hidden" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:8px 2px 4px;margin-top:6px;border-top:1px dashed var(--line);color:var(--tx3);font-size:12px">' +
+        (st.showHidden ? '▾' : '▸') + ' 隐藏空卡（' + personsHidden.length + '）<span style="font-size:11px">未整理 · 不进提示词</span></div>';
+      if (st.showHidden) {
+        personHiddenHtml += personsHidden.map((x) => {
+          const sel = st.sel && st.sel.tab === 'persons' && String(st.sel.qq) === String(x.qq);
+          const payload = JSON.stringify({ tab: 'persons', qq: x.qq });
+          return '<div class="mem-card' + (sel ? ' sel' : '') + '" data-mem="sel" data-pqq="' + esc(String(x.qq)) + '" data-json=\'' + esc(payload) + '\' style="opacity:.65">' +
+            '<div class="mem-card-title">' + esc(x.name || ('QQ' + x.qq)) + '</div>' +
+            '<div class="mem-card-sub">QQ ' + esc(String(x.qq)) + '</div></div>';
+        }).join('');
+      }
+    }
     const chatCards = groups
       .filter((g) => hit(g.name || g.chatKey) || hit(g.chatKey))
       .map((g) => {
@@ -1137,7 +1153,7 @@ function renderHealthCard() {
     itemsBox.innerHTML =
       '<div class="mem-side">' +
         '<div class="mem-side-head"><span>' + (isPersons ? '个人卡' : '群聊 / 私聊') + '</span><span class="mem-count">' +
-          (isPersons ? personsAll.length : groups.length) + '</span></div>' +
+          (isPersons ? (personsVisible.length + (personsHidden.length ? '+' + personsHidden.length : '')) : groups.length) + '</span></div>' +
         '<input type="text" data-mem="search" id="memv-q" class="mem-search" placeholder="' +
           (isPersons ? '搜索昵称 / QQ 号…' : '搜索会话名…') + '" value="' + esc(st.q || '') + '" />' +
         (isPersons ? ('<div style="display:flex;gap:6px;padding:6px 0;flex-wrap:wrap">' +
@@ -1145,7 +1161,7 @@ function renderHealthCard() {
           '<button class="btn btn-small" data-mem="batch-toggle">' + (memBatchState().active ? '退出批量' : '批量删除') + '</button>' +
           (memBatchState().active ? '<button class="btn btn-small btn-danger" data-mem="batch-confirm">确认删除 (' + memBatchState().sel.size + ')</button>' : '') +
           '</div>') : '') +
-        '<div class="mem-cards' + (isPersons && memBatchState().active ? ' batch-mode' : '') + '">' + (isPersons ? personCards : chatCards) + '</div>' +
+        '<div class="mem-cards' + (isPersons && memBatchState().active ? ' batch-mode' : '') + '">' + (isPersons ? personCards + personHiddenHtml : chatCards) + '</div>' +
       '</div>';
 
     if (_searchFocused) {
@@ -1242,6 +1258,7 @@ function renderHealthCard() {
         memLoadDetail().then(async () => { if (state.tab === 'memory') await loadMemoryView(); });
         return;
       }
+      if (act === 'toggle-hidden') { st.showHidden = !st.showHidden; loadMemoryView(); return; }
       if (act === 'rules') {
         if (typeof window.__openMemoryRulesModal === 'function') window.__openMemoryRulesModal();
         return;

@@ -26,7 +26,7 @@ import { getToolAvailability } from './tool-registry.js';
 import { rescueUnsentReply } from './reply-rescue.js';
 import { asTransport } from './transport/index.js';
 import { runDecision, runDecisionTriggered, tryConsumeLive } from './decision-pipeline.js';
-import { upsertPerson, upsertGroup } from './memory-cards.js';
+import { upsertPerson, upsertGroup, ensurePersonCard } from './memory-cards.js';
 import { readChunks, readSemanticCards, lastAutoCardsAt, markAutoCards } from './memory-layers.js';
 
 export class Orchestrator {

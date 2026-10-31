@@ -24,6 +24,80 @@ function writeAtomic(file, data) {
   fs.renameSync(tmp, file);
 }
 
+/** 空卡：没有任何可注入内容（自动建的骨架卡、或建了没填的卡） */
+export function isEmptyPersonCard(card) {
+  if (!card || typeof card !== 'object') return true;
+  const hasText = (v) => String(v || '').trim().length > 0;
+  const hasList = (v) => Array.isArray(v) && v.length > 0;
+  const imp = card.impressions || {};
+  return !hasText(card.summary) && !hasText(card.tone)
+    && !hasList(card.facts) && !hasList(card.prefs) && !hasList(card.notes)
+    && !hasList(card.events) && !hasList(card.pending)
+    && !hasText(imp.general) && !hasList(imp.byChat);
+}
+
+/** 群友第一次出现时建一张空卡（不调模型）；内容由记忆整理补 */
+export function ensurePersonCard(qq, name = '', chatKey = '') {
+  const id = String(personCanonical(qq) || '').trim();
+  if (!id) return { ok: false, error: 'missing_qq' };
+  const file = path.join(PERSONS, safeKey(id) + '.json');
+  const cur = read(file);
+  if (cur) return { ok: true, existing: true };
+  const now = new Date().toISOString();
+  const card = {
+    qq: id,
+    name: String(name || id).slice(0, 40),
+    summary: '',
+    tone: '',
+    facts: [],
+    prefs: [],
+    events: [],
+    pending: [],
+    notes: [],
+    impressions: { general: '', byChat: {} },
+    aliases: [],
+    groups: chatKey ? [{ chatKey, msgs: 1 }] : [],
+    meta: { autoCreated: true, firstSeen: now, lastSeen: now },
+    createdAt: now,
+    updatedAt: now
+  };
+  writeAtomic(file, card);
+  return { ok: true, created: true, card };
+}
+
+/** 清理隐藏区（空卡）：超过上限按最久未更新删；超过保留天数也删。只删自动建的空卡。 */
+export function purgeHiddenPersons({ max, olderThanDays, dryRun = true } = {}) {
+  let cap = 500; let days = 30;
+  try {
+    const cfg = getConfig().memoryCards || {};
+    cap = Number(max ?? cfg.hiddenMax ?? 500);
+    days = Number(olderThanDays ?? cfg.hiddenRetentionDays ?? 30);
+  } catch { /* ignore */ }
+  const cutoff = Date.now() - Math.max(1, days) * 24 * 60 * 60 * 1000;
+  const empties = [];
+  try {
+    for (const f of fs.readdirSync(PERSONS)) {
+      if (!f.endsWith('.json')) continue;
+      const c = read(path.join(PERSONS, f));
+      if (!c || !isEmptyPersonCard(c)) continue;
+      const auto = c.meta?.autoCreated === true;
+      const ts = Date.parse(c.meta?.firstSeen || c.createdAt || c.updatedAt || '') || 0;
+      empties.push({ file: path.join(PERSONS, f), qq: c.qq || f.replace(/\.json$/, ''), ts, auto });
+    }
+  } catch { return { ok: false, error: 'read_failed' }; }
+  empties.sort((a, b) => a.ts - b.ts);   // 最旧优先
+  const tooOld = days > 0 ? empties.filter((x) => x.auto && x.ts && x.ts < cutoff) : [];
+  const overflow = Math.max(0, empties.length - Math.max(0, cap));
+  const victims = new Map();
+  for (const x of tooOld) victims.set(x.file, x);
+  for (const x of empties.slice(0, overflow)) victims.set(x.file, x);
+  const list = [...victims.values()];
+  if (!dryRun) {
+    for (const x of list) { try { fs.renameSync(x.file, x.file + '.deleted-' + Date.now()); } catch { /* ignore */ } }
+  }
+  return { ok: true, total: empties.length, cap, days, removed: list.length, dryRun, qqs: list.map((x) => x.qq).slice(0, 50) };
+}
+
 export function listCards() {
   const general = getGeneral() || { id: 'general', name: '通用卡', summary: '', facts: [] };
   const groups = [];
@@ -36,7 +110,7 @@ export function listCards() {
       if (d === 'persons') {
         for (const f of fs.readdirSync(p).filter((x) => x.endsWith('.json'))) {
           const c = read(path.join(p, f));
-          if (c) persons.push({ qq: c.qq || f.replace(/\.json$/, ''), name: c.name || '', summary: c.summary || '', groups: (c.groups || []).length, notes: (c.notes || []).length, facts: (c.facts || []).length, updatedAt: c.updatedAt || '' });
+          if (c) persons.push({ qq: c.qq || f.replace(/\.json$/, ''), name: c.name || '', summary: c.summary || '', groups: (c.groups || []).length, notes: (c.notes || []).length, facts: (c.facts || []).length, updatedAt: c.updatedAt || '', hidden: isEmptyPersonCard(c) });
         }
       } else {
         const g = read(path.join(p, 'group.json'));
