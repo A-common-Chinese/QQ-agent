@@ -1067,7 +1067,6 @@ function renderHealthCard() {
       '<span class="subnav-sep"></span>' +
       (compress ? pill(compress) : '') +
     '<button class="mem-subtab' + (memActiveSub === 'batch' ? ' act' : '') + '" data-mem="subtab" data-sub="batch">记忆整理</button>' +
-    '<button class="mem-subtab" data-mem="rules" title="记忆卡是怎么建立的、怎么注入的">？规则</button>' +
     '<span class="subnav-note" title="' + esc(typeof consumptionTip === 'function' ? consumptionTip('memory-compress') : '') + '">压缩只改注入内容，不动原始记忆</span>';
   };
 
@@ -1600,8 +1599,9 @@ function renderHealthCard() {
       '<div id="memstudio-result">' + memStudioResultInnerHtml() + '</div>';
   }
   function memStudioPanelHtml() {
-    return '<div id="memstudio-panel" class="mem-studio" style="padding:2px 0">' +
-      '<div class="hint" style="margin:0 0 10px">在控制台里直接完成：把现有记忆（或一个 .qqmem.json）交给本地「记忆解释器」压缩，再把结果导回 QQ Agent。全程不离开本页面。</div>' +
+    return '<div id="memstudio-panel" class="mem-studio" style="padding:2px 0;position:relative">' +
+      '<button data-mem="rules" title="记忆卡是怎么建立的、怎么注入的" style="position:absolute;top:-2px;right:0;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);background:var(--bg2);color:var(--tx2);cursor:pointer;font-size:13px;line-height:22px;padding:0">？</button>' +
+      '<div class="hint" style="margin:0 0 10px;padding-right:32px">在控制台里直接完成：把现有记忆（或一个 .qqmem.json）交给本地「记忆解释器」压缩，再把结果导回 QQ Agent。全程不离开本页面。</div>' +
       memStudioBlocksHtml() +
     '</div>';
   }
