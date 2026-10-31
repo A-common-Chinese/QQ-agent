@@ -62,7 +62,7 @@ export const DEFAULT_CONFIG = {
     flashbackCount: 2,      // 随机闪回几张话题卡（0=关）
     topics: {               // 话题卡自动生成（时限与个人卡「约定」不同：半天/一天/七天/长期）
       autoEnabled: false,   // 默认关，打开后记忆整理时顺带抽取话题
-      maxPerChat: 20,       // 每个会话最多保留多少张话题卡
+      maxPerChat: 12,       // 每个会话最多保留多少张话题卡
       halfDayHours: 12,     // 半天
       dayHours: 24,         // 一天
       weekDays: 7,          // 七天
