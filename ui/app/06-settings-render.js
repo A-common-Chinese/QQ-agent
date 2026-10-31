@@ -1976,7 +1976,6 @@ return `
       // 紧贴标题块左侧排布，与右上角档位摘要之间留白。
       extra: `<span class="ac-head-controls">
         <button class="btn" id="ac-tier-params-btn" title="档位参数：关键词表">⚙ 档位参数</button>
-        <button class="btn" id="ac-unify-all" title="把所有群的响应档位统一成当前全局设置">🌐 统一活跃设置</button>
       </span>`,
       open: true,
       body: `<div id="ac-editor"></div>${renderDecisionSection(c, fold)}`
@@ -3893,15 +3892,5 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
       try { await saveStore({ historyCountByChat: { __replace__: map } }); } catch (err) { alert('保存失败：' + (err.message || err)); }
     }
   });
-  document.addEventListener('click', async (e) => {
-    const btn = e.target && e.target.closest && e.target.closest('#ac-unify-all');
-    if (!btn) return;
-    e.stopPropagation();
-    const ok = await uiConfirm('把所有群的响应档位统一成当前全局设置？\n\n这会清掉各群的单独档位（包括观察用群的 1 档设置）。', { title: '统一活跃设置', okText: '统一' });
-    if (!ok) return;
-    try {
-      await saveStore({ unifiedTier: true, groupSliderPos: { __replace__: {} }, groupPeakPos: { __replace__: {} } });
-      location.reload();
-    } catch (err) { alert('统一失败：' + (err.message || err)); }
-  });
+
 }

@@ -240,6 +240,7 @@ function mountActiveConfigEditor(root) {
   const B = TIER_SLIDER_BANDS;
   const ps = st.peakSchedule || {};
   const unified0 = st.unifiedTier !== false;
+  let draftUnified = unified0;   // 草稿里的统一/分群状态（卡头开关已移除，改由体内按钮切换）
   const peakOn0 = ps.enabled === true;
   const globalPos = sliderToTierUI_tierToSlider(st);
 
@@ -291,6 +292,9 @@ function mountActiveConfigEditor(root) {
         <div class="hint ac-target" id="ac-target"></div>
       </div>
       <div class="ac-right">
+          <div style="margin-bottom:8px">
+            <button class="btn btn-small" id="ac-group-toggle" type="button">${unified0 ? '按群单独设置' : '改回统一设置'}</button>
+          </div>
           <div id="ac-group-area"${unified0 ? ' style="display:none"' : ''}>
             <div class="field"><label>选择要单独设置的群聊（来自白名单，点击切换）</label>
               <div class="ac-group-buttons" id="ac-group-buttons"></div></div>
@@ -312,7 +316,7 @@ function mountActiveConfigEditor(root) {
   const ctrl = (sel) => headCard?.querySelector(sel) || overlay.querySelector(sel);
   // 「统一设置」开关：开 = 统一全部群（unifiedTier=true），关 = 每个群单独设置。
   const chkUnified = ctrl('#ac-unifiedtier');
-  const unifiedNow = () => (chkUnified ? chkUnified.checked !== false : unified0);
+  const unifiedNow = () => draftUnified;
   // 峰谷开关在「峰谷时段」组合按钮内部（文本右侧）：勾选状态即草稿状态，
   // 主滑条的双珠形态据此切换（所见即所得）。
   const chkPeak = ctrl('#ac-peak-enabled');
@@ -484,8 +488,14 @@ function mountActiveConfigEditor(root) {
     renderGroupButtons();
     syncSliderUI();
   }
-  // 「统一设置」/「峰谷」开关：改动即时反映到滑条形态与显隐
-  chkUnified?.addEventListener('change', () => applyQuadrantUI());
+  // 体内「按群单独设置 / 改回统一设置」按钮：切换分群模式并显隐群列表
+  const gToggle = overlay.querySelector('#ac-group-toggle');
+  gToggle?.addEventListener('click', () => {
+    draftUnified = !draftUnified;
+    gToggle.textContent = draftUnified ? '按群单独设置' : '改回统一设置';
+    applyQuadrantUI();
+  });
+  // 峰谷开关（若存在）：改动即时反映到滑条形态与显隐
   chkPeak?.addEventListener('change', () => applyQuadrantUI());
 
   // 快捷档位预设胶囊已按需求移除（统一全部群开关保留）；
