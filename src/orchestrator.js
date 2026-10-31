@@ -15,6 +15,7 @@ import { vendorOfConfig } from './model-prices.js';
 import { randInt } from './util.js';
 import { applyDynamicHistory } from './dynamic-history.js';
 import { upsertTopicCard } from './topic-cards.js';
+import { appendAudit } from './audit.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier, prepareSkillSections, splitSkillSections } from './prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from './llm.js';
 import { buildToolDefs, toOpenAiTools, executeTool } from './tools.js';
@@ -1355,7 +1356,46 @@ export class Orchestrator {
     }
 
     // 收尾：发过话 = done；没发 = noreply（这是正常选项）
-    const status = session.error ? 'error' : (session.sent.length > 0 ? 'done' : 'noreply');
+    let status = session.error ? 'error' : (session.sent.length > 0 ? 'done' : 'noreply');
+    // ── 兜底：被艾特/私聊/拍一拍时，模型有时把回复写在正文里却没调 send_message ──
+    // 这条路径只救"应该回但没走工具"的情况，正常不发言（2/3 档）不受影响。
+    if (status === 'noreply' && Number(tierInfo?.tier) === 1 && Number(tierInfo?.shouldRespond) !== 0) {
+      try {
+        const lastText = (() => {
+          const list = Array.isArray(session.messages) ? session.messages : [];
+          for (let i = list.length - 1; i >= 0; i -= 1) {
+            const m = list[i];
+            if (!m || m.role !== 'assistant') continue;
+            const c = typeof m.content === 'string' ? m.content : '';
+            if (c.trim()) return c.trim();
+          }
+          return '';
+        })();
+        const looksLikeReasoning = /send_message|工具|\[系统\]|^我(需要|先|应该)/.test(lastText);
+        if (lastText && lastText.length <= 300 && !looksLikeReasoning) {
+          const r = await this.sender.sendTextBatch(chatKey, [lastText]);
+          if (r?.sent?.length) {
+            session.sent.push(...r.sent.map((x) => ({ type: 'text', text: x.text, at: x.at })));
+            session.finishReason = (session.finishReason || '') + '（正文兜底发送）';
+            try { appendAudit('fallback-send', { chatKey, tier: 1, chars: lastText.length }); } catch { /* ignore */ }
+          }
+        }
+      } catch { /* 兜底失败不影响正常收尾 */ }
+    }
+    // 兜底可能刚发出了一条 → 重新判定状态
+    status = session.error ? 'error' : (session.sent.length > 0 ? 'done' : 'noreply');
+    // 不回复的原因留痕：finish(summary) 由提示词要求"不打算说话时写一句理由"
+    if (status === 'noreply') {
+      try {
+        appendAudit('skip-no-reply', {
+          chatKey,
+          tier: tierInfo?.tier ?? null,
+          trigger: String(tierInfo?.reason || '').slice(0, 80),
+          finishReason: String(session.finishReason || '').slice(0, 200),
+          msgs: Array.isArray(triggerEntries) ? triggerEntries.length : 0
+        });
+      } catch { /* ignore */ }
+    }
     this.sessionAbortControllers.delete(session.id);
     this.sessions.finish(session.id, status);
     this.emit('session-end', {
