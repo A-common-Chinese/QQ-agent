@@ -654,6 +654,18 @@ function mountActiveConfigEditor(root) {
   // 「峰谷时段」组合按钮：点按钮本体 = 设置高峰时段（弹窗）；
   // 点文本右侧的开关 = 启用 / 停用峰谷（不弹窗，即时预览主滑条双珠形态）。
   // stopPropagation：三件套在折叠卡头部，不拦住会顺手把卡折叠了。
+  // 档位参数按钮改为 document 级委托：设置页每次重建卡片都会换掉 DOM，
+  // 直接绑在元素上的监听会在重建后丢失（表现为"按钮点不动"）。
+  if (!window.__acTierParamsDelegated) {
+    window.__acTierParamsDelegated = true;
+    document.addEventListener('click', (e) => {
+      const btn = e.target && e.target.closest && e.target.closest('#ac-tier-params-btn');
+      if (!btn) return;
+      e.stopPropagation();
+      openTierParamsModal();
+    });
+  }
+
   const peakBtn = ctrl('#ac-peak-btn');
   peakBtn?.addEventListener('click', (e) => {
     e.stopPropagation();
