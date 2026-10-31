@@ -368,7 +368,9 @@ export const DEFAULT_CONFIG = {
     // 2026-09-25 改版：档位不再决定读取条数 —— 各档统一读 historyCount 条，
     // 档位退化为纯粹的"触发方式开关"（被艾特/关键词/随机/全部）。
     contextTier: 4,             // 1=仅艾特 2=+关键词 3=+随机 4=全响应
-    historyCount: 80,           // 各档统一：响应时随【已读信息】带多少条历史
+    historyCount: 70,           // 各档统一：响应时随【已读信息】带多少条历史
+    historyCountPerChatEnabled: false,   // 是否按群单独设置已读条数
+    historyCountByChat: {},     // { chatKey: 条数 }，仅 perChat 开启时生效
     keywords: [],               // 2 档的关键词表
     randomPercent: 10,          // 3 档：y% 概率
     // ── 提示词锚点（前缀缓存深化，2026-09-25）──
@@ -1266,7 +1268,13 @@ export function storeConfigForChat(chatKey) {
     if (gp !== undefined && gp !== null) pos = clampSliderPos(gp);
   }
   const { tier, randomPercent } = sliderToTier(pos);
-  return { ...store, contextSliderPos: pos, contextTier: tier, randomPercent };
+  // 已读历史条数：可按群覆盖
+  let historyCount = Number(store.historyCount) || 70;
+  if (store.historyCountPerChatEnabled === true) {
+    const hc = Number(store.historyCountByChat?.[chatKey]);
+    if (Number.isFinite(hc) && hc > 0) historyCount = hc;
+  }
+  return { ...store, historyCount, contextSliderPos: pos, contextTier: tier, randomPercent };
 }
 
 /**

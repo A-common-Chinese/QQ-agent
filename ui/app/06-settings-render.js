@@ -1890,6 +1890,27 @@ return `
         <div class="field"><label>温度</label><input type="number" id="sc-temperature" step="0.1" min="0" max="2" value="${esc(c.api?.temperature ?? 0.8)}" /></div>
         <div class="field"><label>单次运行最大工具轮数</label><input type="number" id="sc-maxrounds" min="1" max="40" value="${esc(c.api?.maxRounds ?? 12)}" /></div>
       </div>
+      <div class="field-row">
+        <div class="field"><label>每次携带多少条已读历史</label>
+          <input type="number" id="sc-historycount" min="1" max="300" value="${esc(c.store?.historyCount ?? 70)}" />
+          <div class="hint">越大上下文越连贯、越费 token（默认 70）</div></div>
+        <div class="field"><label>&nbsp;</label>
+          <div class="checkbox-row" style="margin:0"><input type="checkbox" id="sc-history-perchat" ${c.store?.historyCountPerChatEnabled ? 'checked' : ''} />
+            <label for="sc-history-perchat">按群单独设置</label></div></div>
+      </div>
+      <div id="sc-hc-perchat" style="display:${c.store?.historyCountPerChatEnabled ? '' : 'none'}">
+        ${(() => {
+          const st = c.store || {};
+          const keys = [...new Set([...(c.allow?.groups || []).map((x) => 'group:' + x), ...(c.allowQqbot?.groups || []).map((x) => 'group:' + x)])];
+          if (!keys.length) return '<div class="hint">（白名单里还没有群）</div>';
+          return keys.map((k) => {
+            const v = Number(st.historyCountByChat?.[k]) || Number(st.historyCount) || 70;
+            return '<div class="field-row" style="align-items:center"><div class="field"><label style="font-size:12px">' + esc(k) + '</label></div>' +
+              '<div class="field"><input type="number" class="hc-chat" data-hc-chat="' + esc(k) + '" min="1" max="300" value="' + esc(v) + '" style="max-width:140px" /></div></div>';
+          }).join('');
+        })()}
+        <div class="hint">只影响该群注入的【已读信息】条数；未填的群沿用上面的统一值。</div>
+      </div>
       <div class="field"><label>思考强度</label>
         <select id="sc-thinking-effort">
           ${[
@@ -1955,6 +1976,7 @@ return `
       // 紧贴标题块左侧排布，与右上角档位摘要之间留白。
       extra: `<span class="ac-head-controls">
         <button class="btn" id="ac-tier-params-btn" title="档位参数：关键词表">⚙ 档位参数</button>
+        <button class="btn" id="ac-unify-all" title="把所有群的响应档位统一成当前全局设置">🌐 统一活跃设置</button>
       </span>`,
       open: true,
       body: `<div id="ac-editor"></div>${renderDecisionSection(c, fold)}`
@@ -3841,4 +3863,45 @@ function readDecChainRows() {
 function writeDecChainRows(chain) {
   const box = document.getElementById('dec-chain-rows');
   if (box) box.innerHTML = decChainRowsHtml(chain);
+}
+
+// ── 已读历史条数（信息发送配置） + 统一活跃设置 ──────────────────────────
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function' && !window.__hcSettingsBound) {
+  window.__hcSettingsBound = true;
+  const saveStore = (patch) => api('/api/config', { method: 'POST', body: JSON.stringify({ store: patch }) });
+  document.addEventListener('change', async (e) => {
+    const t = e.target;
+    if (!t || !t.id && !t.classList) return;
+    if (t.id === 'sc-historycount') {
+      const n = Math.max(1, Math.min(300, Number(t.value) || 70));
+      try { await saveStore({ historyCount: n }); } catch (err) { alert('保存失败：' + (err.message || err)); }
+      return;
+    }
+    if (t.id === 'sc-history-perchat') {
+      try { await saveStore({ historyCountPerChatEnabled: t.checked === true }); } catch (err) { alert('保存失败：' + (err.message || err)); return; }
+      const box = document.getElementById('sc-hc-perchat');
+      if (box) box.style.display = t.checked ? '' : 'none';
+      return;
+    }
+    if (t.classList && t.classList.contains('hc-chat')) {
+      const map = {};
+      document.querySelectorAll('.hc-chat').forEach((el) => {
+        const k = el.dataset.hcChat;
+        const v = Math.max(1, Math.min(300, Number(el.value) || 0));
+        if (k && v) map[k] = v;
+      });
+      try { await saveStore({ historyCountByChat: { __replace__: map } }); } catch (err) { alert('保存失败：' + (err.message || err)); }
+    }
+  });
+  document.addEventListener('click', async (e) => {
+    const btn = e.target && e.target.closest && e.target.closest('#ac-unify-all');
+    if (!btn) return;
+    e.stopPropagation();
+    const ok = await uiConfirm('把所有群的响应档位统一成当前全局设置？\n\n这会清掉各群的单独档位（包括观察用群的 1 档设置）。', { title: '统一活跃设置', okText: '统一' });
+    if (!ok) return;
+    try {
+      await saveStore({ unifiedTier: true, groupSliderPos: { __replace__: {} }, groupPeakPos: { __replace__: {} } });
+      location.reload();
+    } catch (err) { alert('统一失败：' + (err.message || err)); }
+  });
 }
