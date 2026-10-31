@@ -1130,6 +1130,10 @@ function renderHealthCard() {
           '<div class="mem-card-sub">' + esc(sub) + '</div></div>';
       }).join('') || '<div class="mem-empty">（没有匹配的会话）</div>';
 
+    // 记住搜索框焦点/光标：重渲染（详情加载、后台刷新）后恢复，避免"打字打到一半焦点丢了"
+    const _active = document.activeElement;
+    const _searchFocused = !!(_active && _active.id === 'memv-q');
+    const _caret = _searchFocused ? Number(_active.selectionStart) : -1;
     itemsBox.innerHTML =
       '<div class="mem-side">' +
         '<div class="mem-side-head"><span>' + (isPersons ? '个人卡' : '群聊 / 私聊') + '</span><span class="mem-count">' +
@@ -1143,6 +1147,14 @@ function renderHealthCard() {
           '</div>') : '') +
         '<div class="mem-cards' + (isPersons && memBatchState().active ? ' batch-mode' : '') + '">' + (isPersons ? personCards : chatCards) + '</div>' +
       '</div>';
+
+    if (_searchFocused) {
+      const q2 = itemsBox.querySelector('#memv-q');
+      if (q2) {
+        q2.focus();
+        try { const pos = Math.max(0, Math.min(String(q2.value).length, _caret)); q2.setSelectionRange(pos, pos); } catch { /* ignore */ }
+      }
+    }
 
     // ── 右栏：子页签 + 内容（点进会话后才显示） ──
     // 子页签清单在 MEM_SUBTABS（顶部），压缩是它的最后一项。
@@ -1391,8 +1403,29 @@ function renderHealthCard() {
       const st = (typeof memState === 'function') ? memState() : null;
       if (!st) return;
       st.q = el.value;
-      clearTimeout(window.__memTabQT);
-      window.__memTabQT = setTimeout(() => { if (state.tab === 'memory') loadMemoryView(); }, 250);
+      // 就地过滤，不重渲染（重渲染会丢焦点/吞键，表现为"打字被截断"）
+      const q = String(st.q || '').trim().toLowerCase();
+      const box = document.querySelector('#view-memory .mem-cards');
+      if (!box) return;
+      let shown = 0;
+      box.querySelectorAll('.mem-card').forEach((card) => {
+        const text = String(card.textContent || '').toLowerCase();
+        const ok = !q || text.includes(q);
+        card.style.display = ok ? '' : 'none';
+        if (ok) shown += 1;
+      });
+      let tip = box.querySelector('.mem-search-empty');
+      if (q && !shown) {
+        if (!tip) {
+          tip = document.createElement('div');
+          tip.className = 'mem-empty mem-search-empty';
+          tip.textContent = '（没有匹配的卡片）';
+          box.appendChild(tip);
+        }
+        tip.style.display = '';
+      } else if (tip) {
+        tip.style.display = 'none';
+      }
     });
   }
 
