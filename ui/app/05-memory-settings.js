@@ -860,8 +860,8 @@ function renderHealthCard() {
       '<div class="field"><label>标题</label><input type="text" id="memt-title" value="' + esc(card ? card.title || '' : '') + '" placeholder="如：周末爬山计划" /></div>' +
       '<div class="field"><label>摘要（一句话；随机闪回时注入）</label><input type="text" id="memt-summary" value="' + esc(card ? card.summary || '' : '') + '" /></div>' +
       '<div class="field"><label>期限（模型判断/可手改）</label><select id="memt-term">' +
-        ['short|短期（几天内）','long|长期（几周~几个月）','permanent|永久（长期存在）'].map((x) => { const [v, l] = x.split('|'); const cur = card && card.term === v; return '<option value="' + v + '"' + (cur ? ' selected' : '') + '>' + l + '</option>'; }).join('') +
-      '</select><div class="hint">短期 7 天、长期 90 天后自动过期并从提示词移除；永久不过期。</div></div>' +
+        ['halfday|半天','day|一天','week|七天','month|三十天'].map((x) => { const [v, l] = x.split('|'); const cur = card && card.term === v; return '<option value="' + v + '"' + (cur ? ' selected' : '') + '>' + l + '</option>'; }).join('') +
+      '</select><div class="hint">半天 12h、一天 24h、七天 7 天、三十天 30 天后自动过期并从提示词移除。</div></div>' +
       '<div class="field"><label>关键词（逗号或空格分隔；命中就把正文注入提示词）</label><input type="text" id="memt-keywords" value="' + esc(card && Array.isArray(card.keywords) ? card.keywords.join('，') : '') + '" /></div>' +
       '<div class="field"><label>正文</label><textarea id="memt-body" style="min-height:96px">' + esc(card ? card.body || '' : '') + '</textarea></div>' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
@@ -879,7 +879,7 @@ function renderHealthCard() {
     const bodyPreview = body && body !== summary
       ? '<div class="mem-topic-body muted" style="font-size:12px;margin-top:2px">' + esc(body.slice(0, 160)) + (body.length > 160 ? '…' : '') + '</div>'
       : '';
-    const TERM_LABEL = { short: '短期', long: '长期', permanent: '永久' };
+    const TERM_LABEL = { halfday: '半天', day: '一天', week: '七天', month: '三十天' };
     const termBadge = '<span class="mem-topic-term" style="display:inline-block;margin-left:6px;padding:0 6px;border-radius:99px;border:1px solid var(--line);font-size:11px;color:var(--tx2)">' + (TERM_LABEL[t.term] || '长期') + '</span>';
     const expTxt = t.expiresAt > 0 ? ' · ' + esc(new Date(Number(t.expiresAt)).toLocaleDateString('zh-CN')) + ' 过期' : ' · 不过期';
     const when = '<span class="muted" style="font-size:11px">' + (t.updatedAt ? '更新于 ' + esc(fmtTime(Date.parse(t.updatedAt) || 0)) : '') + expTxt + '</span>';
@@ -908,6 +908,10 @@ function renderHealthCard() {
         '<span class="mem-topics-title" style="font-weight:600">话题卡</span>' +
         '<span class="mem-count muted" style="font-size:12px">' + cards.length + '</span>' +
         '<span style="flex:1"></span>' +
+        '<label class="switch" style="padding:0;display:inline-flex;align-items:center;gap:4px" title="标题/关键词命中敏感词表时不生成、不注入">' +
+          '<input type="checkbox" id="mem-filter-topic-sensitive" />' +
+          '<span class="track"><span class="thumb"></span></span></label>' +
+        '<span class="hint" style="font-size:11px;margin-right:4px">过滤敏感</span>' +
         '<button class="btn btn-small" data-topic="new">＋ 新建话题</button>' +
       '</div>' +
       '<div class="hint" style="font-size:12px;margin:4px 0 6px">关键词命中时整段注入提示词；未命中只出现在标题索引里。</div>';
@@ -926,6 +930,26 @@ function renderHealthCard() {
     }
     return '<div class="mem-topics" data-topic-chat="' + esc(chatKey) + '" style="margin-top:18px;padding-top:12px;border-top:1px solid var(--line)">' +
       head + inner + '</div>';
+  }
+
+  if (!window.__memTopicsFilterBound) {
+    window.__memTopicsFilterBound = true;
+    document.addEventListener('change', async (e) => {
+      const el = e.target;
+      if (!el || el.id !== 'mem-filter-topic-sensitive') return;
+      try {
+        await api('/api/config', { method: 'POST', body: JSON.stringify({ memoryCards: { topics: { sensitiveFilter: { enabled: !!el.checked } } } }) });
+        if (state.config?.memoryCards?.topics) state.config.memoryCards.topics.sensitiveFilter.enabled = !!el.checked;
+      } catch (err) { alert('保存失败：' + ((err && err.message) || err)); }
+    });
+    // 渲染后回填开关状态
+    const syncFilter = () => {
+      const box = document.getElementById('mem-filter-topic-sensitive');
+      const on = state.config?.memoryCards?.topics?.sensitiveFilter?.enabled !== false;
+      if (box) box.checked = on;
+    };
+    document.addEventListener('DOMContentLoaded', syncFilter);
+    setInterval(syncFilter, 1200);
   }
 
   /** 「编辑 / 新建 / 保存 / 删除 / 取消 / 重试」统一走 document 级委托 */
@@ -973,7 +997,7 @@ function renderHealthCard() {
             summary: val('memt-summary'),
             keywords: val('memt-keywords').split(/[,，、\s]+/).map((x) => x.trim()).filter(Boolean),
             body: val('memt-body'),
-            term: val('memt-term') || 'long'
+            term: val('memt-term') || 'month'
           };
           if (!payload.title.trim()) { alert('话题卡标题不能为空'); return; }
           try {

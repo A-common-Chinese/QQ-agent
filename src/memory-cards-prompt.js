@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
 import { resolveGeneralForChat } from './memory-cards.js';
+import { isSensitiveTopic } from './topic-cards.js';
 
 const ROOT = path.join(DATA_DIR, 'memory-cards');
 const PERSONS = path.join(ROOT, 'persons');
@@ -126,7 +127,8 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
   // ④ 话题卡：关键词命中拉全文 + 标题索引 + 随机闪回
   const nowMs = Date.now();
   const topics = readJsonDir(dirOf(chatKey), 'topic_')
-    .filter((t) => !(Number(t.expiresAt) > 0 && Number(t.expiresAt) < nowMs));   // 过期话题不再注入
+    .filter((t) => !(Number(t.expiresAt) > 0 && Number(t.expiresAt) < nowMs))   // 过期话题不再注入
+    .filter((t) => !isSensitiveTopic(t));   // 敏感话题不注入
   if (topics.length) {
     const textAll = scan.map((m) => String(m.text || '')).join('\n');
     const hit = [];

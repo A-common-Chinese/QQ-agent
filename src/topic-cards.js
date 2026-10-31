@@ -5,11 +5,26 @@
 import { listTopics, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
 import { getConfig } from './config.js';
 
-const TERMS = ['short', 'long', 'permanent'];
+const TERMS = ['halfday', 'day', 'week', 'month'];
+const LEGACY = { short: 'week', long: 'month', permanent: 'month' };
+const RANK = { halfday: 0, day: 1, week: 2, month: 3 };
+// 内置敏感词（可用 config.memoryCards.topics.sensitiveFilter.words 追加）
+const DEFAULT_BANNED = ['政治', '六四', '台独', '港独', '法轮功', '色情', '裸', '暴恐', '恐怖袭击', '政变', '独裁'];
 
 function termOf(v) {
-  const t = String(v || '').toLowerCase();
-  return TERMS.includes(t) ? t : 'long';
+  const raw = String(v || '').toLowerCase();
+  if (TERMS.includes(raw)) return raw;
+  return LEGACY[raw] || 'month';
+}
+
+/** 敏感话题判定：标题/关键词命中词表 → true */
+export function isSensitiveTopic(t) {
+  const cfg = getConfig()?.memoryCards?.topics?.sensitiveFilter || {};
+  if (cfg.enabled === false) return false;
+  const words = [...DEFAULT_BANNED, ...(Array.isArray(cfg.words) ? cfg.words : [])].map((x) => String(x || '').trim()).filter(Boolean);
+  if (!words.length) return false;
+  const hay = [t?.title, t?.summary, ...(Array.isArray(t?.keywords) ? t.keywords : [])].join(' ').toLowerCase();
+  return words.some((w) => hay.includes(String(w).toLowerCase()));
 }
 
 function normTitle(s) {
@@ -36,7 +51,7 @@ function findSimilar(topics, title, keywords) {
 function pickVictim(topics, maxPerChat, now = Date.now()) {
   if (topics.length < maxPerChat) return null;
   const expired = topics.filter((t) => t.expiresAt && t.expiresAt > 0 && t.expiresAt < now);
-  const pool = expired.length ? expired : topics.filter((t) => t.term === 'short');
+  const pool = expired.length ? expired : topics;
   const candidates = pool.length ? pool : topics;
   return candidates.slice().sort((a, b) => (Number(a.updatedAt ? Date.parse(a.updatedAt) : 0) || 0) - (Number(b.updatedAt ? Date.parse(b.updatedAt) : 0) || 0))[0] || null;
 }
@@ -58,11 +73,11 @@ export function upsertTopicCard(chatKey, item = {}) {
     keywords: Array.isArray(item.keywords) ? item.keywords.slice(0, 8) : [],
     term: termOf(item.term)
   };
+  if (isSensitiveTopic(patch)) return { ok: false, action: 'blocked', reason: 'sensitive' };
   const same = findSimilar(topics, title, patch.keywords);
   if (same) {
     // 期限取更"长寿"的那个，避免长期话题被一次短期更新降级
-    const rank = { short: 0, long: 1, permanent: 2 };
-    const term = rank[termOf(patch.term)] >= rank[termOf(same.term)] ? patch.term : same.term;
+    const term = RANK[termOf(patch.term)] >= RANK[termOf(same.term)] ? patch.term : same.term;
     const r = updateTopic(chatKey, same.id, { ...patch, term });
     return { ok: !!r.ok, action: 'updated', id: same.id, term };
   }

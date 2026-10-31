@@ -442,21 +442,28 @@ export function statsGenerals() {
 //    没命中才新建**（新建用历史命名：去掉 topic: 前缀后 sanitize）。
 const TOPIC_FILE_RE = /^topic_.*\.json$/;
 const TOPIC_ALLOWED = ['title', 'body', 'summary', 'keywords', 'updatedAt', 'term', 'at', 'expiresAt'];
-const TOPIC_TERMS = ['short', 'long', 'permanent'];
+const TOPIC_TERMS = ['halfday', 'day', 'week', 'month'];
+const LEGACY_TERM = { short: 'week', long: 'month', permanent: 'month' };
+
+/** 旧值兼容：short→week、permanent→long */
 
 /** 话题期限 → 过期时间（permanent = 不过期） */
 export function topicExpiresAt(term, baseMs = Date.now()) {
-  const t = TOPIC_TERMS.includes(String(term)) ? String(term) : 'long';
-  if (t === 'permanent') return 0;
-  let days = 90;
-  try {
-    const cfg = (getConfig().memoryCards?.topics) || {};
-    days = t === 'short' ? Number(cfg.shortDays ?? 7) : Number(cfg.longDays ?? 90);
-  } catch { /* ignore */ }
-  return baseMs + Math.max(1, days) * 24 * 60 * 60 * 1000;
+  const raw = String(term || '').toLowerCase();
+  const t = TOPIC_TERMS.includes(raw) ? raw : (LEGACY_TERM[raw] || 'month');
+  const cfg = (() => { try { return getConfig().memoryCards?.topics || {}; } catch { return {}; } })();
+  const DAY = 24 * 60 * 60 * 1000;
+  if (t === 'halfday') return baseMs + Math.max(1, Number(cfg.halfDayHours ?? 12)) * 60 * 60 * 1000;
+  if (t === 'day') return baseMs + Math.max(1, Number(cfg.dayHours ?? 24)) * 60 * 60 * 1000;
+  if (t === 'week') return baseMs + Math.max(1, Number(cfg.weekDays ?? 7)) * DAY;
+  return baseMs + Math.max(1, Number(cfg.monthDays ?? 30)) * DAY;   // month = 30 天
 }
 
-function normalizeTopicTerm(v) { return TOPIC_TERMS.includes(String(v)) ? String(v) : 'long'; }
+function normalizeTopicTerm(v) {
+  const raw = String(v || '').toLowerCase();
+  if (TOPIC_TERMS.includes(raw)) return raw;
+  return LEGACY_TERM[raw] || 'long';
+}
 const isChatKey = (k) => /^(group|private):\d+$/.test(String(k || ''));
 const timeOf = (v) => {
   const t = Date.parse(String(v || ''));
@@ -508,7 +515,7 @@ export function listTopics(chatKey) {
   const list = readTopicFiles(chatKey).map(({ card }) => {
     const term = normalizeTopicTerm(card.term);
     const at = Number(card.at) || timeOf(card.updatedAt) || Date.now();
-    const expiresAt = card.expiresAt === 0 ? 0 : (Number.isFinite(Number(card.expiresAt)) ? Number(card.expiresAt) : topicExpiresAt(term, at));
+    const expiresAt = Number.isFinite(Number(card.expiresAt)) ? Number(card.expiresAt) : topicExpiresAt(term, at);
     return { ...card, term, at, expiresAt, chatKey: card.chatKey || String(chatKey) };
   });
   list.sort((a, b) => timeOf(b.updatedAt) - timeOf(a.updatedAt) || String(a.title || '').localeCompare(String(b.title || ''), 'zh'));
