@@ -674,6 +674,7 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       <div class="hint">记忆按<b>群聊 / 个人 / 基本事实</b>三类卡片管理；未分配的内容不会注入提示词。</div>
       <div style="display:flex;gap:8px;margin:10px 0;flex-wrap:wrap;align-items:center">
         ${MEM_TABS.map((t) => `<button class="btn btn-small ${st.tab === t.id ? 'btn-primary' : ''}" data-mem="tab" data-tab="${t.id}">${t.label}</button>`).join('')}
+        <button class="btn btn-small" data-mem="rules" title="记忆卡是怎么建的、怎么注入的">？规则</button>
         <input type="text" id="memv-q" placeholder="搜索名称/概览…" value="${esc(st.q || '')}" style="flex:1;min-width:160px" />
         <span class="muted" style="font-size:12px">${stats}</span>
       </div>
@@ -703,7 +704,50 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
   function memParseLines(text) {
     return String(text || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
   }
-  async function memSave(key, st) {
+  function openMemoryRulesModal() {
+  const overlay = modelModalShell({
+    head: '记忆卡是怎么建立的',
+    body: `<div style="font-size:13px;line-height:1.8;max-width:680px">
+      <div class="hint" style="margin-top:0">记忆卡不是每轮都写：会话结束/记忆整理时，把最近消息 + 小时摘要 + 已有印象交给模型整理成卡片。</div>
+      <h4>群卡（每个群/私聊一张）</h4>
+      <ul>
+        <li>来源：最近聊天、小时摘要、语义卡、已有群卡</li>
+        <li>字段：名称、一句话概览、稳定事实（≤6）、常聊话题（≤6）、成员</li>
+        <li>只写稳定信息，不写一次性事件；模型输出非法 JSON 时本次跳过</li>
+        <li>触发：会话结束后节流更新，或手动「记忆整理」/批量整理</li>
+      </ul>
+      <h4>个人卡（每个 QQ 一张）</h4>
+      <ul>
+        <li>来源：群友发言、在场记录、整理后的群友印象</li>
+        <li>字段：昵称、概览、语气/关系、事实、偏好、备注、约定</li>
+        <li>印象只保留「通用印象 + 私聊印象」；历史群聊印象会并入通用</li>
+        <li>约定 pending：{text, at, term}，term = 短期/长期/永久，带时间戳</li>
+      </ul>
+      <h4>话题卡（每个会话多张）</h4>
+      <ul>
+        <li>自动生成：记忆整理时抽 1–3 个仍在延续的话题（复用同一次模型调用）</li>
+        <li>期限：半天 12h / 一天 24h / 七天 7d / 三十天 30d；模型缺省按「一天」</li>
+        <li>排除瞬时：只持续几十分钟~几小时的即时话题（今晚开黑、现在谁在线）不建卡</li>
+        <li>敏感过滤：标题/关键词命中词表 → 不生成、不注入</li>
+        <li>去重：标题或关键词相似视为同一话题，更新而不是新建；期限只升不降</li>
+        <li>配额：月/周卡各有限额，超出自动降级；每会话最多 12 张，超了淘汰过期/最旧</li>
+        <li>过期后自动从提示词移除</li>
+      </ul>
+      <h4>注入规则</h4>
+      <ul>
+        <li>总预算默认 1500 字；群卡只在本会话注入</li>
+        <li>个人卡：按「在场」判定（最近 N 条出现过 / 被点名）取摘要 + 印象</li>
+        <li>话题卡：关键词命中注入正文（前 2 张）；未命中只给标题索引；再随机闪回 2 张摘要</li>
+        <li>话题按最近更新优先，避免旧卡挤占</li>
+      </ul>
+      <div class="hint">以上参数大多可在设置里改：记忆预算、在场人数、闪回数量、话题自动生成/配额/敏感过滤等。</div>
+    </div>`,
+    foot: '<button class="btn btn-primary" id="mem-rules-ok">知道了</button>'
+  });
+  overlay.querySelector('#mem-rules-ok')?.addEventListener('click', () => closeModelModal(overlay));
+}
+
+async function memSave(key, st) {
     const g = (id) => document.getElementById(id);
     const body = {};
     if (g('memv-name')) body.name = g('memv-name').value;
@@ -765,7 +809,8 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       if (!el) return;
       const act = el.dataset.mem;
       const st = memState();
-      if (act === 'tab') {
+      if (act === 'rules') { openMemoryRulesModal(); return; }
+    if (act === 'tab') {
         e.preventDefault();
         st.tab = el.dataset.tab; st.sel = null; st.detail = null; st.q = '';
         st.list = null;
@@ -1952,6 +1997,8 @@ return `
       </div>
       <div class="checkbox-row" style="margin-top:6px"><input type="checkbox" id="sc-fallback-text" ${c.reply?.fallbackTextReply !== false ? 'checked' : ''} />
         <label for="sc-fallback-text">被艾特/私聊时，模型只写了正文没走工具 → 兜底把正文发出去</label></div>
+      <div class="checkbox-row" style="margin-top:6px"><input type="checkbox" id="sc-explain-silent" ${c.reply?.explainSilent === true ? 'checked' : ''} />
+        <label for="sc-explain-silent">决定不说话时，再问模型一句"为什么"（用口语记进审计，会多一次调用）</label></div>
       <div class="hint">改动即时生效（自动保存），无需单独点保存。</div>`
     })}
     ${fold({
@@ -3900,6 +3947,10 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
   document.addEventListener('change', async (e) => {
     const t = e.target;
     if (!t || !t.id && !t.classList) return;
+    if (t.id === 'sc-explain-silent') {
+      try { await api('/api/config', { method: 'POST', body: JSON.stringify({ reply: { explainSilent: t.checked === true } }) }); } catch (err) { alert('保存失败：' + (err.message || err)); }
+      return;
+    }
     if (t.id === 'sc-fallback-text') {
       try { await api('/api/config', { method: 'POST', body: JSON.stringify({ reply: { fallbackTextReply: t.checked === true } }) }); } catch (err) { alert('保存失败：' + (err.message || err)); }
       return;

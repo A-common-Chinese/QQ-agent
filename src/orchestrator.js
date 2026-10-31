@@ -1385,6 +1385,18 @@ export class Orchestrator {
     }
     // 兜底可能刚发出了一条 → 重新判定状态
     status = session.error ? 'error' : (session.sent.length > 0 ? 'done' : 'noreply');
+    // 决定不说话时：可选再调一次模型，用口语说出原因（写审计，方便回看为什么没接）
+    if (status === 'noreply' && getConfig().reply?.explainSilent === true) {
+      try {
+        const recent = (Array.isArray(triggerEntries) ? triggerEntries : []).slice(-6)
+          .map((m) => (m.senderName || '群友') + '：' + String(m.text || '').slice(0, 80)).join('\n');
+        const sys = '你是一个正在群里聊天的机器人。你现在决定不回复这条消息。请用一句自然的口语说出原因（像群友一样，不要技术词，不超过 30 字，只输出这一句）。';
+        const user = '触发消息：\n' + (recent || '（无）') + '\n\n会话类型/档位：' + String(tierInfo?.reason || '') + '（' + String(tierInfo?.tier ?? '?') + ' 档）\n你之前的内部理由：' + String(session.finishReason || '（无）').slice(0, 120);
+        const resp = await this.#memoryChat([{ role: 'system', content: sys }, { role: 'user', content: user }]);
+        const text = String(resp?.message?.content ?? resp?.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (text) appendAudit('skip-reason', { chatKey, reason: text });
+      } catch { /* 解释失败不影响任何流程 */ }
+    }
     // 不回复的原因留痕：finish(summary) 由提示词要求"不打算说话时写一句理由"
     if (status === 'noreply') {
       try {
