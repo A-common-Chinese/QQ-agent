@@ -241,10 +241,12 @@ export class Orchestrator {
                 const cap = tryConsumeLive(chatKey, getConfig());
                 if (!cap.ok) {
                   console.log(`[decision] 主动接话被限流 ${chatKey}：${cap.reason}（今日 ${cap.used}/${cap.max}）`);
+                  try { appendAudit('live-capped', { chatKey, reason: cap.reason, used: cap.used, max: cap.max }); } catch { /* ignore */ }
                   markRead();
                   return;
                 }
                 console.log(`[decision] 主动接话 ${chatKey}：今日第 ${cap.used}/${cap.max} 次`);
+                try { appendAudit('live-reply', { chatKey, used: cap.used, max: cap.max, score: d?.score ?? null }); } catch { /* ignore */ }
                 // 当成一次正常触发，走完整会话流程
                 self.scheduleWake(chatKey, null, { verified: true });
                 self.emit('chat-update', chatKey);
