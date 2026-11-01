@@ -1176,8 +1176,16 @@ document.addEventListener('input', (e) => {
 });
 
 // ── 白名单标签块：增 / 删 / 下拉选择 ──────────────────────────────
+const TAG_HIDDEN = {
+  groups: 'cfg-allowgroups',
+  private: 'cfg-allowprivate',
+  silent: 'cfg-silentchats',
+  qqbotgroups: 'cfg-allowqqbot-groups',
+  qqbotprivate: 'cfg-allowqqbot-private',
+  crossgroup: 'mem-rule-crossallow'
+};
 function tagHiddenEl(kind) {
-  return document.getElementById(kind === 'groups' ? 'cfg-allowgroups' : (kind === 'private' ? 'cfg-allowprivate' : 'cfg-silentchats'));
+  return document.getElementById(TAG_HIDDEN[kind] || ('cfg-' + kind));
 }
 function tagValsOf(kind) {
   const h = tagHiddenEl(kind);
@@ -1204,9 +1212,13 @@ function tagWrite(kind, vals) {
   // "点了就该立即生效"的操作不能只靠它（2026-10-22 实测：删掉静默会话后配置没变，
   // 群依然是静默）。这里直接写对应字段，成功后再刷新一次配置。
   try {
-    const body = kind === 'silent'
-      ? { store: { silentChats: vals.slice() } }
-      : { allow: { [kind === 'groups' ? 'groups' : 'private']: vals.slice() } };
+    let body;
+    if (kind === 'silent') body = { store: { silentChats: vals.slice() } };
+    else if (kind === 'groups' || kind === 'private') body = { allow: { [kind]: vals.slice() } };
+    else if (kind === 'qqbotgroups') body = { allowQqbot: { groups: { __replace__: vals.slice() } } };
+    else if (kind === 'qqbotprivate') body = { allowQqbot: { private: { __replace__: vals.slice() } } };
+    else if (kind === 'crossgroup') body = { memoryCards: { crossGroupAllow: { __replace__: vals.slice() } } };
+    else body = { allow: { [kind]: vals.slice() } };
     api('/api/config', { method: 'POST', body: JSON.stringify(body) })
       .then((r) => { if (r && r.config) state.config = r.config; })
       .catch((e) => { if (typeof showNoticeModal === 'function') showNoticeModal('保存失败', String(e?.message || e)); });
@@ -1218,6 +1230,16 @@ function tagAddVal(kind, raw) {
     // 静默会话：group:123 / private:456 / 裸号（裸号按群算，统一补成 group:）
     const bare = /^(\d{4,})$/.exec(v);
     const pref = /^(group|private):(\d{4,})$/i.exec(v);
+    if (bare) v = 'group:' + bare[1];
+    else if (pref) v = pref[1].toLowerCase() + ':' + pref[2];
+    else return false;
+  } else if (kind === 'qqbotgroups' || kind === 'qqbotprivate') {
+    // openid：字母数字/下划线，长度 >= 4
+    v = v.replace(/\s+/g, '');
+    if (!/^[A-Za-z0-9_-]{4,64}$/.test(v)) return false;
+  } else if (kind === 'crossgroup') {
+    const bare = /^(\d{4,})$/i.exec(v);
+    const pref = /^(group|private):([A-Za-z0-9_-]{2,64})$/i.exec(v);
     if (bare) v = 'group:' + bare[1];
     else if (pref) v = pref[1].toLowerCase() + ':' + pref[2];
     else return false;

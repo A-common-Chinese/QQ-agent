@@ -1818,17 +1818,14 @@ function renderAllowSection(c) {
 
     <h3 id="settings-allow-qqbot" style="margin-top:22px">官方机器人白名单（openid）</h3>
     <div class="hint">和上面的群号/QQ 号白名单<strong>互不影响</strong>：官方通道只认 openid。可以从「QQ 接口 → 官方机器人 → 最近收到的会话」点「加入白名单」自动填，也可以手动粘。</div>
-    <div class="field"><label>允许的群（group_openid，逗号或换行分隔）</label>
-      <input type="text" id="cfg-allowqqbot-groups" value="${esc((c.allowQqbot?.groups || []).join(', '))}" placeholder="6A3B9C1D5E2F4A6B7C8D9E0F" /></div>
-    <div class="field"><label>允许的用户（user_openid）</label>
-      <input type="text" id="cfg-allowqqbot-private" value="${esc((c.allowQqbot?.private || []).join(', '))}" placeholder="7A3B..." /></div>
+    <div class="field"><label>允许的群（group_openid）</label>${renderTagInput('qqbotgroups', c.allowQqbot?.groups || [])}</div>
+    <div class="field"><label>允许的用户（user_openid）</label>${renderTagInput('qqbotprivate', c.allowQqbot?.private || [])}</div>
       <h3 id="settings-allow-crossgroup" style="margin-top:22px">跨群记忆检索白名单</h3>
       <div class="hint">允许模型在聊天时按需检索<b>其他会话</b>的记忆卡。默认关；查到内容只供模型自己判断，不会在本群复述。
         只有这里勾选，且会话在下方名单里，才会被跨群查询（本会话自己的卡始终可查）。</div>
       <div class="checkbox-row"><input type="checkbox" id="mem-rule-crossgroup" ${c.memoryCards?.crossGroupQuery === true ? 'checked' : ''} />
         <label for="mem-rule-crossgroup">启用跨群记忆检索</label></div>
-      <div class="field"><label>可被跨群查询的会话（一行一个 chatKey，如 group:123456 / private:123456）</label>
-        <textarea id="mem-rule-crossallow" style="min-height:70px">${esc((c.memoryCards?.crossGroupAllow || []).join('\n'))}</textarea></div>
+      <div class="field"><label>可被跨群查询的会话（输入后回车，或从下拉选聊天白名单 / OpenID 白名单）</label>${renderTagInput('crossgroup', c.memoryCards?.crossGroupAllow || [])}</div>
       ${renderForwardRulesSection(c)}
     <div class="checkbox-row"><input type="checkbox" id="cfg-allowallwhenempty" ${c.allowAllWhenEmpty === true ? 'checked' : ''} />
       <label for="cfg-allowallwhenempty">白名单留空时允许所有会话</label></div>
@@ -3407,23 +3404,53 @@ function renderSafeModeSection(c) {
 }
 
 // ── 白名单标签输入（底层仍然是逗号串：hidden input 的 value 就是原来那个串）──
-function renderTagInput(kind, list) {
-  const hiddenId = kind === 'groups' ? 'cfg-allowgroups' : (kind === 'private' ? 'cfg-allowprivate' : 'cfg-silentchats');
-  const vals = (Array.isArray(list) ? list : []).map((x) => String(x).trim()).filter(Boolean);
-  const chips = vals.map((v) => renderTagChip(kind, v)).join('');
-  const prefix = kind === 'groups' ? 'group:' : (kind === 'private' ? 'private:' : '');
-  const opts = (typeof state !== 'undefined' ? (state.chats || []) : [])
-    .filter((x) => !prefix || String(x.key || '').startsWith(prefix))
-    .map((x) => {
+const TAG_HIDDEN_IDS = {
+  groups: 'cfg-allowgroups',
+  private: 'cfg-allowprivate',
+  silent: 'cfg-silentchats',
+  qqbotgroups: 'cfg-allowqqbot-groups',
+  qqbotprivate: 'cfg-allowqqbot-private',
+  crossgroup: 'mem-rule-crossallow'
+};
+function tagSuggestionOptions(kind) {
+  const sc = (typeof state !== 'undefined' && state.config) || {};
+  const allow = sc.allow || {};
+  const qb = sc.allowQqbot || {};
+  const out = [];
+  const push = (value, label) => { if (value) out.push('<option value="' + esc(value) + '">' + esc(label || value) + '</option>'); };
+  if (kind === 'groups' || kind === 'private' || kind === 'silent') {
+    const prefix = kind === 'groups' ? 'group:' : (kind === 'private' ? 'private:' : '');
+    for (const x of (typeof state !== 'undefined' ? (state.chats || []) : [])) {
+      const key = String(x.key || '');
+      if (prefix && !key.startsWith(prefix)) continue;
+      const id = key.split(':')[1] || '';
+      if (!id) continue;
+      const name = String(x.chatName || '').trim();
+      push(prefix ? id : key, prefix ? (id + (name ? ' · ' + name : '')) : (key + (name ? ' · ' + name : '')));
+    }
+  } else if (kind === 'crossgroup') {
+    // 来源：聊天白名单 + 官方机器人 openid 白名单
+    for (const id of (allow.groups || [])) push('group:' + id, '聊天白名单 · group:' + id);
+    for (const id of (allow.private || [])) push('private:' + id, '聊天白名单 · private:' + id);
+    for (const id of (qb.groups || [])) push('group:' + id, 'OpenID白名单 · group:' + id);
+    for (const id of (qb.private || [])) push('private:' + id, 'OpenID白名单 · private:' + id);
+  } else if (kind === 'qqbotgroups' || kind === 'qqbotprivate') {
+    for (const x of (typeof state !== 'undefined' ? (state.chats || []) : [])) {
       const key = String(x.key || '');
       const id = key.split(':')[1] || '';
-      if (!id) return '';
-      const name = String(x.chatName || '').trim();
-      // 白名单两栏存裸号；静默会话存完整 key（group:x / private:x；裸号按群算但显式更安全）
-      const value = prefix ? id : key;
-      const label = prefix ? (id + (name ? ' · ' + name : '')) : (key + (name ? ' · ' + name : ''));
-      return '<option value="' + esc(value) + '">' + esc(label) + '</option>';
-    }).join('');
+      if (!id || /^\d+$/.test(id)) continue;   // openid 一般不是纯数字
+      if (kind === 'qqbotgroups' && !key.startsWith('group:')) continue;
+      if (kind === 'qqbotprivate' && !key.startsWith('private:')) continue;
+      push(id, id + (x.chatName ? ' · ' + x.chatName : ''));
+    }
+  }
+  return [...new Set(out)].join('');
+}
+function renderTagInput(kind, list) {
+  const hiddenId = TAG_HIDDEN_IDS[kind] || ('cfg-' + kind);
+  const vals = (Array.isArray(list) ? list : []).map((x) => String(x).trim()).filter(Boolean);
+  const chips = vals.map((v) => renderTagChip(kind, v)).join('');
+  const opts = tagSuggestionOptions(kind);
   return '<div class="tag-input" data-tag="' + kind + '">' +
       '<div class="tag-list" data-tag-list="' + kind + '">' + chips + '</div>' +
       '<input class="tag-box" data-tag-box="' + kind + '" list="tag-suggest-' + kind + '" placeholder="输入号码回车，或从下拉选" />' +
