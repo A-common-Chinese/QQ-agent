@@ -119,7 +119,11 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
       else if (scope === 'model') notes = [];
       else notes = chatNotes.length ? chatNotes : [];
       const one = notes[0] || imp.general || p.summary || '';
-      if (one) lines.push('· ' + (p.name || p.qq) + '：' + clip(one, 70));
+      if (one) {
+        const aliases = (Array.isArray(p.aliases) ? p.aliases : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 5);
+        const who = (p.name || p.qq) + (aliases.length ? '（也叫 ' + aliases.join('、') + '）' : '');
+        lines.push('· ' + who + '：' + clip(one, 70));
+      }
     }
     if (lines.length) tryPush('【在场】\n' + lines.join('\n'), 0);
   }

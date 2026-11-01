@@ -765,7 +765,7 @@ function registerAllTools() {
       const out = {};
       const clipCard = (c) => ({
         name: c.name || '', summary: String(c.summary || '').slice(0, 300),
-        facts: (c.facts || []).slice(0, 8), prefs: (c.prefs || []).slice(0, 6),
+        facts: (c.facts || []).slice(0, 8), prefs: (c.prefs || []).slice(0, 6), aliases: (c.aliases || []).slice(0, 8),
         notes: (c.notes || []).slice(0, 8), tone: String(c.tone || '').slice(0, 200),
         impressions: c.impressions || undefined
       });

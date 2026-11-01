@@ -33,6 +33,7 @@ export function isEmptyPersonCard(card) {
   return !hasText(card.summary) && !hasText(card.tone)
     && !hasList(card.facts) && !hasList(card.prefs) && !hasList(card.notes)
     && !hasList(card.events) && !hasList(card.pending)
+    && !hasList(card.aliases)
     && !hasText(imp.general) && !hasList(imp.byChat);
 }
 
