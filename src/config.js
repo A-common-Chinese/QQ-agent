@@ -377,6 +377,7 @@ export const DEFAULT_CONFIG = {
       consecutive: 3               // 连续多少条偏题（且彼此相似）判定换话题
     },
     cooldownMinutes: 10,       // 退出后多少分钟内不再自动进入活跃期
+    byChat: {},                // 按群覆盖：{ chatKey: { enabled, mode, maxMinutes, ... } }
     ttlMinutes: 30             // 兼容旧配置：等于 maxMinutes
   },
   // 表情包

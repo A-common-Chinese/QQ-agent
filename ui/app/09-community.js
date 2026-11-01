@@ -403,6 +403,32 @@ function mountActiveConfigEditor(root) {
   // 已不在白名单的群不再显示（2026-09-25 用户反馈：没必要占按钮位）——
   // 它们的单独设置数据仍保留在草稿/配置里，群重回白名单时自动恢复生效。
 
+  // 活跃期字段：按群读取 / 回填（分群模式读 byChat，统一模式读全局）
+  // 群选择器里是裸群号；chatActive.byChat 的键是完整 chatKey（group:xxx）
+  function caKeyOf(gid) {
+    const g = String(gid || '');
+    return g.includes(':') ? g : ('group:' + g);
+  }
+  function caCfgFor(gid, useGlobal) {
+    const base = state.config?.chatActive || {};
+    if (useGlobal) return base;
+    const over = (base.byChat || {})[caKeyOf(gid)] || {};
+    return { ...base, ...over, topicDrift: { ...(base.topicDrift || {}), ...(over.topicDrift || {}) } };
+  }
+  function fillChatActiveFields(ca) {
+    const el = (id) => document.getElementById(id);
+    const setNum = (id, v, dft) => { const e = el(id); if (e) e.value = String(Number(v ?? dft)); };
+    if (el('ac-chatactive-enabled')) el('ac-chatactive-enabled').checked = ca.enabled === true;
+    if (el('ac-chatactive-mode')) el('ac-chatactive-mode').value = String(ca.mode || 'semantic');
+    setNum('ac-chatactive-maxminutes', ca.maxMinutes ?? ca.ttlMinutes, 30);
+    setNum('ac-chatactive-idle', ca.idleMinutes, 5);
+    setNum('ac-chatactive-maxreplies', ca.maxReplies, 3);
+    setNum('ac-chatactive-maxmessages', ca.maxMessages, 20);
+    setNum('ac-chatactive-threshold', ca.topicDrift?.similarityThreshold, 0.35);
+    setNum('ac-chatactive-consecutive', ca.topicDrift?.consecutive, 3);
+    setNum('ac-chatactive-cooldown', ca.cooldownMinutes, 10);
+  }
+
   // ── 群按钮列表（只列白名单内的群）──
   function renderGroupButtons() {
     const box = overlay.querySelector('#ac-group-buttons');
@@ -424,13 +450,24 @@ function mountActiveConfigEditor(root) {
     activeGid = String(btn.dataset?.gid || '');
     renderGroupButtons();
     syncSliderUI();
+    try { fillChatActiveFields(caCfgFor(activeGid, unifiedNow())); } catch { /* ignore */ }
   });
-  overlay.querySelector('#tier-group-clear-btn')?.addEventListener('click', () => {
+  overlay.querySelector('#tier-group-clear-btn')?.addEventListener('click', async () => {
     if (!activeGid) return;
+    const who = groupDisplayName(activeGid);
+    const ok = await uiConfirm('清除「' + who + '」的单独设置？\n\n会清掉该群的响应档位和活跃期配置，恢复成全局默认。', { title: '清除单独设置', okText: '清除' });
+    if (!ok) return;
     delete dGroupPos[activeGid];
     delete dGroupPeak[activeGid];
+    try {
+      const byChat = { ...(state.config?.chatActive?.byChat || {}) };
+      delete byChat[caKeyOf(activeGid)];
+      await api('/api/config', { method: 'POST', body: JSON.stringify({ chatActive: { byChat: { __replace__: byChat } } }) });
+      if (state.config?.chatActive) state.config.chatActive.byChat = byChat;
+    } catch (e) { alert('清除活跃期设置失败：' + (e?.message || e)); }
     renderGroupButtons();
     syncSliderUI();
+    fillChatActiveFields(caCfgFor(activeGid, unifiedNow()));
   });
 
   // ── 刻度 / 说明 ──
@@ -518,6 +555,7 @@ function mountActiveConfigEditor(root) {
     }
     renderGroupButtons();
     syncSliderUI();
+    try { fillChatActiveFields(caCfgFor(activeGid, draftUnified)); } catch { /* ignore */ }
   }
   // 体内「按群单独设置 / 改回统一设置」按钮：切换分群模式并显隐群列表
   const gToggle = overlay.querySelector('#ac-group-toggle');
@@ -583,8 +621,7 @@ function mountActiveConfigEditor(root) {
     const caEl = (id) => document.getElementById(id);
     if (caEl('ac-chatactive-enabled')) {
       const modeSel = caEl('ac-chatactive-mode');
-      patch.chatActive = {
-        ...(state.config?.chatActive || {}),
+      const caObj = {
         enabled: !!caEl('ac-chatactive-enabled').checked,
         mode: modeSel ? modeSel.value : 'semantic',
         maxMinutes: Math.max(1, Number(caEl('ac-chatactive-maxminutes')?.value) || 30),
@@ -598,6 +635,13 @@ function mountActiveConfigEditor(root) {
         },
         cooldownMinutes: Math.max(0, Number(caEl('ac-chatactive-cooldown')?.value) || 0)
       };
+      const baseCa = state.config?.chatActive || {};
+      if (!unifiedNow() && activeGid) {
+        const byChat = { ...(baseCa.byChat || {}), [caKeyOf(activeGid)]: caObj };
+        patch.chatActive = { byChat: { __replace__: byChat } };
+      } else {
+        patch.chatActive = { ...baseCa, ...caObj };
+      }
     } else if (extra.chatActive) {
       patch.chatActive = { ...(state.config?.chatActive || {}), ...extra.chatActive };
     }

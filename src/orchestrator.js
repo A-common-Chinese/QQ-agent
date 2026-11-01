@@ -369,8 +369,14 @@ export class Orchestrator {
   }
 
   /** 活跃期配置（含旧字段兼容） */
-  #activeCfg() {
-    const ca = getConfig().chatActive || {};
+  #activeCfg(chatKey = '') {
+    const base = getConfig().chatActive || {};
+    const over = (base.byChat || {})[String(chatKey || '')] || {};
+    const ca = {
+      ...base,
+      ...over,
+      topicDrift: { ...(base.topicDrift || {}), ...(over.topicDrift || {}) }
+    };
     const maxMinutes = Math.max(1, Number(ca.maxMinutes) || Number(ca.ttlMinutes) || 30);
     return {
       enabled: ca.enabled === true,
@@ -405,7 +411,7 @@ export class Orchestrator {
 
   /** 进入活跃期（带冷却） */
   #activeEnter(chatKey, topic) {
-    const cfg = this.#activeCfg();
+    const cfg = this.#activeCfg(chatKey);
     if (!cfg.enabled) return false;
     const lastExit = this.lastActiveExitAt.get(chatKey) || 0;
     if (cfg.cooldownMinutes > 0 && Date.now() - lastExit < cfg.cooldownMinutes * 60000) return false;
@@ -429,7 +435,7 @@ export class Orchestrator {
   #activeOnMessage(chatKey, entry) {
     const st = this.activeTopics.get(chatKey);
     if (!st) return;
-    const cfg = this.#activeCfg();
+    const cfg = this.#activeCfg(chatKey);
     st.lastMessageAt = Date.now();
     st.messages = (Number(st.messages) || 0) + 1;
     if (st.messages >= cfg.maxMessages) { this.#activeExit(chatKey, 'max-messages'); return; }
@@ -472,7 +478,7 @@ export class Orchestrator {
     const st = this.activeTopics.get(chatKey);
     if (!st || !(n > 0)) return;
     st.replies = (Number(st.replies) || 0) + n;
-    const cfg = this.#activeCfg();
+    const cfg = this.#activeCfg(chatKey);
     if (st.replies >= cfg.maxReplies) this.#activeExit(chatKey, 'max-replies');
   }
 
@@ -481,7 +487,7 @@ export class Orchestrator {
    * 返回 { topic, until, ... } 或 null。
    */
   #activeState(chatKey) {
-    const cfg = this.#activeCfg();
+    const cfg = this.#activeCfg(chatKey);
     if (!cfg.enabled) {
       if (this.activeTopics.size) this.activeTopics.delete(chatKey);
       return null;
@@ -1427,7 +1433,7 @@ export class Orchestrator {
             const st = this.#activeState(chatKey);
             if (enabled && topic && eligibleTier) {
               if (this.#activeEnter(chatKey, topic)) {
-                const ac = this.#activeCfg();
+                const ac = this.#activeCfg(chatKey);
                 console.log(`[orchestrator] ${chatKey} 进入活跃期（话题：${topic.slice(0, 60)}，上限 ${ac.maxMinutes} 分钟 / ${ac.maxReplies} 句）`);
               }
             } else if (st && /话题(结束|终止|偏离)/.test(reason)) {
