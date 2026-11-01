@@ -212,7 +212,8 @@ export function updatePerson(qq, patch) {
 }
 
 export function updateGroup(chatKey, patch) {
-  const file = path.join(dirOf(chatKey), 'group.json');
+  const key = String(chatKey);
+  const file = path.join(dirOf(key), 'group.json');
   const cur = read(file);
   if (!cur) return { ok: false, error: 'not_found' };
   const allowed = ['name', 'summary', 'facts', 'topics', 'members'];
@@ -226,7 +227,7 @@ export function updateGroup(chatKey, patch) {
   return { ok: true, card: next };
 }
 
-const PERSON_FIELDS = ['name', 'summary', 'tone', 'facts', 'prefs', 'events', 'pending', 'notes', 'impressions', 'aliases'];
+const PERSON_FIELDS = ['name', 'summary', 'tone', 'facts', 'prefs', 'events', 'pending', 'notes', 'impressions', 'aliases', 'groups'];
 
 /** 个人卡：不存在就建（自动生成用），存在则合并字段 */
 export function upsertPerson(qq, patch = {}) {

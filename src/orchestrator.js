@@ -1759,6 +1759,32 @@ export class Orchestrator {
       if (g.summary) patch.summary = String(g.summary).slice(0, 400);
       if (Array.isArray(g.facts)) patch.facts = g.facts.map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 12);
       if (Array.isArray(g.topics)) patch.topics = g.topics.map((x) => String(x).slice(0, 120)).filter(Boolean).slice(0, 12);
+      // 群卡成员：按最近消息统计，自动关联个人卡（不依赖模型输出）
+      if (isGroup) {
+        const stat = new Map();
+        for (const m of recent) {
+          const uid = String(m?.senderId || '');
+          if (!/^\d{4,12}$/.test(uid)) continue;
+          const cur = stat.get(uid) || { id: uid, name: m.senderName || uid, msgs: 0 };
+          cur.msgs += 1; if (m.senderName) cur.name = m.senderName;
+          stat.set(uid, cur);
+        }
+        const members = [...stat.values()].sort((a, b) => b.msgs - a.msgs).slice(0, 20);
+        if (members.length) patch.members = members;
+        // 关联：确保成员有个人卡，并把本群写进卡片的 groups
+        for (const mem of members) {
+          try {
+            ensurePersonCard(mem.id, mem.name, chatKey);
+            const cur = getPerson(mem.id) || {};
+            const groups = Array.isArray(cur.groups) ? cur.groups.slice() : [];
+            const idx = groups.findIndex((x) => String(x?.chatKey) === String(chatKey));
+            const nextG = { chatKey, msgs: mem.msgs };
+            if (idx >= 0) groups[idx] = { ...groups[idx], ...nextG };
+            else groups.push(nextG);
+            upsertPerson(mem.id, { groups: groups.slice(0, 20) });
+          } catch { /* ignore */ }
+        }
+      }
       if (Object.keys(patch).length) { if (upsertGroup(chatKey, patch).ok) touched += 1; }
     }
     for (const p of (Array.isArray(json.persons) ? json.persons : []).slice(0, 5)) {
