@@ -1732,13 +1732,14 @@ export class Orchestrator {
       '',
       '请输出 JSON：',
       '{"group":{"name":"会话或群名","summary":"1-3 句定位","facts":["稳定事实，最多6条"],"topics":["常聊话题，最多6条"]},',
-      ' "persons":[{"qq":"数字QQ号","name":"昵称","summary":"1-2 句概括","tone":"说话风格","facts":["稳定事实，最多5条"],"prefs":[],"notes":[],"pending":[{"text":"约定内容","term":"short|long|permanent"}],"impressions":{"general":"跨群通用印象","private":"私聊印象（仅私聊会话填）"}}],',
+      ' "persons":[{"qq":"数字QQ号","name":"昵称","summary":"1-2 句概括","tone":"说话风格","facts":["稳定事实，最多5条"],"prefs":[],"notes":[],"pending":[{"text":"约定内容","term":"short|long|permanent"}],"impressions":{"general":"跨群通用印象","private":"私聊印象（仅私聊会话填）"},"aliases":["外号/称呼"]}],',
       crossMentions ? ' "mentions":[{"from":"说话人昵称","to":"被提到的人昵称或QQ","about":"提到他的内容"}],' : '',
       topicsAuto ? ' "topics":[{"title":"话题标题","summary":"一句话概括","body":"关键信息 2-4 句","keywords":["能命中该话题的词"],"term":"halfday|day|week|month"}]}' : ' "topics":[]}',
       '要求：只写稳定信息，不写一次性事件；persons 最多 5 人；没有数字QQ号的人不要输出；信息不足就留空字符串或空数组。',
       '约定（pending）只写明确的约定/待办；term 由你判断：short=几天内、long=几周~几个月、permanent=长期有效（如"喜欢被叫小鲸鱼"这类偏好不算约定，放 facts/prefs）。',
       crossMentions ? '提及（mentions）：只有最近聊天里有人明确提到某个群友/熟人（在场或不在场都算）时才输出；from 填说话人昵称，to 填被提到的人（优先 QQ，其次名字），about 一句话概括提到的内容；没有提到就输出空数组。' : '',
       topicsAuto ? '话题（topics）：从最近聊天里抽 1-3 个仍在延续的话题；term 只能取 ephemeral / halfday / day / week / month。**默认偏短期**：大多数话题用 halfday/day/week；只有长期项目（如每周固定开黑）、长期梗/设定、已多次被提起的话题才用 month；拿不准就选 day。\n只持续几十分钟到几小时的即时话题（约今晚开黑、现在在干嘛、临时组队、此刻谁在线）用 ephemeral（不建卡）；但周期性安排（每周五开黑）不是瞬时话题，用 week/month。keywords 要含未来消息可能出现的词。' : '',
+      '外号（aliases）：群友对这个人的不同称呼/外号/代号，只写稳定的、能帮助认人的；不要写贬损或一次性的叫法；最多 8 条。',
       '个人卡印象只保留「通用印象」和「私聊印象」：群聊会话只填 impressions.general（跨群通用，1-2 句）；私聊会话只填 impressions.private（1-2 句）；信息不足就留空，不要编。'
     ].join('\n');
     const resp = await this.#memoryChat([{ role: 'system', content: sys }, { role: 'user', content: user }]);
@@ -1807,6 +1808,17 @@ export class Orchestrator {
           const term = String((x && x.term) || '').toLowerCase();
           return { text, at: Number(x && x.at) || now, term: ['short', 'long', 'permanent'].includes(term) ? term : 'long' };
         }).filter((x) => x.text);
+      }
+      // 外号：与已有 aliases 合并、去重、限长
+      if (Array.isArray(p.aliases) && p.aliases.length) {
+        const curA = getPerson(qq) || {};
+        const merged = [];
+        for (const x of [...(curA.aliases || []), ...p.aliases]) {
+          const t = String(x || '').trim().slice(0, 30);
+          if (t && !merged.some((y) => y.toLowerCase() === t.toLowerCase())) merged.push(t);
+        }
+        const maxA = Math.max(1, Number(getConfig().memoryCards?.maxAliases ?? 8));
+        patch.aliases = merged.slice(-maxA);
       }
       // 印象按会话类型写入：群聊 → general；私聊 → byChat['private:<qq>']
       const impIn = (p && typeof p.impressions === 'object' && p.impressions) || {};

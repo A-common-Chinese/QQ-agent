@@ -603,6 +603,7 @@ function renderSearchSection(c) {
       ${st.tab === 'persons' ? '<div class="hint">QQ：' + esc(d.qq || '') + '（主键，改昵称不影响）</div>' : ''}
       <div class="field"><label>名称（昵称，可改）</label><input type="text" id="memv-name" value="${esc(d.name || '')}" /></div>
       <div class="field"><label>一句话概览</label><input type="text" id="memv-summary" value="${esc(d.summary || '')}" /></div>
+      ${st.tab === 'persons' ? '<div class="field"><label>名字 / 外号（一行一个，最多 8 条）</label><textarea id="memv-aliases" style="min-height:60px">' + esc((d.aliases || []).join('\n')) + '</textarea><div class="hint">模型会维护；用于识别群友的不同叫法（不影响主昵称）</div></div>' : ''}
       ${st.tab === 'persons' ? '<div class="field"><label>语气/关系（可选）</label><input type="text" id="memv-tone" value="' + esc(d.tone || '') + '" /></div>' : ''}
 ${st.tab === 'persons' ? memImpressionsHtml(d) : ''}
       <div class="field"><label>事实（一行一条，key=value）</label><textarea id="memv-facts" class="persona-role-text" style="min-height:110px">${facts}</textarea></div>
@@ -779,6 +780,7 @@ async function memSave(key, st) {
     if (g('memv-summary')) body.summary = g('memv-summary').value;
     if (st.tab === 'persons') {
       if (g('memv-tone')) body.tone = g('memv-tone').value;
+      if (g('memv-aliases')) body.aliases = memParseLines(g('memv-aliases').value).slice(0, 8);
     // 笔记已拆进 impressions.byChat，不再单独保存 body.notes
       if (g('memv-prefs')) body.prefs = memParseLines(g('memv-prefs').value).map((x) => ({ what: x }));
       if (g('memv-pending')) {

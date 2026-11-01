@@ -64,6 +64,7 @@ export const DEFAULT_CONFIG = {
     modelQuery: false,         // 允许模型用工具检索记忆卡（默认关）
     crossMentions: false,      // 记忆整理时把"提到别人"写进对方卡（默认关）
     crossMentionsMaxPerRun: 5, // 单次整理最多写几条提及
+    maxAliases: 8,             // 个人卡「名字/外号」最多保留几条
     modelQueryMaxResults: 8,   // 工具检索最多返回几条
     hiddenMax: 500,            // 隐藏区（空卡）全库上限，超出按最久未更新清理
     hiddenRetentionDays: 30,   // 隐藏区空卡保留天数（0=不按时间清）

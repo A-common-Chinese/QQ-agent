@@ -125,12 +125,18 @@ function quoteAndAt() {
 }
 
 function memoryRules() {
-  return [
+  const lines = [
     '【轻量记忆：偶尔用，别当笔记本】',
     '- memory_append 只用来记录"对某位群友的长期印象"（他的说话风格、爱玩的梗、雷点、身份关系等稳定信息）；这些内容下次运行会自动出现在【记忆】里。',
     '- 不要记临时话题、临时想法；只记以后跟这个人打交道还用得上的。印象过时/不再准确时用 memory_remove 删掉。',
     '- 每次扫一眼【记忆】，只有自然相关才主动提起；不要为了用记忆而硬聊旧话题。'
-  ].join('\n');
+  ];
+  try {
+    if (getConfig().memoryCards?.modelQuery === true) {
+      lines.push('- 需要某个群友、某个群或某个话题的长期信息（印象、约定、事实、话题背景）时，可以调用 memory_cards_query 查记忆卡；查不到就直说，不要编。');
+    }
+  } catch { /* ignore */ }
+  return lines.join('\n');
 }
 
 function stickerRules() {
