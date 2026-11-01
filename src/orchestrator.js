@@ -220,11 +220,15 @@ export class Orchestrator {
         // 骰子结果由 resolveContextTier 的 reason 带回（含当时的值）。
         roll: null
       });
+      const dcfg = getConfig().decision || {};
+      const chatD = (dcfg.perChat && dcfg.perChat[chatKey]) || {};
+      const liveMode = dcfg.enabled === true && dcfg.liveReply === true
+        && chatD.live === true && chatD.mode === 'active' && chatD.observeOnly === false;
+      // 语义触发组：原生「随机档」不再唤醒，交给 L1/L2 判定（避免两条通道打架）
+      if (liveMode && dcfg.gateNativeRandom !== false && tierResult && Number(tierResult.tier) === 3) {
+        tierResult = { ...tierResult, shouldRespond: false, reason: '语义触发组：随机档交给语义判定' };
+      }
       if (!tierResult.shouldRespond) {
-        const dcfg = getConfig().decision || {};
-        const chatD = (dcfg.perChat && dcfg.perChat[chatKey]) || {};
-        const liveMode = dcfg.enabled === true && dcfg.liveReply === true
-          && chatD.live === true && chatD.mode === 'active' && chatD.observeOnly === false;
         if (liveMode) {
           // 预览版（P2）：先跑判定，决定「真的开跑会话」还是「照旧标已读」
           const self = this;

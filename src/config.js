@@ -95,6 +95,7 @@ export const DEFAULT_CONFIG = {
     liveReply: false,            // 主动接话总开关（需配合 perChat[chatKey].live=true 才对某群生效）
     liveMaxPerDay: 5,            // 每群每天最多主动接话次数
     liveMinIntervalMs: 600000,   // 同群两次主动接话的最小间隔（默认 10 分钟）
+    gateNativeRandom: true,      // live 群忽略原生「随机档」，随机插话交给语义判定
     embedding: {
       providerId: '', baseUrl: '', apiKey: '', model: '', dims: 0,
       autoDetectDims: false,     // 预留：自动探测维度（暂不实现）
