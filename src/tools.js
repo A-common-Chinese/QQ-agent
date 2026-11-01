@@ -7,6 +7,7 @@
 // 重构说明：所有工具通过 registerTool() 注册到 tool-registry.js，
 // 支持在设置页按卡片勾选启用/禁用。
 import { getConfig } from './config.js';
+import { listCards, getPerson, getGroup, listTopics, getTopic } from './memory-cards.js';
 import { applyBannedFilter } from './persona-filter.js';
 import { normalizeMessageList, unquoteJsonString } from './util.js';
 import { formatStickerList } from './stickers.js';
@@ -725,6 +726,60 @@ function registerAllTools() {
         ? mem.memberImpression.filter((e) => String(e.userId) === userId)
         : mem.memberImpression;
       return ok({ memberImpression: list });
+    }
+  });
+
+  registerTool({
+    id: 'memory_cards_query',
+    name: '检索记忆卡',
+    description: '按需检索长期记忆卡（个人 / 群 / 话题）。可以用 qq 查某个人的卡、chatKey 查某个会话的卡、query 关键词搜话题或个人名。默认关闭，需在设置里开启「允许模型检索记忆卡」。',
+    category: 'memory',
+    icon: '🗂️',
+    parameters: {
+      type: 'object',
+      properties: {
+        qq: { type: ['integer', 'string'], description: '要查的人 QQ 号（可选）' },
+        chatKey: { type: 'string', description: '要查的会话（如 group:123456 / private:123456，可选）' },
+        query: { type: 'string', description: '关键词（搜话题标题/关键词、个人昵称，可选）' },
+        kind: { type: 'string', enum: ['person', 'group', 'topic', 'any'], description: '检索范围，默认 any' }
+      }
+    },
+    async execute(ctx, args) {
+      const cfg = getConfig();
+      if (cfg.memoryCards?.modelQuery !== true) return err('记忆卡检索未启用（设置 → 聊天 → 记忆卡 → 允许模型检索记忆卡）');
+      const max = Math.max(1, Number(cfg.memoryCards?.modelQueryMaxResults) || 8);
+      const kind = String(args.kind || 'any');
+      const qq = String(args.qq ?? '').trim();
+      const chatKey = String(args.chatKey ?? '').trim();
+      const q = String(args.query ?? '').trim().toLowerCase();
+      const out = {};
+      const clipCard = (c) => ({
+        name: c.name || '', summary: String(c.summary || '').slice(0, 300),
+        facts: (c.facts || []).slice(0, 8), prefs: (c.prefs || []).slice(0, 6),
+        notes: (c.notes || []).slice(0, 8), tone: String(c.tone || '').slice(0, 200),
+        impressions: c.impressions || undefined
+      });
+      if ((kind === 'person' || kind === 'any') && qq) {
+        const c = getPerson(qq);
+        if (c) out.person = clipCard(c);
+      }
+      if ((kind === 'group' || kind === 'any') && chatKey) {
+        const g = getGroup(chatKey);
+        if (g) out.group = clipCard(g);
+      }
+      if ((kind === 'topic' || kind === 'any') && chatKey) {
+        const list = listTopics(chatKey).filter((t) => !q || [t.title, t.summary, ...(t.keywords || [])].join(' ').toLowerCase().includes(q));
+        out.topics = list.slice(0, max).map((t) => ({ title: t.title, summary: t.summary, keywords: (t.keywords || []).slice(0, 6), term: t.term }));
+      }
+      if (!out.person && !out.group && !out.topics && q) {
+        const all = listCards();
+        out.persons = all.persons.filter((p) => !p.hidden && [p.name, p.qq, p.summary].join(' ').toLowerCase().includes(q)).slice(0, max)
+          .map((p) => ({ qq: p.qq, name: p.name, summary: String(p.summary || '').slice(0, 160) }));
+        out.groups = all.groups.filter((g) => [g.name, g.chatKey, g.summary].join(' ').toLowerCase().includes(q)).slice(0, max)
+          .map((g) => ({ chatKey: g.chatKey, name: g.name, summary: String(g.summary || '').slice(0, 160) }));
+      }
+      if (!Object.keys(out).length) return ok({ note: '没有匹配的记忆卡' });
+      return ok(out);
     }
   });
 

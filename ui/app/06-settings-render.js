@@ -709,6 +709,12 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
     head: '记忆卡是怎么建立的',
     body: `<div style="font-size:13px;line-height:1.8;max-width:680px">
       <div class="hint" style="margin-top:0">记忆卡不是每轮都写：会话结束/记忆整理时，把最近消息 + 小时摘要 + 已有印象交给模型整理成卡片。</div>
+      <div class="field" style="margin:10px 0">
+        <div class="checkbox-row"><input type="checkbox" id="mem-rule-modelquery" ${state.config?.memoryCards?.modelQuery === true ? 'checked' : ''} />
+          <label for="mem-rule-modelquery">允许模型按需检索记忆卡（多一个工具，能查个人/群/话题）</label></div>
+        <div class="checkbox-row" style="margin-top:6px"><input type="checkbox" id="mem-rule-crossmentions" ${state.config?.memoryCards?.crossMentions === true ? 'checked' : ''} />
+          <label for="mem-rule-crossmentions">整理时记录「谁提到了谁」到对方卡（notes 里写「xx提到：…」）</label></div>
+      </div>
       <h4>群卡（每个群/私聊一张）</h4>
       <ul>
         <li>来源：最近聊天、小时摘要、语义卡、已有群卡</li>
@@ -747,6 +753,24 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
   overlay.querySelector('#mem-rules-ok')?.addEventListener('click', () => closeModelModal(overlay));
 }
 window.__openMemoryRulesModal = openMemoryRulesModal;
+if (typeof document !== 'undefined' && !window.__memRuleSwitchesBound) {
+  window.__memRuleSwitchesBound = true;
+  document.addEventListener('change', async (e) => {
+    const el = e.target;
+    if (!el || !el.id) return;
+    if (el.id !== 'mem-rule-modelquery' && el.id !== 'mem-rule-crossmentions') return;
+    const patch = el.id === 'mem-rule-modelquery'
+      ? { memoryCards: { modelQuery: !!el.checked } }
+      : { memoryCards: { crossMentions: !!el.checked } };
+    try {
+      await api('/api/config', { method: 'POST', body: JSON.stringify(patch) });
+      if (state.config?.memoryCards) {
+        if (el.id === 'mem-rule-modelquery') state.config.memoryCards.modelQuery = !!el.checked;
+        else state.config.memoryCards.crossMentions = !!el.checked;
+      }
+    } catch (err) { alert('保存失败：' + (err.message || err)); }
+  });
+}
 
 async function memSave(key, st) {
     const g = (id) => document.getElementById(id);

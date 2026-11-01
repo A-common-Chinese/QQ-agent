@@ -61,6 +61,10 @@ export const DEFAULT_CONFIG = {
     presenceMention: true,  // 在场判定：用"被点名的人"
     flashbackCount: 2,      // 随机闪回几张话题卡（0=关）
     autoCreatePersons: true,   // 群友第一次出现就建空卡（不调模型，空卡进隐藏区）
+    modelQuery: false,         // 允许模型用工具检索记忆卡（默认关）
+    crossMentions: false,      // 记忆整理时把"提到别人"写进对方卡（默认关）
+    crossMentionsMaxPerRun: 5, // 单次整理最多写几条提及
+    modelQueryMaxResults: 8,   // 工具检索最多返回几条
     hiddenMax: 500,            // 隐藏区（空卡）全库上限，超出按最久未更新清理
     hiddenRetentionDays: 30,   // 隐藏区空卡保留天数（0=不按时间清）
     topics: {               // 话题卡自动生成（时限与个人卡「约定」不同：半天/一天/七天/长期）
