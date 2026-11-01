@@ -16,6 +16,7 @@ import { randInt } from './util.js';
 import { applyDynamicHistory } from './dynamic-history.js';
 import { upsertTopicCard } from './topic-cards.js';
 import { appendAudit } from './audit.js';
+import { embedTexts, embeddingReady } from './embeddings.js';
 import { buildSystemPrompt, buildUserPrompt, resolveContextTier, prepareSkillSections, splitSkillSections } from './prompt.js';
 import { chatCompletion, chatCompletionWithRetry, addUsage, isRetryableError } from './llm.js';
 import { buildToolDefs, toOpenAiTools, executeTool } from './tools.js';
@@ -68,6 +69,7 @@ export class Orchestrator {
     // 自判"是否仍在话题上"，偏离/结束则 finish("话题结束") 退出活跃期。
     // 到期自动退出兜底（LLM 忘了判断也不会永远活跃）。
     this.activeTopics = new Map();
+    this.lastActiveExitAt = new Map();   // chatKey -> 最近一次退出活跃期的时间（冷却用）
     // ── 提示词锚点（前缀缓存深化，2026-09-25）──
     // chatKey -> { readIds, readCount, memberIds }：上一轮发给模型的
     // 【记忆】+【已读信息】前缀状态。下一轮 buildUserPrompt 据此判断能否
@@ -202,6 +204,8 @@ export class Orchestrator {
     if (this.pendingWake.has(chatKey)) return;
 
     const cfg = getConfig();
+    // 活跃期计数：新消息可能触发 idle / maxMessages / 语义漂移退出
+    try { if (entry) this.#activeOnMessage(chatKey, entry); } catch { /* ignore */ }
     // 前置条件（与 wake 的闸门同口径，在这里提前拦截可以少建一次定时器）：
     //   模型未设置 → 消息保留未读，设置后（下一条消息或恢复积压）自动补处理
     if (!String(cfg.api.model || '').trim()) return;
@@ -364,20 +368,130 @@ export class Orchestrator {
     this.wakeTimers.set(chatKey, timer);
   }
 
+  /** 活跃期配置（含旧字段兼容） */
+  #activeCfg() {
+    const ca = getConfig().chatActive || {};
+    const maxMinutes = Math.max(1, Number(ca.maxMinutes) || Number(ca.ttlMinutes) || 30);
+    return {
+      enabled: ca.enabled === true,
+      mode: ['duration', 'topicChange', 'semantic'].includes(String(ca.mode)) ? String(ca.mode) : 'semantic',
+      maxMinutes,
+      idleMinutes: Math.max(0, Number(ca.idleMinutes ?? 5)),
+      maxReplies: Math.max(1, Number(ca.maxReplies) || 3),
+      maxMessages: Math.max(1, Number(ca.maxMessages) || 20),
+      driftEnabled: ca.topicDrift?.enabled !== false,
+      driftThreshold: Math.max(0.05, Number(ca.topicDrift?.similarityThreshold) || 0.35),
+      driftConsecutive: Math.max(1, Number(ca.topicDrift?.consecutive) || 3),
+      cooldownMinutes: Math.max(0, Number(ca.cooldownMinutes ?? 10))
+    };
+  }
+
+  /** 退出活跃期（带原因审计） */
+  #activeExit(chatKey, reason) {
+    const st = this.activeTopics.get(chatKey);
+    if (!st) return;
+    this.activeTopics.delete(chatKey);
+    this.lastActiveExitAt.set(chatKey, Date.now());
+    try {
+      appendAudit('active-exit', {
+        chatKey, reason,
+        minutes: Math.round((Date.now() - Number(st.startedAt || Date.now())) / 60000),
+        replies: Number(st.replies) || 0,
+        messages: Number(st.messages) || 0,
+        topic: String(st.topic || '').slice(0, 60)
+      });
+    } catch { /* ignore */ }
+  }
+
+  /** 进入活跃期（带冷却） */
+  #activeEnter(chatKey, topic) {
+    const cfg = this.#activeCfg();
+    if (!cfg.enabled) return false;
+    const lastExit = this.lastActiveExitAt.get(chatKey) || 0;
+    if (cfg.cooldownMinutes > 0 && Date.now() - lastExit < cfg.cooldownMinutes * 60000) return false;
+    const now = Date.now();
+    const st = {
+      topic: String(topic || '').slice(0, 60),
+      startedAt: now,
+      until: now + cfg.maxMinutes * 60000,
+      lastMessageAt: now,
+      messages: 0,
+      replies: 0,
+      badCount: 0,
+      anchorVec: null
+    };
+    this.activeTopics.set(chatKey, st);
+    try { appendAudit('active-enter', { chatKey, topic: st.topic, maxMinutes: cfg.maxMinutes, mode: cfg.mode }); } catch { /* ignore */ }
+    return true;
+  }
+
+  /** 活跃期内收到新消息：更新预算 / 空闲 / 语义漂移判定 */
+  #activeOnMessage(chatKey, entry) {
+    const st = this.activeTopics.get(chatKey);
+    if (!st) return;
+    const cfg = this.#activeCfg();
+    st.lastMessageAt = Date.now();
+    st.messages = (Number(st.messages) || 0) + 1;
+    if (st.messages >= cfg.maxMessages) { this.#activeExit(chatKey, 'max-messages'); return; }
+    if (!cfg.driftEnabled || cfg.mode === 'duration') return;
+    const text = String(entry?.text || '').trim();
+    if (!text || entry?.self || text.length < 4) return;
+    // 异步算相似度（不阻塞收消息）
+    Promise.resolve().then(async () => {
+      try {
+        if (!embeddingReady()) return;
+        const cur = this.activeTopics.get(chatKey);
+        if (!cur) return;
+        if (!cur.anchorVec) {
+          const av = await embedTexts([String(cur.topic || '')]);
+          cur.anchorVec = Array.isArray(av) && Array.isArray(av[0]) ? av[0] : null;
+          if (!cur.anchorVec) return;
+        }
+        const mv = await embedTexts([text]);
+        const vec = Array.isArray(mv) && Array.isArray(mv[0]) ? mv[0] : null;
+        if (!vec) return;
+        let dot = 0; let na = 0; let nb = 0;
+        for (let i = 0; i < Math.min(cur.anchorVec.length, vec.length); i += 1) {
+          dot += cur.anchorVec[i] * vec[i];
+          na += cur.anchorVec[i] * cur.anchorVec[i];
+          nb += vec[i] * vec[i];
+        }
+        const sim = (na && nb) ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 1;
+        if (sim < cfg.driftThreshold) {
+          cur.badCount = (Number(cur.badCount) || 0) + 1;
+          if (cur.badCount >= cfg.driftConsecutive) this.#activeExit(chatKey, 'topic-drift');
+        } else {
+          cur.badCount = 0;
+        }
+      } catch { /* 漂移判定失败不影响活跃期 */ }
+    });
+  }
+
+  /** 活跃期内发了消息：计入发言预算 */
+  #activeOnReplies(chatKey, n) {
+    const st = this.activeTopics.get(chatKey);
+    if (!st || !(n > 0)) return;
+    st.replies = (Number(st.replies) || 0) + n;
+    const cfg = this.#activeCfg();
+    if (st.replies >= cfg.maxReplies) this.#activeExit(chatKey, 'max-replies');
+  }
+
   /**
-   * 活跃模式：取某个会话的活跃期状态；到期/开关关闭时清理并返回 null。
-   * 返回 { topic, until } 或 null。
+   * 活跃模式：取某个会话的活跃期状态；到期/开关关闭/预算用尽时清理并返回 null。
+   * 返回 { topic, until, ... } 或 null。
    */
   #activeState(chatKey) {
-    const cfg = getConfig();
-    if (cfg.chatActive?.enabled !== true) {
+    const cfg = this.#activeCfg();
+    if (!cfg.enabled) {
       if (this.activeTopics.size) this.activeTopics.delete(chatKey);
       return null;
     }
     const st = this.activeTopics.get(chatKey);
     if (!st) return null;
-    if (Date.now() > Number(st.until) || !String(st.topic || '').trim()) {
-      this.activeTopics.delete(chatKey);
+    if (!String(st.topic || '').trim()) { this.#activeExit(chatKey, 'empty-topic'); return null; }
+    if (Date.now() > Number(st.until)) { this.#activeExit(chatKey, 'timeout'); return null; }
+    if (cfg.idleMinutes > 0 && Date.now() - Number(st.lastMessageAt || 0) > cfg.idleMinutes * 60000) {
+      this.#activeExit(chatKey, 'idle');
       return null;
     }
     return st;
@@ -1312,16 +1426,13 @@ export class Orchestrator {
             const reason = String(session.finishReason ?? '');
             const st = this.#activeState(chatKey);
             if (enabled && topic && eligibleTier) {
-              const ttlMs = Math.max(60000, Number(cfgA.chatActive?.ttlMinutes) || 30) * 60000;
-              this.activeTopics.set(chatKey, { topic: topic.slice(0, 60), until: Date.now() + ttlMs });
-              console.log(`[orchestrator] ${chatKey} 进入活跃期（话题：${topic.slice(0, 60)}，${Math.round(ttlMs / 60000)} 分钟）`);
+              if (this.#activeEnter(chatKey, topic)) {
+                const ac = this.#activeCfg();
+                console.log(`[orchestrator] ${chatKey} 进入活跃期（话题：${topic.slice(0, 60)}，上限 ${ac.maxMinutes} 分钟 / ${ac.maxReplies} 句）`);
+              }
             } else if (st && /话题(结束|终止|偏离)/.test(reason)) {
-              this.activeTopics.delete(chatKey);
+              this.#activeExit(chatKey, 'model-topic-end');
               console.log(`[orchestrator] ${chatKey} 活跃期结束（模型判断话题结束）`);
-            } else if (st && !topic) {
-              // 活跃期内的普通 finish：话题仍在，刷新到期
-              const ttlMs = Math.max(60000, Number(cfgA.chatActive?.ttlMinutes) || 30) * 60000;
-              this.activeTopics.set(chatKey, { ...st, until: Date.now() + ttlMs });
             }
           }
         }
@@ -1362,6 +1473,7 @@ export class Orchestrator {
     }
 
     // 收尾：发过话 = done；没发 = noreply（这是正常选项）
+    try { this.#activeOnReplies(chatKey, session.sent.length); } catch { /* ignore */ }
     let status = session.error ? 'error' : (session.sent.length > 0 ? 'done' : 'noreply');
     // ── 兜底：被艾特/私聊/拍一拍时，模型有时把回复写在正文里却没调 send_message ──
     // 这条路径只救"应该回但没走工具"的情况，正常不发言（2/3 档）不受影响。

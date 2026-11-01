@@ -295,6 +295,37 @@ function mountActiveConfigEditor(root) {
           <div style="margin-bottom:8px">
             <button class="btn btn-small" id="ac-group-toggle" type="button">${unified0 ? '按群单独设置' : '改回统一设置'}</button>
           </div>
+          ${(() => {
+            const ca = state.config?.chatActive || {};
+            const caOn = ca.enabled === true;
+            const mode = String(ca.mode || 'semantic');
+            const num = (v, dft) => Number(v) || dft;
+            return '<div class="ac-chatactive" style="margin-top:8px;border-top:1px dashed var(--line);padding-top:10px">' +
+              '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+                '<b style="font-size:12.5px">被召唤后的活跃期</b>' +
+                '<label class="switch" style="padding:0" title="开启后，被 @ 且模型认为话题值得参与时进入活跃期"><input type="checkbox" id="ac-chatactive-enabled" ' + (caOn ? 'checked' : '') + ' /><span class="track"><span class="thumb"></span></span></label>' +
+              '</div>' +
+              '<div class="field-row">' +
+                '<div class="field"><label>退出策略</label><select id="ac-chatactive-mode">' +
+                  [['semantic','语义（默认）'],['topicChange','语义漂移（不含时长判断以外的兜底）'],['duration','只看时长']].map(([v,l]) => '<option value="' + v + '"' + (mode === v ? ' selected' : '') + '>' + l + '</option>').join('') +
+                '</select></div>' +
+                '<div class="field"><label>时长上限（分钟）</label><input type="number" min="1" id="ac-chatactive-maxminutes" value="' + esc(num(ca.maxMinutes ?? ca.ttlMinutes, 30)) + '" /></div>' +
+              '</div>' +
+              '<div class="field-row">' +
+                '<div class="field"><label>空闲超时（分钟，0=关）</label><input type="number" min="0" id="ac-chatactive-idle" value="' + esc(num(ca.idleMinutes, 5)) + '" /></div>' +
+                '<div class="field"><label>最多主动说（句）</label><input type="number" min="1" id="ac-chatactive-maxreplies" value="' + esc(num(ca.maxReplies, 3)) + '" /></div>' +
+              '</div>' +
+              '<div class="field-row">' +
+                '<div class="field"><label>最多处理消息（条）</label><input type="number" min="1" id="ac-chatactive-maxmessages" value="' + esc(num(ca.maxMessages, 20)) + '" /></div>' +
+                '<div class="field"><label>偏题阈值（0~1）</label><input type="number" step="0.01" min="0.05" max="0.95" id="ac-chatactive-threshold" value="' + esc(Number(ca.topicDrift?.similarityThreshold) || 0.35) + '" /></div>' +
+              '</div>' +
+              '<div class="field-row">' +
+                '<div class="field"><label>连续偏题条数</label><input type="number" min="1" id="ac-chatactive-consecutive" value="' + esc(num(ca.topicDrift?.consecutive, 3)) + '" /></div>' +
+                '<div class="field"><label>退出冷却（分钟）</label><input type="number" min="0" id="ac-chatactive-cooldown" value="' + esc(num(ca.cooldownMinutes, 10)) + '" /></div>' +
+              '</div>' +
+              '<div class="hint">语义模式：与话题锚点相似度低于阈值、连续 N 条 → 判定换话题退出；模型 finish("话题结束") 也会退出；时长/空闲/发言/消息预算是兜底。</div>' +
+            '</div>';
+          })()}
           <div id="ac-group-area"${unified0 ? ' style="display:none"' : ''}>
             <div class="field"><label>选择要单独设置的群聊（来自白名单，点击切换）</label>
               <div class="ac-group-buttons" id="ac-group-buttons"></div></div>
@@ -549,7 +580,25 @@ function mountActiveConfigEditor(root) {
     const patch = {
       store: storePatch
     };
-    if (extra.chatActive) {
+    const caEl = (id) => document.getElementById(id);
+    if (caEl('ac-chatactive-enabled')) {
+      const modeSel = caEl('ac-chatactive-mode');
+      patch.chatActive = {
+        ...(state.config?.chatActive || {}),
+        enabled: !!caEl('ac-chatactive-enabled').checked,
+        mode: modeSel ? modeSel.value : 'semantic',
+        maxMinutes: Math.max(1, Number(caEl('ac-chatactive-maxminutes')?.value) || 30),
+        idleMinutes: Math.max(0, Number(caEl('ac-chatactive-idle')?.value) || 0),
+        maxReplies: Math.max(1, Number(caEl('ac-chatactive-maxreplies')?.value) || 3),
+        maxMessages: Math.max(1, Number(caEl('ac-chatactive-maxmessages')?.value) || 20),
+        topicDrift: {
+          enabled: true,
+          similarityThreshold: Math.min(0.95, Math.max(0.05, Number(caEl('ac-chatactive-threshold')?.value) || 0.35)),
+          consecutive: Math.max(1, Number(caEl('ac-chatactive-consecutive')?.value) || 3)
+        },
+        cooldownMinutes: Math.max(0, Number(caEl('ac-chatactive-cooldown')?.value) || 0)
+      };
+    } else if (extra.chatActive) {
       patch.chatActive = { ...(state.config?.chatActive || {}), ...extra.chatActive };
     }
     const r = await api('/api/config', { method: 'POST', body: JSON.stringify(patch) });

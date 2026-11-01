@@ -366,7 +366,18 @@ export const DEFAULT_CONFIG = {
   // 让"开始活跃"容易、"停下"由模型自主判断 —— 恰好是档位系统的反向补充。
   chatActive: {
     enabled: false,
-    ttlMinutes: 30   // 活跃期最长持续时间（分钟）：到期自动退出，兜住"模型忘了结束"
+    mode: 'semantic',          // 进入活跃期后的退出策略：duration（只看时长）| topicChange（话题漂移+模型）| semantic（默认：语义漂移 + 模型 + 时长兜底）
+    maxMinutes: 30,            // 时长上限（分钟）
+    idleMinutes: 5,            // 空闲超时（分钟）：这段时间没人说话就退出
+    maxReplies: 3,             // 发言预算：活跃期内最多主动说几句
+    maxMessages: 20,           // 消息预算：活跃期内最多处理多少条新消息
+    topicDrift: {              // 语义漂移判定（默认开）
+      enabled: true,
+      similarityThreshold: 0.35,   // 与话题锚点的余弦相似度低于它算"偏题"
+      consecutive: 3               // 连续多少条偏题（且彼此相似）判定换话题
+    },
+    cooldownMinutes: 10,       // 退出后多少分钟内不再自动进入活跃期
+    ttlMinutes: 30             // 兼容旧配置：等于 maxMinutes
   },
   // 表情包
   sticker: {
