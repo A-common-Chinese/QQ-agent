@@ -713,10 +713,6 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       <div class="field" style="margin:10px 0">
         <div class="checkbox-row"><input type="checkbox" id="mem-rule-modelquery" ${state.config?.memoryCards?.modelQuery === true ? 'checked' : ''} />
           <label for="mem-rule-modelquery">允许模型按需检索记忆卡（多一个工具，能查个人/群/话题）</label></div>
-        <div class="checkbox-row" style="margin-top:6px"><input type="checkbox" id="mem-rule-crossgroup" ${state.config?.memoryCards?.crossGroupQuery === true ? 'checked' : ''} />
-          <label for="mem-rule-crossgroup">允许跨群检索（查到只自己知道，不在群里复述）</label></div>
-        <div class="field" style="margin-top:6px"><label style="font-size:12px">跨群可查询白名单（一行一个 chatKey，如 group:123456）</label>
-          <textarea id="mem-rule-crossallow" style="min-height:60px">${esc((state.config?.memoryCards?.crossGroupAllow || []).join('\n'))}</textarea></div>
         <div class="checkbox-row" style="margin-top:6px"><input type="checkbox" id="mem-rule-crossmentions" ${state.config?.memoryCards?.crossMentions === true ? 'checked' : ''} />
           <label for="mem-rule-crossmentions">整理时记录「谁提到了谁」到对方卡（notes 里写「xx提到：…」）</label></div>
       </div>
@@ -1826,6 +1822,13 @@ function renderAllowSection(c) {
       <input type="text" id="cfg-allowqqbot-groups" value="${esc((c.allowQqbot?.groups || []).join(', '))}" placeholder="6A3B9C1D5E2F4A6B7C8D9E0F" /></div>
     <div class="field"><label>允许的用户（user_openid）</label>
       <input type="text" id="cfg-allowqqbot-private" value="${esc((c.allowQqbot?.private || []).join(', '))}" placeholder="7A3B..." /></div>
+      <h3 id="settings-allow-crossgroup" style="margin-top:22px">跨群记忆检索白名单</h3>
+      <div class="hint">允许模型在聊天时按需检索<b>其他会话</b>的记忆卡。默认关；查到内容只供模型自己判断，不会在本群复述。
+        只有这里勾选，且会话在下方名单里，才会被跨群查询（本会话自己的卡始终可查）。</div>
+      <div class="checkbox-row"><input type="checkbox" id="mem-rule-crossgroup" ${c.memoryCards?.crossGroupQuery === true ? 'checked' : ''} />
+        <label for="mem-rule-crossgroup">启用跨群记忆检索</label></div>
+      <div class="field"><label>可被跨群查询的会话（一行一个 chatKey，如 group:123456 / private:123456）</label>
+        <textarea id="mem-rule-crossallow" style="min-height:70px">${esc((c.memoryCards?.crossGroupAllow || []).join('\n'))}</textarea></div>
       ${renderForwardRulesSection(c)}
     <div class="checkbox-row"><input type="checkbox" id="cfg-allowallwhenempty" ${c.allowAllWhenEmpty === true ? 'checked' : ''} />
       <label for="cfg-allowallwhenempty">白名单留空时允许所有会话</label></div>
