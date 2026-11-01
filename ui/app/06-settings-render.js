@@ -2170,7 +2170,7 @@ return `
         <div class="field"><label>命令前缀</label>
           <input type="text" id="cfg-dsh-prefix" value="${esc(c.dsh?.prefix || '/dsh')}" placeholder="/dsh" /></div>
         <div class="field"><label>允许下指令的 QQ 号（逗号分隔，空 = 谁都不许）</label>
-          <input type="text" id="cfg-dsh-senders" value="${esc((c.dsh?.allowedSenderIds || []).join(', '))}" placeholder="85946573" /></div>
+          <input type="text" id="cfg-dsh-senders" value="${esc((c.dsh?.allowedSenderIds || []).join(', '))}" placeholder="填你的 QQ 号" /></div>
       </div>
       <div class="field"><label>DSH 任务的工作目录</label>
         <input type="text" id="cfg-dsh-workdir" value="${esc(c.dsh?.workdir || '')}" placeholder="留空 = 用 QQ Agent 自己的目录" />
@@ -2227,7 +2227,7 @@ return `
       </div>
       <div class="field-row">
         <div class="field"><label>隐私白名单会话（逗号分隔，这些会话原样放行）</label>
-          <input type="text" id="cfg-dsh-privacy-chats" value="${esc((c.dsh?.privacy?.allowedChats || ['private:85946573']).join(', '))}" placeholder="private:85946573" />
+          <input type="text" id="cfg-dsh-privacy-chats" value="${esc((c.dsh?.privacy?.allowedChats || []).join(', '))}" placeholder="private:你的QQ号" />
           <div class="hint">裸 QQ 号按私聊算。<b>群默认不在白名单里</b>（群消息所有成员都能看到），确要放行请写 <code>group:群号</code>。</div></div>
         <div class="field"><label>命中后的处理方式</label>
           <select id="cfg-dsh-privacy-mode">
@@ -2411,7 +2411,7 @@ function renderIdentityLinksSection(c) {
         <div class="field"><label>官方通道（openid）</label><select id="il-official">${off.length ? opt(off) : '<option value="">（暂无官方会话，可在下面手动填）</option>'}</select>
           <input type="text" id="il-official-manual" placeholder="或手动填 key：group:B55C… / private:56D6…" style="margin-top:6px" /></div>
         <div class="field"><label>OneBot（群号 / QQ 号）</label><select id="il-onebot">${ob.length ? opt(ob) : '<option value="">（暂无存档会话，可在下面手动填）</option>'}</select>
-          <input type="text" id="il-onebot-manual" placeholder="或手动填 key：group:759694210 / private:85946573" style="margin-top:6px" /></div>
+          <input type="text" id="il-onebot-manual" placeholder="或手动填 key：group:群号 / private:QQ号" style="margin-top:6px" /></div>
       </div>
       <div class="field-row">
         <div class="field"><label>备注（群名，可选）</label><input type="text" id="il-note" placeholder="例如：叶云鸿指挥室" /></div>
@@ -3325,7 +3325,7 @@ function renderForwardRulesSection(c) {
       '<div class="hint" style="margin-bottom:10px">只能从「聊天白名单」里的会话中选，点一下选中/取消，立即生效。三档权限不同，越靠后越严：</div>' +
       tier('free', '① 可自由转发', '任何人让模型转发都可以') +
       tier('limited', '② 受限转发', '由模型自行判断要不要转；留空则没有这一档') +
-      tier('adminOnly', '③ 仅管理员可要求', '只有本机管理员（' + esc(String(fr.adminQQ || '85946573')) + '）能让模型转') +
+      tier('adminOnly', '③ 仅管理员可要求', '只有本机管理员（' + esc(String(fr.adminQQ || '')) + '）能让模型转') +
       '<div class="hint">不在任何一档里的会话一律不能转发。跨会话发送总开关在「工具与技能 → 发送到指定会话」。</div>'
   });
 }

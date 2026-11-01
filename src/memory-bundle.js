@@ -20,7 +20,7 @@ const ROOT = path.join(DATA_DIR, 'memory-cards');
 const MAGIC = 'qq-agent-memory-bundle';
 export const BUNDLE_VERSION = 1;
 
-/** 从目录名 / meta / id 里还原 chatKey（group_759694210 → group:759694210） */
+/** 从目录名 / meta / id 里还原 chatKey（group_123456 → group:759694210） */
 export function deriveChatKey(raw, card = null) {
   const fromMeta = String(card?.meta?.chatKey || card?.meta?.chat || '').trim();
   if (/^(group|private):\d+$/.test(fromMeta)) return fromMeta;

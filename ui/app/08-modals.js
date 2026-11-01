@@ -1486,7 +1486,7 @@ async function saveConfig({ quiet = false } = {}) {
     const dshProgress = String(val('#cfg-dsh-progress', c.dsh?.showProgress || 'private'));
     // 隐私过滤：白名单会话原样放行，其他会话打码/拒发（细节在 src/privacy.js）
     const dshPrivacyMode = String(val('#cfg-dsh-privacy-mode', c.dsh?.privacy?.mode || 'redact'));
-    const dshPrivacyChats = String(val('#cfg-dsh-privacy-chats', (c.dsh?.privacy?.allowedChats || ['private:85946573']).join(', ')))
+    const dshPrivacyChats = String(val('#cfg-dsh-privacy-chats', (c.dsh?.privacy?.allowedChats || []).join(', ')))
       .split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
     // 自定义规则：多行文本 → extraPatterns。写错的行跳过并保留原值（不给整份设置添堵），
     // 非静默保存（手动保存 / 切页 flush）时再弹一次，免得静默丢规则。
@@ -1530,7 +1530,7 @@ async function saveConfig({ quiet = false } = {}) {
       privacy: {
         ...(c.dsh?.privacy || {}),
         enabled: chk('#cfg-dsh-privacy-enabled', c.dsh?.privacy?.enabled !== false),
-        allowedChats: dshPrivacyChats.length ? dshPrivacyChats : ['private:85946573'],
+        allowedChats: dshPrivacyChats.length ? dshPrivacyChats : [],
         mode: ['redact', 'block'].includes(dshPrivacyMode) ? dshPrivacyMode : 'redact',
         extraPatterns: dshPrivacyParsed.errors.length ? (c.dsh?.privacy?.extraPatterns || []) : dshPrivacyParsed.list,
         scanFileContents: chk('#cfg-dsh-privacy-scanfile', c.dsh?.privacy?.scanFileContents !== false),

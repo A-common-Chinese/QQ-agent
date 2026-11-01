@@ -81,7 +81,7 @@ check('提示里带条数与动作', privacyPatternsHint(original), '✓ 识别�
 
 // ── 生成的规则能被真正的过滤器吃下（privacy.js 的 extraPatterns 契约）─────
 const { createPrivacyFilter } = await import('../src/privacy.js');
-const filter = createPrivacyFilter({ allowedChats: ['private:85946573'], extraPatterns: parsePrivacyPatterns(text).list });
+const filter = createPrivacyFilter({ allowedChats: ['private:12345678'], extraPatterns: parsePrivacyPatterns(text).list });
 const hit = filter.filterText('private:000001', '关于夜莺计划 和 SECRETCODE 的事');
 check('自定义规则生效（打码）', [hit.ok, hit.text], [true, '关于[已隐去:代号] 和 SECRETCODE 的事']);
 const blocked = filter.filterText('private:000001', '访问 .corp.example.com 看看');

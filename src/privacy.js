@@ -6,7 +6,7 @@
 //
 //
 // 目标：DSH 的内容送往**非白名单会话**时，不得携带隐私信息。
-//   · 白名单会话（默认 private:85946573）—— 原样放行，一个字都不动。
+//   · 白名单会话（默认空，需自己填）—— 原样放行，一个字都不动。
 //   · 其他会话（所有群、其他私聊）—— 命中即处理：
 //       block 级（密钥/口令/连接串这类高置信秘密）→ **整条拒发**（fail-closed，不给模型"改一改"的余地）
 //       redact 级（邮箱/手机/身份证/卡号/本机用户名·主机名/用户目录路径/IP）→ 就地打码
@@ -64,7 +64,7 @@ function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** 把配置里的 `85946573` / `private:85946573` 统一成 chatKey 形状。 */
+/** 把配置里的 `你的QQ号` / `private:你的QQ号` 统一成 chatKey 形状。 */
 export function normalizeChatKey(entry) {
   const raw = String(entry ?? '').trim();
   if (!raw) return '';
@@ -86,7 +86,7 @@ export function createPrivacyFilter(options = {}) {
   const scanFileContents = options.scanFileContents !== false;
   const maxScanBytes = Math.max(0, Number(options.maxScanBytes) || 2 * 1024 * 1024);
   const allowed = new Set(
-    (Array.isArray(options.allowedChats) ? options.allowedChats : ['private:85946573'])
+    (Array.isArray(options.allowedChats) ? options.allowedChats : [])
       .map(normalizeChatKey)
       .filter(Boolean)
   );

@@ -603,7 +603,7 @@ export const DEFAULT_CONFIG = {
     // 覆盖三处出口：桥回传给 QQ 的回复、/api/inbound 主动推送、/api/inbound-file。
     privacy: {
       enabled: true,
-      allowedChats: ['private:85946573'],  // 可以收到原样（含隐私）内容的会话；裸 QQ 号按私聊算
+      allowedChats: [],  // 可以收到原样（含隐私）内容的会话；裸 QQ 号按私聊算
       mode: 'redact',                      // redact = 打码后照发；block = 有命中就整条拒发
       blockOnSecrets: true,                // 密钥/口令类永不发（即使 mode=redact）
       blockedReply: '（这条内容含不宜发往该会话的隐私信息，已被隐私过滤拦截）',
@@ -744,7 +744,7 @@ const LEGACY_SKILL_MIGRATIONS = [
  * 幂等：内置卡 variant 已包含该文本时不重复追加。
  */
 /**
- * 迁移：把人格卡里写死的部署者 QQ（历史默认 85946573）换成 {{ownerQQ}} 占位符。
+ * 迁移：把人格卡里写死的部署者 QQ（按配置的管理员 QQ）换成 {{ownerQQ}} 占位符。
  * 目的：卡可以原样分享给别人部署，谁部署就填谁的白名单，不用改文案。
  * 幂等：已经是 {{ownerQQ}} 的不会再变。
  */
@@ -860,7 +860,9 @@ export function migrateBuiltinUseSharedRules(cfg) {
 }
 
 export function migratePersonaOwnerPlaceholder(cfg) {
-  const qq = '85946573';
+  // 不再写死某个部署者的 QQ：只有配置了管理员 QQ 才做替换
+  const qq = String(cfg?.forwardRules?.adminQQ || '').trim();
+  if (!/^\d{4,12}$/.test(qq)) return false;
   let changed = false;
   const walk = (obj, key) => {
     if (!obj || typeof obj !== 'object') return;

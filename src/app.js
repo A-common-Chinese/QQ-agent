@@ -1159,7 +1159,7 @@ export function createApp({ log = console.log } = {}) {
       const key = String(groupId);
       if (Object.prototype.hasOwnProperty.call(activeNow, key)) {
         if (cm.releaseAdminOnly === true) {
-          const ownerQQ = String(getConfig().forwardRules?.adminQQ || '85946573');
+          const ownerQQ = String(getConfig().forwardRules?.adminQQ || '');
           const speaker = String(event?.user_id ?? '');
           if (speaker !== ownerQQ) {
             log(`[指令禁言] 群 ${groupId} 收到「${releaseCmd}」但设置了仅管理员可解除（说话人 ${speaker || '未知'}），忽略`);
@@ -1183,7 +1183,7 @@ export function createApp({ log = console.log } = {}) {
     if (!hitCmd) return;
     // 口令级权限：仅管理员可用的口令，普通群友发出来直接忽略
     if (hitCmd.adminOnly === true) {
-      const ownerQQ = String(getConfig().forwardRules?.adminQQ || '85946573');
+      const ownerQQ = String(getConfig().forwardRules?.adminQQ || '');
       const speaker = String(event?.user_id ?? '');
       if (speaker !== ownerQQ) {
         log(`[指令禁言] 群 ${groupId} 收到管理员专属口令「${hitCmd.command}」，说话人 ${speaker || '未知'} 不是管理员，忽略`);

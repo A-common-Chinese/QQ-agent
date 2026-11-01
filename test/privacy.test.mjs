@@ -18,14 +18,14 @@ function check(name, actual, expected) {
   }
 }
 
-const ALLOWED = 'private:85946573';
+const ALLOWED = 'private:12345678';
 const OTHER = 'private:103751885';
 const GROUP = 'group:759694210';
 
-const filter = createPrivacyFilter({ allowedChats: ['85946573'], mode: 'redact' });
+const filter = createPrivacyFilter({ allowedChats: ['12345678'], mode: 'redact' });
 
 // ── chatKey 归一化 ────────────────────────────────────────────────────────
-check('裸 QQ 号 → private:', normalizeChatKey('85946573'), 'private:85946573');
+check('裸 QQ 号 → private:', normalizeChatKey('12345678'), 'private:12345678');
 check('已带前缀保持不变', normalizeChatKey('group:123'), 'group:123');
 
 // ── 白名单：一个字都不许动 ────────────────────────────────────────────────
@@ -33,7 +33,7 @@ const secret = 'token: abcdef123456 邮箱 a@b.com 手机 13800138000';
 check('白名单私聊放行且原样', filter.filterText(ALLOWED, secret), {
   bypass: true, ok: true, text: secret, hits: [], blockedBy: null
 });
-check('白名单判定', filter.isAllowedChat('85946573'), true);
+check('白名单判定', filter.isAllowedChat('12345678'), true);
 
 // ── 非白名单：block 级 ────────────────────────────────────────────────────
 for (const [name, text, rule] of [

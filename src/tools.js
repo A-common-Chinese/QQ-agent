@@ -255,7 +255,7 @@ function registerAllTools() {
           const lastTrigger = Array.isArray(ctx.triggerEntries) ? ctx.triggerEntries[ctx.triggerEntries.length - 1] : null;
           const speakerId = String(lastTrigger?.senderId ?? lastTrigger?.userId ?? lastTrigger?.uid ?? '');
           if (tiers.adminOnly.includes(wantTarget)) {
-            const adminQQ = String(fr.adminQQ || '85946573');
+            const adminQQ = String(fr.adminQQ || '');
             if (speakerId !== adminQQ) {
               return err(`目标 ${wantTarget} 属于「仅管理员可要求」的转发白名单，当前说话的人不是管理员，不能转发。`);
             }
