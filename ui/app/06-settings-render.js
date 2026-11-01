@@ -3723,6 +3723,7 @@ function renderDecisionSection(c, fold) {
         <button class="btn btn-small" id="dec-logs">查看最近判定</button>
         <button class="btn btn-small" id="dec-panel">判定数据面板</button>
         <span class="muted" id="dec-hint" style="font-size:12px"></span>
+      </div>
     `
   });
 }
