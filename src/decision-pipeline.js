@@ -197,8 +197,10 @@ export async function runDecision({ chatKey, entry, messages = [], store = null 
           decide = !!(j.ok && j.respond === true);
         }
       }
+      const chatD0 = (cfg.decision?.perChat || {})[chatKey] || {};
       log.liveReply = cfg.decision?.liveReply === true;
-      if (decide && log.liveReply) log.action = 'respond';
+      log.live = chatD0.live === true;   // 该群是否真的开了主动接话
+      if (decide && log.liveReply && log.live) log.action = 'respond';
       else log.action = decide ? 'would-respond' : 'would-skip';
       log.reason = band === 'high' ? '分数高于高阈值' : band === 'mid' ? '中间带' : band === 'low' ? '分数低于低阈值' : '无分数';
     }
