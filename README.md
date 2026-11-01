@@ -1,7 +1,7 @@
 # QQ Agent（桌面端）
 
 ![平台](https://img.shields.io/badge/platform-Windows%20%7C%20Electron-lightgrey)
-![版本](https://img.shields.io/badge/version-v0.7.3-blue)
+![版本](https://img.shields.io/badge/version-v0.7.4-blue)
 ![测试](https://img.shields.io/badge/tests-33%20suites%20(npm%20test)-brightgreen)
 ![许可](https://img.shields.io/badge/license-MIT-green)
 
@@ -9,7 +9,7 @@
 
 > ⚠️ **仅供个人学习与自用。** 本项目基于 QQ 开放平台的**官方机器人**接口，不涉及协议破解；若你自行接入第三方协议端，由此产生的账号风险由你自行承担。详见 [ACCEPTABLE_USE.md](./ACCEPTABLE_USE.md) 与下方[合规说明](#合规说明)。
 
-> **这是一个 fork。** 上游是 [K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)，本仓库是 **[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**，当前版本 `v0.7.3`（正式版）。
+> **这是一个 fork。** 上游是 [K0nd1us/QQ-agent](https://github.com/K0nd1us/QQ-agent)，本仓库是 **[A-common-Chinese/QQ-agent](https://github.com/A-common-Chinese/QQ-agent)**，当前版本 `v0.7.4`（正式版）。
 
 ---
 
@@ -69,7 +69,7 @@
 
 | 方式 | 怎么做 |
 |---|---|
-| **安装包（推荐）** | 去 **[最新 Release](https://github.com/A-common-Chinese/QQ-agent/releases/latest)** 下载 `QQ-Agent-DSH-Setup-0.7.3.exe`（Windows x64，约 83 MB），双击安装 |
+| **安装包（推荐）** | 去 **[最新 Release](https://github.com/A-common-Chinese/QQ-agent/releases/latest)** 下载 `QQ-Agent-DSH-Setup-0.7.4.exe`（Windows x64，约 83 MB），双击安装 |
 | **源码（要改代码或跑测试）** | 见下面[快速开始](#快速开始) |
 | **更新** | 启动 8 秒后自动检查本仓库 Releases，发现新版本时在控制台提示并可下载安装包（12 小时缓存、下载后按 `sha256` 校验）。**不会自动安装** |
 
@@ -138,7 +138,7 @@
 
 | 版本 | 主要内容 |
 |---|---|
-| **0.7.3 正式版** | 语义触发预览（默认关闭）、记忆卡改版（通用/私聊印象、约定带期限）、个人卡批量清理、备份 30 天自动清理 |
+| **0.7.4 正式版** | 语义触发预览（默认关闭）、记忆卡改版（通用/私聊印象、约定带期限）、个人卡批量清理、备份 30 天自动清理 |
 | 0.7.2 | 通道映射、记忆整理流水线、消耗提示、提示词缓存优化 |
 | 0.7.1 | 协议端可选化收尾、官方机器人通道稳定化 |
 | 0.7.0 | 官方机器人通道接入 |
