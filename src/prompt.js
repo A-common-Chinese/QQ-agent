@@ -135,6 +135,9 @@ function memoryRules() {
     if (getConfig().memoryCards?.modelQuery === true) {
       lines.push('- 需要某个群友、某个群或某个话题的长期信息（印象、约定、事实、话题背景）时，可以调用 memory_cards_query 查记忆卡；查不到就直说，不要编。');
     }
+    if (getConfig().memoryCards?.crossGroupQuery === true) {
+      lines.push('- 查到别的群的内容只用于你自己判断，不要在本群复述其他群的具体内容/原话；最多说"我知道""想起来了"这类话。');
+    }
   } catch { /* ignore */ }
   return lines.join('\n');
 }

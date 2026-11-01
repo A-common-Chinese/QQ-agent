@@ -713,6 +713,10 @@ ${st.tab === 'general' ? memScopeHtml(d) : ''}
       <div class="field" style="margin:10px 0">
         <div class="checkbox-row"><input type="checkbox" id="mem-rule-modelquery" ${state.config?.memoryCards?.modelQuery === true ? 'checked' : ''} />
           <label for="mem-rule-modelquery">允许模型按需检索记忆卡（多一个工具，能查个人/群/话题）</label></div>
+        <div class="checkbox-row" style="margin-top:6px"><input type="checkbox" id="mem-rule-crossgroup" ${state.config?.memoryCards?.crossGroupQuery === true ? 'checked' : ''} />
+          <label for="mem-rule-crossgroup">允许跨群检索（查到只自己知道，不在群里复述）</label></div>
+        <div class="field" style="margin-top:6px"><label style="font-size:12px">跨群可查询白名单（一行一个 chatKey，如 group:123456）</label>
+          <textarea id="mem-rule-crossallow" style="min-height:60px">${esc((state.config?.memoryCards?.crossGroupAllow || []).join('\n'))}</textarea></div>
         <div class="checkbox-row" style="margin-top:6px"><input type="checkbox" id="mem-rule-crossmentions" ${state.config?.memoryCards?.crossMentions === true ? 'checked' : ''} />
           <label for="mem-rule-crossmentions">整理时记录「谁提到了谁」到对方卡（notes 里写「xx提到：…」）</label></div>
       </div>
@@ -759,6 +763,15 @@ if (typeof document !== 'undefined' && !window.__memRuleSwitchesBound) {
   document.addEventListener('change', async (e) => {
     const el = e.target;
     if (!el || !el.id) return;
+    if (el.id === 'mem-rule-crossallow') {
+      const list = String(el.value || '').split(/[\n,，\s]+/).map((x) => x.trim()).filter((x) => /^(group|private):/.test(x));
+      try { await api('/api/config', { method: 'POST', body: JSON.stringify({ memoryCards: { crossGroupAllow: { __replace__: list } } }) }); } catch (err) { alert('保存失败：' + (err.message || err)); }
+      return;
+    }
+    if (el.id === 'mem-rule-crossgroup') {
+      try { await api('/api/config', { method: 'POST', body: JSON.stringify({ memoryCards: { crossGroupQuery: !!el.checked } }) }); } catch (err) { alert('保存失败：' + (err.message || err)); }
+      return;
+    }
     if (el.id !== 'mem-rule-modelquery' && el.id !== 'mem-rule-crossmentions') return;
     const patch = el.id === 'mem-rule-modelquery'
       ? { memoryCards: { modelQuery: !!el.checked } }

@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from './config.js';
-import { resolveGeneralForChat, isEmptyPersonCard } from './memory-cards.js';
+import { resolveGeneralForChat, isEmptyPersonCard, listCards } from './memory-cards.js';
 import { isSensitiveTopic } from './topic-cards.js';
 
 const ROOT = path.join(DATA_DIR, 'memory-cards');
@@ -123,6 +123,32 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
     }
     if (lines.length) tryPush('【在场】\n' + lines.join('\n'), 0);
   }
+
+  // ③.5 可查记忆卡索引：只给名字/QQ（极便宜），让模型知道"能查谁"
+  try {
+    if (cfg.modelQuery === true) {
+      const textAll2 = scan.map((m) => String(m.text || '')).join('\n');
+      const presentQq = new Set([...present].map(String));
+      const candidates = [];
+      for (const p of readJsonDir(PERSONS, '')) {
+        if (isEmptyPersonCard(p)) continue;
+        const qq = String(p.qq || '');
+        if (!qq || presentQq.has(qq)) continue;
+        const names = [p.name, ...(p.aliases || [])].map((x) => String(x || '').trim()).filter((x) => x && x.length >= 2);
+        if (names.some((n) => textAll2.includes(n))) candidates.push({ qq, name: p.name || qq });
+      }
+      const uniq = [];
+      for (const c of candidates) if (!uniq.some((x) => x.qq === c.qq)) uniq.push(c);
+      const parts = uniq.slice(0, 5).map((x) => x.name + '(QQ ' + x.qq + ')');
+      if (cfg.crossGroupQuery === true) {
+        const allow = new Set((cfg.crossGroupAllow || []).map((x) => String(x || '').trim()));
+        const groups = listCards().groups.filter((g) => allow.has(g.chatKey) && String(g.chatKey) !== String(chatKey)).slice(0, 5)
+          .map((g) => g.name || g.chatKey);
+        if (groups.length) parts.push('其他群：' + groups.join('、'));
+      }
+      if (parts.length) tryPush('【可查记忆卡】' + parts.slice(0, 8).join('、') + '（需要细节可调 memory_cards_query）');
+    }
+  } catch { /* ignore */ }
 
   // ④ 话题卡：关键词命中拉全文 + 标题索引 + 随机闪回
   const nowMs = Date.now();

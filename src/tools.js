@@ -741,7 +741,7 @@ function registerAllTools() {
         qq: { type: ['integer', 'string'], description: '要查的人 QQ 号（可选）' },
         chatKey: { type: 'string', description: '要查的会话（如 group:123456 / private:123456，可选）' },
         query: { type: 'string', description: '关键词（搜话题标题/关键词、个人昵称，可选）' },
-        kind: { type: 'string', enum: ['person', 'group', 'topic', 'any'], description: '检索范围，默认 any' }
+        kind: { type: 'string', enum: ['person', 'group', 'topic', 'any', 'list'], description: '检索范围，默认 any；list = 列出可查的群' }
       }
     },
     async execute(ctx, args) {
@@ -749,6 +749,16 @@ function registerAllTools() {
       if (cfg.memoryCards?.modelQuery !== true) return err('记忆卡检索未启用（设置 → 聊天 → 记忆卡 → 允许模型检索记忆卡）');
       const max = Math.max(1, Number(cfg.memoryCards?.modelQueryMaxResults) || 8);
       const kind = String(args.kind || 'any');
+      const crossOn = cfg.memoryCards?.crossGroupQuery === true;
+      const allow = new Set((cfg.memoryCards?.crossGroupAllow || []).map((x) => String(x || '').trim()).filter(Boolean));
+      const curChat = String(ctx.chatKey || '');
+      const canReadOther = (k) => String(k) === curChat || (crossOn && allow.has(String(k)));
+      if (kind === 'list') {
+        const all = listCards().groups;
+        const list = all.filter((g) => canReadOther(g.chatKey)).slice(0, 10)
+          .map((g) => ({ chatKey: g.chatKey, name: g.name || g.chatKey, crossGroup: String(g.chatKey) !== curChat }));
+        return ok({ groups: list, note: crossOn ? undefined : '跨群检索未开启，只列出本群' });
+      }
       const qq = String(args.qq ?? '').trim();
       const chatKey = String(args.chatKey ?? '').trim();
       const q = String(args.query ?? '').trim().toLowerCase();
@@ -763,11 +773,15 @@ function registerAllTools() {
         const c = getPerson(qq);
         if (c) out.person = clipCard(c);
       }
+      if ((kind === 'group' || kind === 'any') && chatKey && !canReadOther(chatKey)) return err('该会话不在跨群检索白名单里');
       if ((kind === 'group' || kind === 'any') && chatKey) {
+        if (chatKey !== curChat) { try { const { appendAudit } = await import('./audit.js'); appendAudit('cross-group-query', { from: curChat, to: chatKey }); } catch { /* ignore */ } }
         const g = getGroup(chatKey);
         if (g) out.group = clipCard(g);
       }
+      if ((kind === 'topic' || kind === 'any') && chatKey && !canReadOther(chatKey)) return err('该会话不在跨群检索白名单里');
       if ((kind === 'topic' || kind === 'any') && chatKey) {
+        if (chatKey !== curChat) { try { const { appendAudit } = await import('./audit.js'); appendAudit('cross-group-query', { from: curChat, to: chatKey }); } catch { /* ignore */ } }
         const list = listTopics(chatKey).filter((t) => !q || [t.title, t.summary, ...(t.keywords || [])].join(' ').toLowerCase().includes(q));
         out.topics = list.slice(0, max).map((t) => ({ title: t.title, summary: t.summary, keywords: (t.keywords || []).slice(0, 6), term: t.term }));
       }

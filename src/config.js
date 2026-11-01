@@ -62,6 +62,8 @@ export const DEFAULT_CONFIG = {
     flashbackCount: 2,      // 随机闪回几张话题卡（0=关）
     autoCreatePersons: true,   // 群友第一次出现就建空卡（不调模型，空卡进隐藏区）
     modelQuery: false,         // 允许模型用工具检索记忆卡（默认关）
+    crossGroupQuery: false,    // 允许跨群检索记忆卡（默认关）
+    crossGroupAllow: [],       // 跨群可查询白名单（chatKey，如 group:123456）
     crossMentions: false,      // 记忆整理时把"提到别人"写进对方卡（默认关）
     crossMentionsMaxPerRun: 5, // 单次整理最多写几条提及
     maxAliases: 8,             // 个人卡「名字/外号」最多保留几条
