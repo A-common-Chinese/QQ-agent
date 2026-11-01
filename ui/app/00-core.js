@@ -648,12 +648,30 @@ function fmtTime(ts) {
  * 导致已经升到最新仍显示"有新版本 0.5.7"。展示前再过一遍，宁可少提示也不误提示。
  */
 function isNewerVersion(a, b) {
-  const norm = (v) => String(v || '').trim().replace(/^v/i, '').split(/[.+-]/).map((x) => Number(x) || 0);
-  const x = norm(a);
-  const y = norm(b);
-  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
-    const d = (x[i] || 0) - (y[i] || 0);
-    if (d !== 0) return d > 0;
+  // 与后端 updater 同口径的 semver 比较：正式版 > 同核心预发布；后缀写错按 beta 看待
+  const parse = (v) => {
+    const s = String(v || '').trim().replace(/^v/i, '');
+    const m = s.match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
+    if (m) return { core: [Number(m[1]), Number(m[2] || 0), Number(m[3] || 0)], pre: m[4] ? m[4].split('.') : [] };
+    const nums = (s.match(/\d+/g) || []).slice(0, 3).map(Number);
+    while (nums.length < 3) nums.push(0);
+    return { core: nums, pre: ['beta', '0'] };
+  };
+  const x = parse(a); const y = parse(b);
+  for (let i = 0; i < 3; i += 1) {
+    if (x.core[i] !== y.core[i]) return x.core[i] > y.core[i];
+  }
+  if (!x.pre.length && !y.pre.length) return false;
+  if (!x.pre.length) return true;
+  if (!y.pre.length) return false;
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i += 1) {
+    if (i >= x.pre.length) return false;
+    if (i >= y.pre.length) return true;
+    const an = /^\d+$/.test(x.pre[i]); const bn = /^\d+$/.test(y.pre[i]);
+    if (an && bn) { const d = Number(x.pre[i]) - Number(y.pre[i]); if (d !== 0) return d > 0; continue; }
+    if (an) return false;
+    if (bn) return true;
+    if (x.pre[i] !== y.pre[i]) return x.pre[i] > y.pre[i];
   }
   return false;
 }

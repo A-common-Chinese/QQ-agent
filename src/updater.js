@@ -28,17 +28,48 @@ const DEFAULT_MIRRORS = ['https://gh-proxy.com', 'https://ghfast.top'];
 const DEFAULT_REPO = 'A-common-Chinese/QQ-agent';
 const FALLBACK_INFO_URL = 'https://kondius.cn/qq-agent/version.json';
 
-// ── 语义版本比较 ──────────────────────────────────────────────────
-export function compareSemver(a, b) {
-  const norm = (v) => String(v || '').trim().replace(/^v/i, '').split(/[.+-]/).map((x) => Number(x) || 0);
-  const x = norm(a);
-  const y = norm(b);
-  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
-    const d = (x[i] || 0) - (y[i] || 0);
+// ── 语义版本比较（完整 semver：核心三段 + 预发布优先级）───────────────
+// 规则（semver §11）：
+//   · 核心数字大者胜
+//   · 同核心：正式版 > 预发布（0.7.5 > 0.7.5-beta.1）
+//   · 同为预发布：逐段比较，数字段 < 字母段；beta.2 < beta.10
+//   · 后缀无法解析时按预发布看待（beta），保证不会因为写错后缀而"永远收不到正式版"
+function parseVersionInfo(v) {
+  const s = String(v || '').trim().replace(/^v/i, '');
+  const m = s.match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
+  if (m) {
+    return { core: [Number(m[1]), Number(m[2] || 0), Number(m[3] || 0)], pre: m[4] ? m[4].split('.') : [], invalid: false };
+  }
+  // 容错：能抠出三段数字就抠；剩余后缀无法理解 → 当作 beta.0（低于同核心正式版）
+  const nums = (s.match(/\d+/g) || []).slice(0, 3).map(Number);
+  while (nums.length < 3) nums.push(0);
+  return { core: nums, pre: ['beta', '0'], invalid: true };
+}
+function cmpIdent(a, b) {
+  const an = /^\d+$/.test(a); const bn = /^\d+$/.test(b);
+  if (an && bn) return Number(a) - Number(b);
+  if (an) return -1;
+  if (bn) return 1;
+  return a < b ? -1 : (a > b ? 1 : 0);
+}
+export function compareVersions(a, b) {
+  const x = parseVersionInfo(a); const y = parseVersionInfo(b);
+  for (let i = 0; i < 3; i += 1) {
+    if (x.core[i] !== y.core[i]) return x.core[i] > y.core[i] ? 1 : -1;
+  }
+  const xp = x.pre.length; const yp = y.pre.length;
+  if (!xp && !yp) return 0;
+  if (!xp) return 1;   // 正式版 > 预发布
+  if (!yp) return -1;
+  for (let i = 0; i < Math.max(xp, yp); i += 1) {
+    if (i >= xp) return -1;
+    if (i >= yp) return 1;
+    const d = cmpIdent(x.pre[i], y.pre[i]);
     if (d !== 0) return d > 0 ? 1 : -1;
   }
   return 0;
 }
+export function compareSemver(a, b) { return compareVersions(a, b); }
 
 export function parseTag(tag) {
   return String(tag || '').trim().replace(/^v/i, '');
@@ -54,6 +85,8 @@ function updateCfg() {
     intervalHours: Math.max(1, Number(c.intervalHours) || 12),
     autoDownload: c.autoDownload === true,
     checkOnStartup: c.checkOnStartup !== false,
+    channel: c.channel === 'beta' ? 'beta' : 'stable',
+    allowSameVersionUpdate: c.allowSameVersionUpdate !== false,
   };
 }
 
@@ -98,15 +131,32 @@ export async function checkForUpdate(opts = {}) {
   const current = String(opts.current || '').trim();
   if (!cfg.enabled) return { ok: false, current, error: '自动更新已在设置里关闭' };
 
+  // 记录"当前安装版本 / 首次见到它的时间"：用于同版本重新发布时的兜底判定（方案 C）
+  const st0 = readState() || {};
+  if (current && st0.installedVersion !== current) {
+    st0.installedVersion = current;
+    st0.installedAt = Date.now();
+    writeState(st0);
+  }
+  const installedAt = Number(st0.installedAt) || 0;
+  const sameVersionNewer = (publishedAt) => {
+    if (!cfg.allowSameVersionUpdate || !publishedAt) return false;
+    const t = Date.parse(String(publishedAt));
+    return Number.isFinite(t) && t > installedAt + 60_000;
+  };
+  const decide = (latest, publishedAt) => {
+    if (!latest) return false;
+    if (!current) return true;
+    const cmp = compareVersions(latest, current);
+    if (cmp > 0) return true;
+    return cmp === 0 && sameVersionNewer(publishedAt);   // 同版本：正式版重新发布 → 也提示更新
+  };
+
   const cached = readState();
   if (!opts.force && cached && cached.ok && cached.latest) {
     const ageMin = (Date.now() - (Number(cached.checkedAt) || 0)) / 60000;
     if (ageMin < cfg.intervalHours * 60) {
-      // ⚠️ 不能直接 { ...cached }：缓存里的 hasUpdate 是按**当时**的 current 算出来的。
-      // 用户升级完（current 追平 latest）后，缓存里还留着 hasUpdate=true，
-      // 结果 0.5.7 仍提示"有新版本 0.5.7"（2026-10-22 实测）。
-      // 所以缓存命中也要按当前版本重算；current 未知时才退回缓存值。
-      const hasUpdate = current ? compareSemver(cached.latest, current) > 0 : !!cached.hasUpdate;
+      const hasUpdate = decide(cached.latest, cached.publishedAt);
       return { ...cached, current, hasUpdate, cached: true };
     }
   }
@@ -123,25 +173,36 @@ export async function checkForUpdate(opts = {}) {
         source: 'server',
         current,
         latest,
-        hasUpdate: compareSemver(latest, current) > 0,
+        hasUpdate: decide(latest, info.publishedAt || ''),
         url: String(info.url || 'https://kondius.cn/qq-agent'),
         notes: String(info.notes || ''),
         asset: null,
         checkedAt: Date.now(),
       };
-      writeState(out);
+      writeState({ ...out, installedVersion: st0.installedVersion || current, installedAt: installedAt || Date.now() });
       return out;
     }
 
-    // github：读本 fork 的最新 Release（只读、低频）
-    const api = `https://api.github.com/repos/${cfg.githubRepo}/releases/latest`;
+    // github：拉最近 30 个 Release，按通道过滤后挑版本最高的（不像 /latest 那样永远跳过预发布）
+    const api = `https://api.github.com/repos/${cfg.githubRepo}/releases?per_page=30`;
     const r = await fetch(api, {
       signal: AbortSignal.timeout(10000),
       headers: { accept: 'application/vnd.github+json', 'user-agent': 'qq-agent-updater' },
       cache: 'no-store',
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}${r.status === 404 ? '（还没有发布 Release）' : ''}`);
-    const rel = await r.json();
+    const all = await r.json();
+    const pool = (Array.isArray(all) ? all : [])
+      .filter((x) => x && !x.draft)
+      .filter((x) => cfg.channel === 'beta' || !x.prerelease);
+    if (!pool.length) throw new Error(cfg.channel === 'beta' ? '没有可用的 Release' : '没有可用的正式版 Release');
+    let rel = pool[0];
+    for (const x of pool) {
+      const v = parseTag(x.tag_name || x.name);
+      const bv = parseTag(rel.tag_name || rel.name);
+      const cmp = compareVersions(v, bv);
+      if (cmp > 0 || (cmp === 0 && String(x.published_at || '') > String(rel.published_at || ''))) rel = x;
+    }
     const latest = parseTag(rel.tag_name || rel.name);
     if (!latest) throw new Error('Release 里没有 tag_name');
     const asset = pickInstallerAsset(rel.assets);
@@ -149,12 +210,14 @@ export async function checkForUpdate(opts = {}) {
       ok: true,
       source: 'github',
       repo: cfg.githubRepo,
+      channel: cfg.channel,
       current,
       latest,
-      hasUpdate: compareSemver(latest, current) > 0,
+      hasUpdate: decide(latest, rel.published_at),
       url: String(rel.html_url || `https://github.com/${cfg.githubRepo}/releases`),
       notes: String(rel.body || '').slice(0, 4000),
       publishedAt: String(rel.published_at || ''),
+      prerelease: rel.prerelease === true,
       asset: asset
         ? {
             name: String(asset.name || ''),
@@ -166,12 +229,11 @@ export async function checkForUpdate(opts = {}) {
         : null,
       checkedAt: Date.now(),
     };
-    writeState(out);
+    writeState({ ...out, installedVersion: st0.installedVersion || current, installedAt: installedAt || Date.now() });
     return out;
   } catch (error) {
     const out = { ok: false, current, error: String(error?.message ?? error), checkedAt: Date.now() };
-    // 失败也写状态，避免每分钟重试打网络
-    writeState({ ...out, ok: false });
+    writeState({ ...out, ok: false, installedVersion: st0.installedVersion || current, installedAt: installedAt || Date.now() });
     return out;
   }
 }

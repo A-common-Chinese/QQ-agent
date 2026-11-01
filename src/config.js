@@ -28,6 +28,8 @@ export const DEFAULT_CONFIG = {
   // OpenAI 兼容 API（必填才能跑）
   // ── 自动更新（期 1：检查 + 提示 + 下载，不自动安装）──────────────
   update: {
+    channel: 'stable',        // stable = 只收正式版；beta = 也收预发布
+    allowSameVersionUpdate: true, // 同版本号重新发布时也提示更新（兜底）
     enabled: true,
     // github = 读本 fork 的 Releases（推荐）；server = 兼容旧版读作者服务器的 version.json
     source: 'github',
