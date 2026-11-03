@@ -368,12 +368,12 @@ export const DEFAULT_CONFIG = {
     enabled: false,
     mode: 'semantic',          // 进入活跃期后的退出策略：duration（只看时长）| topicChange（话题漂移+模型）| semantic（默认：语义漂移 + 模型 + 时长兜底）
     maxMinutes: 30,            // 时长上限（分钟）
-    idleMinutes: 5,            // 空闲超时（分钟）：这段时间没人说话就退出
-    maxReplies: 3,             // 发言预算：活跃期内最多主动说几句
-    maxMessages: 20,           // 消息预算：活跃期内最多处理多少条新消息
+    idleMinutes: 10,           // 空闲超时（分钟）：这段时间没人说话就退出
+    maxReplies: 6,             // 发言预算：活跃期内最多主动说几句
+    maxMessages: 40,           // 消息预算：活跃期内最多处理多少条新消息
     topicDrift: {              // 语义漂移判定（默认开）
       enabled: true,
-      similarityThreshold: 0.35,   // 与话题锚点的余弦相似度低于它算"偏题"
+      similarityThreshold: 0.30,   // 与话题锚点的余弦相似度低于它算"偏题"
       consecutive: 3               // 连续多少条偏题（且彼此相似）判定换话题
     },
     cooldownMinutes: 10,       // 退出后多少分钟内不再自动进入活跃期
