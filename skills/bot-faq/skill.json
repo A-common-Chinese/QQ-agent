@@ -1,0 +1,36 @@
+{
+  "id": "bot-faq",
+  "name": "软件说明书（内置 FAQ）",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "category": "knowledge",
+  "description": "回答『这个软件怎么用』类问题：注册 faq_search 工具，按关键词从内置 FAQ 里查答案；保持机器人原有人设，只负责把事实找出来。不写记忆、不联网。",
+  "author": "本机定制",
+  "enabledByDefault": true,
+  "capabilities": [],
+  "requires": [],
+  "permissions": [],
+  "settings": {
+    "maxResults": 4
+  },
+  "configSchema": {
+    "maxResults": {
+      "type": "number",
+      "label": "单次最多返回几条 FAQ",
+      "description": "默认 4。给太多会占满上下文；通常 1~3 条就够回答。",
+      "min": 1,
+      "max": 10,
+      "step": 1
+    }
+  },
+  "prompt": {
+    "sections": [
+      {
+        "id": "bot-faq-rules",
+        "title": "软件说明（内置 FAQ）",
+        "priority": 60,
+        "content": "有人问「这个机器人/软件怎么用、怎么装、有什么功能、要花钱吗」这类关于软件本身的问题时，先用 faq_search 查内置 FAQ，再按你自己的说话风格回答（不用变成客服腔）。\n- 只依据 faq_search 返回的内容回答；查不到就说不知道、建议问管理员，不要编造功能或价格。\n- 不要透露 API Key、配置文件、服务器路径等内部信息。\n- 日常闲聊不需要查 FAQ。"
+      }
+    ]
+  }
+}

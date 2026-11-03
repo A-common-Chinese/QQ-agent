@@ -28,6 +28,7 @@ import { todayKey } from './util.js';
 import { setPresence, presenceSummary, restoreIfDnd } from './presence.js';
 import { getPrivacyFilter } from './privacy.js';
 import { appendAudit, readAudit } from './audit.js';
+import { searchFaq, buildFaqContext, faqSystemPrompt, loadFaq } from './faq.js';
 import { summaryDynamicHistory } from './dynamic-history.js';
 import { logger } from './logger.js';
 import { skillManager } from './skills/manager.js';
@@ -1158,6 +1159,31 @@ export function createRoutes(deps) {
     {
       method: 'GET', pattern: '/api/audit',
       handler: async ({ res, json, url }) => json(res, 200, { ok: true, items: readAudit(Number(url?.searchParams?.get('limit')) || 200) })
+    },
+    {
+      // 内置 FAQ 问答（客户端「帮助」模块）：只用 FAQ + 客服提示词，不读写记忆、不经过 QQ
+      method: 'POST', pattern: '/api/faq/chat',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        const list = Array.isArray(body?.messages) ? body.messages : [];
+        const lastUser = [...list].reverse().find((m) => m && m.role === 'user');
+        const q = String(lastUser?.content || '').trim().slice(0, 800);
+        if (!q) return json(res, 400, { ok: false, error: '缺少问题' });
+        const cfg = getConfig();
+        if (!cfg.api?.model || !cfg.api?.baseUrl) return json(res, 400, { ok: false, error: '还没有配置模型 API（设置 → 模型）' });
+        const items = searchFaq(q, 5);
+        const faqInfo = loadFaq();
+        const sys = faqSystemPrompt(buildFaqContext(items), faqInfo.version);
+        const history = list.slice(-6).map((m) => ({ role: m && m.role === 'assistant' ? 'assistant' : 'user', content: String(m?.content || '').slice(0, 2000) }));
+        try {
+          const resp = await chatCompletion({ messages: [{ role: 'system', content: sys }, ...history], temperature: 0.3, maxTokens: 700 });
+          const answer = String(resp?.message?.content ?? resp?.content ?? '').trim();
+          if (!answer) return json(res, 502, { ok: false, error: '模型返回空内容' });
+          return json(res, 200, { ok: true, answer, matched: items.map((x) => x.id), version: faqInfo.version });
+        } catch (error) {
+          return json(res, 502, { ok: false, error: String(error?.message ?? error) });
+        }
+      }
     },
     {
       method: 'GET', pattern: '/api/tools',

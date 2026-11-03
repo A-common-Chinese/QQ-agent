@@ -115,7 +115,8 @@ const SETTINGS_GROUPS = [
   { id: 'chat', label: '聊天', items: [['chat', '聊天设置'], ['allow', '聊天白名单'], ['persona', '人设'], ['memory', '记忆']] },
   { id: 'service', label: '服务', items: [['onebot', '协议端管理（可选）'], ['links', '通道映射'], ['desktop', '桌面端']] },
   { id: 'tools', label: '工具', items: [['tools', '工具与技能']] },
-  { id: 'look', label: '外观', items: [['ui', 'UI 自定义']] }
+  { id: 'look', label: '外观', items: [['ui', 'UI 自定义']] },
+  { id: 'help', label: '帮助', items: [['faq', 'FAQ 问答']] }
 ];
 const SETTINGS_SECTION_LABELS = (() => {
   const map = {};
@@ -309,7 +310,8 @@ function renderSettingsSection(c) {
     onebot: () => renderOnebotSection(c),
     links: () => renderIdentityLinksSection(c),
     tools: () => renderToolsSection(c),
-    ui: () => renderUiCustomSection(c)
+    ui: () => renderUiCustomSection(c),
+    faq: () => renderFaqSection(c)
   };
   const render = sections[sec] || sections.api;
   return `
@@ -1831,6 +1833,80 @@ function renderAllowSection(c) {
       <label for="cfg-allowallwhenempty">白名单留空时允许所有会话</label></div>
     <div class="hint">说明：勾选后，若上方两个列表都为空，机器人会在<b>所有</b>群聊和私聊中运行；只要填了任意一项，就只按名单过滤。</div>
     <div class="hint" style="margin-top:8px">按会话的独立人设在「人设」页签配置（关闭"统一人设"后出现）。</div>`;
+}
+
+// ── 内置 FAQ 问答（客服腔，只用 FAQ、不连 QQ/记忆）────────────────
+function faqChatState() {
+  if (!window.__faqChat) window.__faqChat = { messages: [], busy: false };
+  return window.__faqChat;
+}
+function renderFaqMessages() {
+  const box = document.getElementById('faq-msg-list');
+  if (!box) return;
+  const st = faqChatState();
+  box.innerHTML = st.messages.map((m) => {
+    const mine = m.role === 'user';
+    return '<div style="display:flex;justify-content:' + (mine ? 'flex-end' : 'flex-start') + ';margin:8px 0">' +
+      '<div style="max-width:78%;padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.7;white-space:pre-wrap;' +
+      (mine ? 'background:var(--ac-soft);color:var(--tx1)' : 'background:var(--bg2);border:1px solid var(--line);color:var(--tx1)') + '">' +
+      esc(String(m.content || '')) + '</div></div>';
+  }).join('') || '<div class="muted" style="padding:18px 8px;font-size:13px">问点关于本软件的问题吧：安装、更新、接入、记忆、成本、隐私、排障……<br><span style="font-size:12px">答案只来自内置 FAQ，不读机器人记忆。</span></div>';
+  box.scrollTop = box.scrollHeight;
+}
+function renderFaqSection(c) {
+  const faq = (typeof window !== 'undefined' && window.__faqMeta) || null;
+  setTimeout(renderFaqMessages, 0);
+  return `
+    <h3 id="settings-faq">FAQ 问答</h3>
+    <div class="hint" style="margin-bottom:10px">
+      这是<b>客户端内置</b>的帮助问答：客服腔、只依据内置 FAQ 回答，<b>不经过 QQ、不读也不写机器人记忆</b>，只用你在「模型」页配置的 API。
+    </div>
+    ${(typeof setCard === 'function') ? setCard({
+      id: 'card-faq-chat', icon: '📖', title: '问点什么', sub: '答案来自内置 FAQ · 独立上下文',
+      open: true,
+      body: `
+        <div id="faq-msg-list" style="max-height:420px;overflow:auto;padding:4px 2px"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <input type="text" id="faq-input" placeholder="例如：怎么安装？为什么检查不到更新？记忆卡是什么？" style="flex:1" />
+          <button class="btn btn-primary" id="faq-send">发送</button>
+          <button class="btn" id="faq-clear" title="清空本次对话">清空</button>
+        </div>
+        <div class="hint" id="faq-status" style="margin-top:6px"></div>`
+    }) : ''}`;
+}
+if (typeof document !== 'undefined' && !window.__faqChatBound) {
+  window.__faqChatBound = true;
+  document.addEventListener('click', async (e) => {
+    const sendBtn = e.target && e.target.closest && e.target.closest('#faq-send');
+    const clearBtn = e.target && e.target.closest && e.target.closest('#faq-clear');
+    if (!sendBtn && !clearBtn) return;
+    if (clearBtn) { faqChatState().messages = []; renderFaqMessages(); return; }
+    const input = document.getElementById('faq-input');
+    const status = document.getElementById('faq-status');
+    const q = String(input?.value || '').trim();
+    if (!q) return;
+    const st = faqChatState();
+    if (st.busy) return;
+    st.busy = true;
+    st.messages.push({ role: 'user', content: q });
+    if (input) input.value = '';
+    renderFaqMessages();
+    if (status) status.textContent = '查询中…';
+    try {
+      const r = await api('/api/faq/chat', { method: 'POST', body: JSON.stringify({ messages: st.messages.slice(-8) }) });
+      st.messages.push({ role: 'assistant', content: r.answer || '（没有返回内容）' });
+      if (status) status.textContent = 'FAQ v' + (r.version || '?') + ' · 命中 ' + ((r.matched || []).length) + ' 条';
+    } catch (err) {
+      st.messages.push({ role: 'assistant', content: '出错了：' + (err?.message || err) });
+      if (status) status.textContent = '请求失败';
+    } finally {
+      st.busy = false;
+      renderFaqMessages();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target && e.target.id === 'faq-input') document.getElementById('faq-send')?.click();
+  });
 }
 
 // 表情包积极程度档位：[值, 显示名]
