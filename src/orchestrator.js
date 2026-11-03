@@ -70,6 +70,7 @@ export class Orchestrator {
     // 到期自动退出兜底（LLM 忘了判断也不会永远活跃）。
     this.activeTopics = new Map();
     this.lastActiveExitAt = new Map();   // chatKey -> 最近一次退出活跃期的时间（冷却用）
+    this.liveWakeHints = new Map();      // chatKey -> { text, at }：语义接话唤醒时的触发文本，用于自动进活跃期
     // ── 提示词锚点（前缀缓存深化，2026-09-25）──
     // chatKey -> { readIds, readCount, memberIds }：上一轮发给模型的
     // 【记忆】+【已读信息】前缀状态。下一轮 buildUserPrompt 据此判断能否
@@ -254,6 +255,7 @@ export class Orchestrator {
                   return;
                 }
                 console.log(`[decision] 主动接话 ${chatKey}：今日第 ${cap.used}/${cap.max} 次`);
+                try { self.liveWakeHints.set(chatKey, { text: String(entry?.text || '').slice(0, 60), at: Date.now() }); } catch { /* ignore */ }
                 try { appendAudit('live-reply', { chatKey, used: cap.used, max: cap.max, score: d?.score ?? null }); } catch { /* ignore */ }
                 // 当成一次正常触发，走完整会话流程
                 self.scheduleWake(chatKey, null, { verified: true });
@@ -1480,6 +1482,18 @@ export class Orchestrator {
 
     // 收尾：发过话 = done；没发 = noreply（这是正常选项）
     try { this.#activeOnReplies(chatKey, session.sent.length); } catch { /* ignore */ }
+    // 语义接话后（发了消息）自动进入活跃期：避免"刚接上一句、接下来 40 分钟不能再说话"
+    try {
+      if (session.sent.length > 0 && !this.activeTopics.get(chatKey)) {
+        const hint = this.liveWakeHints.get(chatKey);
+        if (hint && Date.now() - Number(hint.at || 0) < 120000) {
+          if (this.#activeEnter(chatKey, hint.text || '刚参与的对话')) {
+            console.log(`[orchestrator] ${chatKey} 语义接话后自动进入活跃期`);
+          }
+        }
+      }
+      this.liveWakeHints.delete(chatKey);
+    } catch { /* ignore */ }
     let status = session.error ? 'error' : (session.sent.length > 0 ? 'done' : 'noreply');
     // ── 兜底：被艾特/私聊/拍一拍时，模型有时把回复写在正文里却没调 send_message ──
     // 这条路径只救"应该回但没走工具"的情况，正常不发言（2/3 档）不受影响。
