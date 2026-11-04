@@ -72,17 +72,20 @@ export function setup(a) {
       required: ['query']
     },
     async execute(ctx, args) {
-      const limit = Math.max(1, Math.min(10, Number(args.limit) || Number(a.config()?.maxResults) || 4));
-      const items = search(String(args.query || ''), limit + 2);
+      // ⚠️ 工具契约是返回 { content: string, isError: boolean }（见 src/tool-registry.js）。
+      // 直接返回普通对象会被执行器当成"没有 content" → 模型看到 undefined（历史上出过这个 bug）。
+      const ok = (obj) => ({ content: JSON.stringify(obj), isError: false });
+      const limit = Math.max(1, Math.min(10, Number(args?.limit) || Number(a.config()?.maxResults) || 4));
+      const items = search(String(args?.query || ''), limit + 2);
       if (!items.length) {
-        return { ok: true, note: 'FAQ 里没有匹配的条目。不要编造，直接说不知道并建议问管理员。', version: load().version };
+        return ok({ ok: true, note: 'FAQ 里没有匹配的条目。不要编造，直接说不知道并建议问管理员。', version: load().version });
       }
-      return {
+      return ok({
         ok: true,
         version: load().version,
         items: items.slice(0, limit).map((x) => ({ id: x.id, q: x.q, answer: x.answer, tags: x.tags || [] })),
         note: '只依据这些条目回答；条目没覆盖的部分不要补充。'
-      };
+      });
     }
   });
   a.log?.('已加载：内置 FAQ v%s（%d 条）', load().version, load().items.length);

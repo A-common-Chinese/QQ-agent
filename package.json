@@ -1,6 +1,6 @@
 {
   "name": "qq-agent",
-  "version": "0.7.5-beta.2",
+  "version": "0.7.5-beta.3",
   "private": false,
   "description": "QQ 群 AI 机器人（桌面版）：事件驱动的无状态 Agent，接 OpenAI 兼容 API，带会话式控制台。",
   "type": "module",
@@ -79,6 +79,7 @@
     "check:load": "node scripts/preload-check.mjs",
     "test:wakesem": "node test/wake-semantics-test.mjs",
     "test:update": "node test/update-install-plan.mjs && node test/update-check-test.mjs",
+    "test:faq": "node test/bot-faq-test.mjs",
     "test:studio": "node test/memory-studio-install-test.mjs && node test/memory-studio-bridge-test.mjs && node test/memory-studio-ui-test.mjs"
   },
   "dependencies": {
