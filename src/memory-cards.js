@@ -115,7 +115,12 @@ export function listCards() {
         }
       } else {
         const g = read(path.join(p, 'group.json'));
-        if (g) groups.push({ chatKey: g.chatKey || g.id || d.replace(/^group_/, 'group:').replace(/^private_/, 'private:'), name: g.name || '', summary: g.summary || '', members: (g.members || []).length, facts: (g.facts || []).length, updatedAt: g.updatedAt || '' });
+        if (g) {
+          const mem = Array.isArray(g.members) ? g.members : [];
+          // 成员数 / 消息总数（sum of member.msgs）——UI 的卡片副标题要用
+          const msgs = mem.reduce((n, m) => n + (Number(m && m.msgs) || 0), 0);
+          groups.push({ chatKey: g.chatKey || g.id || d.replace(/^group_/, 'group:').replace(/^private_/, 'private:'), name: g.name || '', summary: g.summary || '', members: mem.length, memberCount: mem.length, msgs, facts: (g.facts || []).length, updatedAt: g.updatedAt || '' });
+        }
       }
     }
   } catch { /* ignore */ }

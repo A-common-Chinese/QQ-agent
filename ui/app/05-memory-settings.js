@@ -1138,8 +1138,9 @@ function renderHealthCard() {
       .map((g) => {
         const sel = st.chatSel && st.chatSel.chatKey === g.chatKey;
         const kind = g.kind || (String(g.chatKey || '').startsWith('private') ? 'private' : 'group');
-        const nMember = Array.isArray(g.members) ? g.members.length : (g.memberCount || 0);
-        const sub = (kind === 'private' ? '私聊' : '群') + ' · ' + nMember + ' 人 · ' + (g.msgs || 0) + ' 条';
+        // listCards 的 members 是成员数（数字）；消息数在 msgs（成员 msgs 求和）
+        const nMember = Array.isArray(g.members) ? g.members.length : (Number(g.members) || Number(g.memberCount) || 0);
+        const sub = (kind === 'private' ? '私聊' : '群') + ' · ' + nMember + ' 人 · ' + (Number(g.msgs) || 0) + ' 条';
         const payload = JSON.stringify({ chatKey: g.chatKey, name: g.name || g.chatKey, kind });
         return '<div class="mem-card' + (sel ? ' sel' : '') + '" data-mem="chat" data-json=\'' + esc(payload) + '\'>' +
           '<div class="mem-card-title">' + esc(g.name || g.chatKey) + '</div>' +
