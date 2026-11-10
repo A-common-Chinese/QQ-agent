@@ -58,8 +58,15 @@ const cases = [
   ['同群多个机器人会冲突吗', 'multi-bot'],
   ['插件怎么装', 'plugins-skills'],
   ['自动更新怎么工作', 'update-how'],
-  ['怎么接入已有的 dsh 会话', 'dsh-use']
+  ['怎么接入已有的 dsh 会话', 'dsh-use'],
+  // 2026-11-10 新增三类高频问法（插件安装/记忆压缩/设置总览/人设卡）
+  ['如何安装插件', 'plugins-skills'],
+  ['记忆压缩怎么用', 'memory-compress'],
+  ['设置怎么调', 'settings-overview'],
+  ['人设卡怎么用', 'persona-card'],
+  ['如何使用 dsh 桥', 'dsh-bridge-howto']
 ];
+
 for (const [q, want] of cases) {
   const r = await captured.execute({}, { query: q, limit: 4 });
   let items = [];
