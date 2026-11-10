@@ -86,7 +86,7 @@ export function parseDshCommand(text, prefix = DEFAULT_PREFIX) {
   if (/^(状态|status)$/i.test(rest)) return { kind: 'status', task: '' };
   if (/^(停|停止|取消|stop|abort|cancel)$/i.test(rest)) return { kind: 'stop', task: '' };
   if (/^(?:get_dsh_id|id|list|sessions?|会话列表|列表)$/i.test(rest)) return { kind: 'list', task: '' };
-  const use = rest.match(/^(?:use|接入|绑定)\s+([A-Za-z0-9_-]{4,80})$/i);
+  const use = rest.match(/^(?:use|接入|绑定)\s+([\s\S]{1,80})$/i);
   if (use) return { kind: 'use', task: use[1] };
   const fresh = rest.match(/^(?:新会话|new)\b\s*([\s\S]*)$/i);
   if (fresh) return { kind: 'new', task: fresh[1].trim() };
@@ -99,8 +99,8 @@ function helpText(prefix) {
     `${prefix} <任务>       在当前会话里执行（会记住上下文，可连续追问）`,
     `${prefix} 新会话 <任务>  丢掉上下文，开一条新会话`,
     `${prefix} 状态         看当前会话 id / 是否在跑`,
-    `${prefix} get_dsh_id   列出未归档的 DSH 会话（id/标题/时间）`,
-    `${prefix} use <id>     把本会话接到指定的 DSH 会话（之后 /dsh 都续在那里）`,
+    `${prefix} get_dsh_id   列出未归档的 DSH 会话（名称/时间）`,
+    `${prefix} use <序号|名称>  把本会话接到指定的 DSH 会话（之后 /dsh 都续在那里）`,
     `${prefix} 停           终止正在跑的任务`,
     `${prefix} 帮助         这条说明`
   ].join('\n');
@@ -507,13 +507,18 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
           }
           const lines = sessions.map((x, i) => {
             const when = x.at ? new Date(x.at).toLocaleString('zh-CN', { hour12: false }) : '?';
-            return `${i + 1}. ${x.id}\n   ${String(x.title || '').slice(0, 40)}（${when}）`;
+            return `${i + 1}. ${String(x.title || '(无标题)').slice(0, 30)}（${when}）`;
           });
+          // 记住这次列表：use 支持「序号 / 名称 / id」
+          if (skey) {
+            state[skey] = { ...(state[skey] || {}), lastSessions: sessions.map((x) => ({ id: x.id, title: x.title })), lastSessionsAt: Date.now() };
+            saveState(state);
+          }
           await reply(chatKey, [
             `未归档 DSH 会话（${sessions.length} 条，按最近使用排序）：`,
             ...lines,
             '',
-            `接入：${String(c.prefix || DEFAULT_PREFIX)} use <id>`
+            `接入：${String(c.prefix || DEFAULT_PREFIX)} use <序号|名称>`
           ].join('\n'), replyTo);
           return;
         }
@@ -523,18 +528,33 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
             await reply(chatKey, '⚠️ 接入已有会话需要 DSH 常驻会话模式（config.dsh.transport = plugin）。', replyTo);
             return;
           }
-          const target = String(parsed.task || '').trim();
-          if (!target) {
-            await reply(chatKey, `用法：${String(c.prefix || DEFAULT_PREFIX)} use <会话id>（先用 get_dsh_id 列出来）`, replyTo);
+          const token = String(parsed.task || '').trim();
+          if (!token) {
+            await reply(chatKey, `用法：${String(c.prefix || DEFAULT_PREFIX)} use <序号|名称>（先用 get_dsh_id 列出来）`, replyTo);
             return;
           }
+          // 解析目标：序号 / 名称（包含即可） / 完整 id；列表来自上次 get_dsh_id
+          let target = token;
+          const lastList = Array.isArray(state[skey]?.lastSessions) ? state[skey].lastSessions : [];
+          if (/^\d+$/.test(token)) {
+            const hit = lastList[Number(token) - 1];
+            if (!hit) { await reply(chatKey, `没有第 ${token} 条，先发一次 ${String(c.prefix || DEFAULT_PREFIX)} get_dsh_id。`, replyTo); return; }
+            target = hit.id;
+          } else if (lastList.length) {
+            const byTitle = lastList.filter((x) => String(x.title || '').includes(token));
+            const byId = lastList.find((x) => String(x.id).startsWith(token));
+            if (byTitle.length === 1) target = byTitle[0].id;
+            else if (byTitle.length > 1) { await reply(chatKey, `名称「${token}」匹配到 ${byTitle.length} 条，用序号更准：\n${byTitle.map((x) => `· ${x.title}`).join('\n')}`, replyTo); return; }
+            else if (byId) target = byId.id;
+          }
+          const label = lastList.find((x) => x.id === target)?.title || target;
           try {
             const r = await pluginUse(chatKey, target);
             if (skey) {
-              state[skey] = { sessionId: target, bound: true, title: r?.title || '', updatedAt: Date.now(), cwd: resolvePaths().cwd };
+              state[skey] = { ...(state[skey] || {}), sessionId: target, bound: true, title: r?.title || label, updatedAt: Date.now(), cwd: resolvePaths().cwd };
               saveState(state);
             }
-            await reply(chatKey, `✅ 已接入会话 ${target}${r?.title ? `：${r.title}` : ''}\n之后这个会话的 ${String(c.prefix || DEFAULT_PREFIX)} 都会续在这条会话上。`, replyTo);
+            await reply(chatKey, `✅ 已接入：${r?.title || label}\n之后这个会话的 ${String(c.prefix || DEFAULT_PREFIX)} 都会续在这条会话上。`, replyTo);
           } catch (error) {
             await reply(chatKey, `❌ 接入失败：${error?.message ?? error}`, replyTo);
           }

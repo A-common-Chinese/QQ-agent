@@ -33,7 +33,8 @@ globalThis.fetch = async (url, init = {}) => {
     };
   }
   if (String(url).includes('/use')) {
-    return { ok: true, json: async () => ({ ok: true, sessionId: 'session-aaa', title: '第一个会话' }) };
+    const sid = JSON.parse(init.body).sessionId;
+    return { ok: true, json: async () => ({ ok: true, sessionId: sid, title: sid === 'session-bbb' ? '第二个会话' : '第一个会话' }) };
   }
   return { ok: false, status: 404, json: async () => ({ ok: false, error: 'not found' }) };
 };
@@ -59,15 +60,29 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 bridge.handle('group:1', { text: '/dsh get_dsh_id', senderId: '10001', mid: null });
 await sleep(300);
 check('列表命令有回发', sent.length === 1);
-check('列表含会话 id', sent[0]?.includes('session-aaa') && sent[0]?.includes('session-bbb'));
-check('列表含 use 提示', sent[0]?.includes('use <id>'));
+check('列表显示名称（不铺 id）', sent[0]?.includes('第一个会话') && sent[0]?.includes('第二个会话') && !sent[0]?.includes('session-aaa'));
+check('列表含 use 提示', sent[0]?.includes('use <序号|名称>'));
+
+sent.length = 0;
+bridge.handle('group:1', { text: '/dsh use 1', senderId: '10001', mid: null });
+await sleep(300);
+check('use 命令有回发', sent.length === 1);
+check('use 序号成功（按名称回显）', sent[0]?.includes('已接入：第一个会话'));
+check('use 序号解析成 id', calls.some((c) => c.url.includes('/use') && c.body?.sessionId === 'session-aaa'));
+
+sent.length = 0;
+bridge.handle('group:1', { text: '/dsh use 第二个', senderId: '10001', mid: null });
+await sleep(300);
+check('use 名称匹配成功', sent[0]?.includes('已接入：第二个会话'));
+check('use 名称解析成 id', calls.some((c) => c.url.includes('/use') && c.body?.sessionId === 'session-bbb'));
 
 sent.length = 0;
 bridge.handle('group:1', { text: '/dsh use session-aaa', senderId: '10001', mid: null });
 await sleep(300);
-check('use 命令有回发', sent.length === 1);
-check('use 成功文案', sent[0]?.includes('已接入会话 session-aaa'));
-check('use 调用了 /use 接口', calls.some((c) => c.url.includes('/use') && c.method === 'POST' && c.body?.sessionId === 'session-aaa'));
+check('use 完整 id 仍可用', sent[0]?.includes('已接入：第一个会话'));
+
+sent.length = 0;
+
 
 sent.length = 0;
 bridge.handle('group:1', { text: '/dsh get_dsh_id', senderId: '99999', mid: null });
