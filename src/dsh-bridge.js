@@ -100,7 +100,7 @@ function helpText(prefix) {
     `${prefix} 新会话 <任务>  丢掉上下文，开一条新会话`,
     `${prefix} 状态         看当前会话 id / 是否在跑`,
     `${prefix} get_dsh_id   列出未归档的 DSH 会话（名称/时间）`,
-    `${prefix} use <序号|名称>  把本会话接到指定的 DSH 会话（之后 /dsh 都续在那里）`,
+    `${prefix} use 序号|名称  把本会话接到指定的 DSH 会话（之后 /dsh 都续在那里）`,
     `${prefix} 停           终止正在跑的任务`,
     `${prefix} 帮助         这条说明`
   ].join('\n');
@@ -518,7 +518,7 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
             `未归档 DSH 会话（${sessions.length} 条，按最近使用排序）：`,
             ...lines,
             '',
-            `接入：${String(c.prefix || DEFAULT_PREFIX)} use <序号|名称>`
+            `接入：${String(c.prefix || DEFAULT_PREFIX)} use 序号 或 ${String(c.prefix || DEFAULT_PREFIX)} use 名称`
           ].join('\n'), replyTo);
           return;
         }
@@ -528,11 +528,15 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
             await reply(chatKey, '⚠️ 接入已有会话需要 DSH 常驻会话模式（config.dsh.transport = plugin）。', replyTo);
             return;
           }
-          const token = String(parsed.task || '').trim();
+          let token = String(parsed.task || '').trim();
           if (!token) {
-            await reply(chatKey, `用法：${String(c.prefix || DEFAULT_PREFIX)} use <序号|名称>（先用 get_dsh_id 列出来）`, replyTo);
+            await reply(chatKey, `用法：${String(c.prefix || DEFAULT_PREFIX)} use 序号 或 ${String(c.prefix || DEFAULT_PREFIX)} use 名称（先用 get_dsh_id 列出来）`, replyTo);
             return;
           }
+          // 容错：用户常把占位符 <id> 原样发出来，或在后面接一句话
+          token = token.replace(/^[<「『"'“”]+/, '').replace(/[>」』"'“”]+\s*$/, '').trim();
+          if (/^\d+\s/.test(token)) token = token.split(/\s+/)[0];               // "1 这条消息来自qq"
+          else if (/^[A-Za-z0-9_-]{8,}(?:\s|$)/.test(token)) token = token.split(/\s+/)[0]; // "<长id> 多余的话"
           // 解析目标：序号 / 名称（包含即可） / 完整 id；列表来自上次 get_dsh_id
           let target = token;
           const lastList = Array.isArray(state[skey]?.lastSessions) ? state[skey].lastSessions : [];
@@ -548,6 +552,11 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
             else if (byId) target = byId.id;
           }
           const label = lastList.find((x) => x.id === target)?.title || target;
+          const looksLikeId = /^[A-Za-z0-9_-]{8,}$/.test(target);
+          if (!lastList.some((x) => x.id === target) && !looksLikeId) {
+            await reply(chatKey, `❌ 找不到「${target}」。先发 ${String(c.prefix || DEFAULT_PREFIX)} get_dsh_id 看列表，再用序号接入（例：${String(c.prefix || DEFAULT_PREFIX)} use 1）。`, replyTo);
+            return;
+          }
           try {
             const r = await pluginUse(chatKey, target);
             if (skey) {

@@ -61,7 +61,7 @@ bridge.handle('group:1', { text: '/dsh get_dsh_id', senderId: '10001', mid: null
 await sleep(300);
 check('列表命令有回发', sent.length === 1);
 check('列表显示名称（不铺 id）', sent[0]?.includes('第一个会话') && sent[0]?.includes('第二个会话') && !sent[0]?.includes('session-aaa'));
-check('列表含 use 提示', sent[0]?.includes('use <序号|名称>'));
+check('列表含 use 提示', sent[0]?.includes('use 序号'));
 
 sent.length = 0;
 bridge.handle('group:1', { text: '/dsh use 1', senderId: '10001', mid: null });
@@ -83,6 +83,21 @@ check('use 完整 id 仍可用', sent[0]?.includes('已接入：第一个会话'
 
 sent.length = 0;
 
+
+sent.length = 0;
+bridge.handle('group:1', { text: '/dsh use 1 这条消息来自qq', senderId: '10001', mid: null });
+await sleep(300);
+check('序号后带多余文字仍可接入', sent[0]?.includes('已接入：第一个会话'));
+
+sent.length = 0;
+bridge.handle('group:1', { text: '/dsh use <1>', senderId: '10001', mid: null });
+await sleep(300);
+check('尖括号占位符 <1> 可识别', sent[0]?.includes('已接入：第一个会话'));
+
+sent.length = 0;
+bridge.handle('group:1', { text: '/dsh use <id> 这条消息来自qq', senderId: '10001', mid: null });
+await sleep(300);
+check('字面占位符 <id> 给出明确提示', sent[0]?.includes('找不到') && sent[0]?.includes('get_dsh_id'));
 
 sent.length = 0;
 bridge.handle('group:1', { text: '/dsh get_dsh_id', senderId: '99999', mid: null });
