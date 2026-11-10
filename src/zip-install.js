@@ -37,13 +37,18 @@ export function validateZipStructure(buffer) {
  *
  * @returns {Promise<string>} 实际落地的目录名
  */
-export async function unzipToModuleDir(buffer, { root, type, preferId = '' }) {
+export async function unzipToModuleDir(buffer, { root, type, preferId = '', stripPrefix = '' }) {
   const entries = validateZipStructure(buffer);
   if (!entries.length) throw new Error('安装包是空的');
   const baseDir = path.join(root, type === 'plugin' ? 'plugins' : 'skills');
 
   // 剥统一根目录：所有条目都共享同一个第一段时去掉它
   let names = entries.map((e) => e.name);
+  if (stripPrefix) {
+    const p = String(stripPrefix);
+    if (!names.every((n) => n.startsWith(p))) throw new Error(`安装包结构异常（缺少 ${p} 前缀）`);
+    names = names.map((n) => n.slice(p.length));
+  }
   let strip = 0;
   const firstSeg = names[0].split('/')[0];
   if (firstSeg && names.every((n) => n.startsWith(firstSeg + '/'))) strip = firstSeg.length + 1;

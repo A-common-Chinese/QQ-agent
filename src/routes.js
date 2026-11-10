@@ -36,7 +36,7 @@ import { parseLegacyCard } from './persona-import.js';
 import { runBackup, listBackups } from './backup.js';
 import { installUpdate, cleanUpdateTemp } from './updater.js';
 import { analyzeExtension } from './plugin-compat.js';
-import { unzipToModuleDir } from './zip-install.js';
+import { unzipToModuleDir, validateZipStructure } from './zip-install.js';
 import { zipDirectory } from './zip-write.js';
 import { execFileSync } from 'node:child_process';
 
@@ -961,6 +961,57 @@ export function createRoutes(deps) {
           });
         } catch (error) {
           return json(res, 500, { ok: false, error: `重扫失败：${String(error?.message ?? error)}` });
+        }
+      }
+    },
+    {
+      // 本地 zip 导入（线上市场下线后的唯一安装入口）
+      // body: { kind: 'skill'|'plugin', filename, dataBase64 }
+      // 支持三种 zip 结构：根目录直接放文件 / <id>/... / skills|plugins/<id>/...
+      method: 'POST', pattern: '/api/skills/import-local',
+      handler: async ({ req, res, json }) => {
+        const body = await bodyOf(req);
+        const kind = String(body?.kind || 'skill') === 'plugin' ? 'plugin' : 'skill';
+        const filename = String(body?.filename || 'import.zip');
+        const b64 = String(body?.dataBase64 || '');
+        if (!b64) return json(res, 400, { ok: false, error: '缺少 dataBase64' });
+        if (b64.length > 48 * 1024 * 1024) return json(res, 413, { ok: false, error: '文件太大（解压后上限 32MB）' });
+        let buf;
+        try { buf = Buffer.from(b64, 'base64'); } catch { return json(res, 400, { ok: false, error: 'dataBase64 解码失败' }); }
+        if (!buf.length) return json(res, 400, { ok: false, error: '文件是空的' });
+        try {
+          const entries = validateZipStructure(buf);
+          const names = entries.map((e) => e.name);
+          const hasAll = (p) => names.length > 0 && names.every((n) => n.startsWith(p));
+          let stripPrefix = '';
+          if (hasAll('skills/')) stripPrefix = 'skills/';
+          else if (hasAll('plugins/')) stripPrefix = 'plugins/';
+          // 目录名：优先清单里的 id，其次文件名
+          let preferId = '';
+          const manifestName = kind === 'plugin' ? 'plugin.json' : 'skill.json';
+          const m = entries.find((e) => e.name.split('/').pop() === manifestName);
+          if (m) {
+            try { preferId = String(JSON.parse(m.data.toString('utf8')).id || '').trim(); } catch { /* ignore */ }
+          }
+          if (!preferId) {
+            preferId = filename.replace(/\.zip$/i, '').replace(/[^A-Za-z0-9._-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'imported';
+          }
+          const dirName = await unzipToModuleDir(buf, { root: ROOT, type: kind, preferId, stripPrefix });
+          let reloaded = null;
+          if (typeof reloadSkills === 'function') {
+            try { reloaded = await reloadSkills({ reason: 'import-local' }); } catch { /* 安装成功但重扫失败：下次刷新会补上 */ }
+          }
+          return json(res, 200, {
+            ok: true,
+            kind,
+            dirName,
+            path: (kind === 'plugin' ? 'plugins/' : 'skills/') + dirName,
+            reloaded: reloaded
+              ? { loaded: (reloaded.loaded || []).map((x) => x.id), failed: (reloaded.failed || []).map((x) => ({ id: x.id, error: x.error })) }
+              : null
+          });
+        } catch (error) {
+          return json(res, 400, { ok: false, error: String(error?.message ?? error) });
         }
       }
     },
