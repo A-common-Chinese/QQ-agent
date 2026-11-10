@@ -88,8 +88,8 @@ export function parseDshCommand(text, prefix = DEFAULT_PREFIX) {
   if (/^(?:get_dsh_id|id|list|sessions?|会话列表|列表)$/i.test(rest)) return { kind: 'list', task: '' };
   const use = rest.match(/^(?:use|接入|绑定)\s+([\s\S]{1,80})$/i);
   if (use) return { kind: 'use', task: use[1] };
-  const fresh = rest.match(/^(?:新会话|new)\b\s*([\s\S]*)$/i);
-  if (fresh) return { kind: 'new', task: fresh[1].trim() };
+  const fresh = rest.match(/^(?:新会话|new)(?:\s+([\s\S]*))?$/i);
+  if (fresh) return { kind: 'new', task: (fresh[1] || '').trim() };
   return { kind: 'run', task: rest };
 }
 
@@ -97,7 +97,7 @@ function helpText(prefix) {
   return [
     `【DSH 桥】把任务交给本机 DeepSeek Harness 执行`,
     `${prefix} <任务>       在当前会话里执行（会记住上下文，可连续追问）`,
-    `${prefix} 新会话 <任务>  丢掉上下文，开一条新会话`,
+    `${prefix} 新会话 [任务]  丢掉上下文开新会话；不带任务 = 只重置（下一条再开）`,
     `${prefix} 状态         看当前会话 id / 是否在跑`,
     `${prefix} get_dsh_id   列出未归档的 DSH 会话（名称/时间）`,
     `${prefix} use 序号|名称  把本会话接到指定的 DSH 会话（之后 /dsh 都续在那里）`,
@@ -327,6 +327,19 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
     const body = await r.json().catch(() => ({}));
     if (!r.ok || body?.ok === false) throw new Error(String(body?.error || `HTTP ${r.status}`));
     return Array.isArray(body.sessions) ? body.sessions : [];
+  }
+
+  /** 重置某个 QQ 会话的常驻上下文（插件模式）。 */
+  async function pluginReset(chatKey) {
+    const r = await fetch(`${pluginBase()}/reset`, {
+      method: 'POST',
+      headers: pluginHeaders(),
+      body: JSON.stringify({ chatKey }),
+      signal: AbortSignal.timeout(8000)
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok || body?.ok === false) throw new Error(String(body?.error || `HTTP ${r.status}`));
+    return body;
   }
 
   /** 把本 QQ 会话绑定到指定 DSH 会话。 */
@@ -593,6 +606,25 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
         }
 
         const task = parsed.task;
+        // 单独发「新会话」= 只重置上下文，不执行任务
+        if (parsed.kind === 'new' && !task) {
+          if (running.has(chatKey)) {
+            await reply(chatKey, `⚠️ 这个会话上还有任务在跑，先发「${String(c.prefix || DEFAULT_PREFIX)} 停」。`, replyTo);
+            return;
+          }
+          const usePluginNow = String(c.transport || 'headless') === 'plugin';
+          try {
+            if (usePluginNow) await pluginReset(chatKey);
+            if (skey) {
+              delete state[skey];
+              saveState(state);
+            }
+            await reply(chatKey, `✅ 已重置。下一条 ${String(c.prefix || DEFAULT_PREFIX)} 会开一条新会话。`, replyTo);
+          } catch (error) {
+            await reply(chatKey, `❌ 重置失败：${error?.message ?? error}`, replyTo);
+          }
+          return;
+        }
         if (!task) {
           await reply(chatKey, helpText(String(c.prefix || DEFAULT_PREFIX)), replyTo);
           return;

@@ -18,6 +18,8 @@ check('parse list 别名', parseDshCommand('/dsh list')?.kind === 'list');
 check('@机器人 /dsh get_dsh_id 可识别', parseDshCommand('@机器人 /dsh get_dsh_id')?.kind === 'list');
 check('parse use <id>', parseDshCommand('/dsh use session-abc')?.kind === 'use' && parseDshCommand('/dsh use session-abc')?.task === 'session-abc');
 check('普通 /dsh 仍是 run', parseDshCommand('/dsh 跑一下测试')?.kind === 'run');
+check('单独「新会话」解析为 new', parseDshCommand('/dsh 新会话')?.kind === 'new' && parseDshCommand('/dsh 新会话')?.task === '');
+check('「新会话 任务」带任务', parseDshCommand('/dsh 新会话 跑测试')?.task === '跑测试');
 check('use 缺参数不当命令', parseDshCommand('/dsh use')?.kind === 'run');
 
 // ── 模拟插件接口 ──
@@ -36,6 +38,9 @@ globalThis.fetch = async (url, init = {}) => {
   if (String(url).includes('/use')) {
     const sid = JSON.parse(init.body).sessionId;
     return { ok: true, json: async () => ({ ok: true, sessionId: sid, title: sid === 'session-bbb' ? '第二个会话' : '第一个会话' }) };
+  }
+  if (String(url).includes('/reset')) {
+    return { ok: true, json: async () => ({ ok: true, chatKey: JSON.parse(init.body).chatKey, dropped: 'old' }) };
   }
   return { ok: false, status: 404, json: async () => ({ ok: false, error: 'not found' }) };
 };
@@ -99,6 +104,17 @@ sent.length = 0;
 bridge.handle('group:1', { text: '/dsh use <id> 这条消息来自qq', senderId: '10001', mid: null });
 await sleep(300);
 check('字面占位符 <id> 给出明确提示', sent[0]?.includes('找不到') && sent[0]?.includes('get_dsh_id'));
+
+sent.length = 0;
+bridge.handle('group:1', { text: '/dsh 新会话', senderId: '10001', mid: null });
+await sleep(300);
+check('单独发新会话 = 重置', sent[0]?.includes('已重置'));
+check('重置调用了 /reset', calls.some((c) => c.url.includes('/reset') && c.method === 'POST'));
+
+sent.length = 0;
+bridge.handle('group:1', { text: '/dsh new', senderId: '10001', mid: null });
+await sleep(300);
+check('new 别名也能单独重置', sent[0]?.includes('已重置'));
 
 sent.length = 0;
 bridge.handle('group:1', { text: '/dsh get_dsh_id', senderId: '99999', mid: null });
