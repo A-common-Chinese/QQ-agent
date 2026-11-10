@@ -304,6 +304,43 @@ const ctx = vm.createContext(sandbox);
     }
   }
 
+  // ── Agent 桥卡片（P1）──
+  // 两种形态都要渲染对：有桥配置 → 开关/前缀/白名单；无配置 → 只给一句提示，不出现半残控件。
+  console.log('\n=== Agent 桥卡片 ===');
+  try {
+    const withBridge = (ctx.renderChatSection || sandbox.renderChatSection)({
+      ...cfg,
+      agentBridges: [{
+        id: 'stub', label: 'Stub Agent', prefix: '/agent', cmd: 'node',
+        newArgs: ['stub.mjs', '-o', '{out}', '-'], enabled: true, allowedSenderIds: ['1001']
+      }]
+    });
+    const ok1 = /id="cfg-ab-enabled"/.test(withBridge)
+      && /Stub Agent/.test(withBridge)
+      && /id="cfg-ab-prefix"/.test(withBridge)
+      && /id="cfg-ab-progress"/.test(withBridge)
+      && /1001/.test(withBridge);
+    ok1 ? pass++ : fail++;
+    console.log('  ' + (ok1 ? 'OK   ' : 'FAIL ') + ' 有桥配置 → 开关/前缀/白名单/进度都在');
+
+    // 进度选项要按配置选中（否则界面上看不出当前是"不发"还是"只私聊"）
+    const progressOn = (ctx.renderChatSection || sandbox.renderChatSection)({
+      ...cfg,
+      agentBridges: [{ id: 'stub', label: 'Stub', prefix: '/agent', cmd: 'node', newArgs: [], showProgress: 'off' }]
+    });
+    const okSel = /<option value="off" selected>/.test(progressOn);
+    okSel ? pass++ : fail++;
+    console.log('  ' + (okSel ? 'OK   ' : 'FAIL ') + ' showProgress=off 时选项正确回显');
+
+    const noBridge = (ctx.renderChatSection || sandbox.renderChatSection)({ ...cfg, agentBridges: [] });
+    const ok2 = !/id="cfg-ab-enabled"/.test(noBridge) && /config\.agentBridges/.test(noBridge);
+    ok2 ? pass++ : fail++;
+    console.log('  ' + (ok2 ? 'OK   ' : 'FAIL ') + ' 无桥配置 → 只给提示，不出控件');
+  } catch (e) {
+    fail++;
+    console.log('  FAIL  Agent 桥卡片抛错: ' + (e && e.message));
+  }
+
     // ── 档位反馈：滑到哪一档，大号读数 + 预设高亮同步 ──
     console.log('\n=== 刻度段高亮（拖动联动）===');
     /** 2026-09-24 concept2 改版：分段（tier-band）为静态热度渐变、不再动态高亮，

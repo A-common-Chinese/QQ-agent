@@ -2037,6 +2037,8 @@ const TIER_HINT = {
 
 function renderChatSection(c) {
   const st = c.store || {};
+  // Agent 桥（P1）：界面只编辑第一条，多桥管理留到 P3
+  const ab0 = Array.isArray(c.agentBridges) ? c.agentBridges[0] : null;
   const fold = (typeof setCard === 'function') ? setCard : (o) => `<div class="setcard">${o.body}</div>`;
 return `
     <h3>聊天设置</h3>
@@ -2382,6 +2384,47 @@ return `
         在 QQ 里发 <b>${esc(c.dsh?.prefix || '/dsh')} 状态</b> 看当前会话、<b>${esc(c.dsh?.prefix || '/dsh')} 帮助</b> 看全部命令。
         DSH 侧还能用 <b>qq_send</b> 主动发消息、<b>qq_send_file</b> 把本机文件发到 QQ（群文件 / 私聊文件）。
         改动即时生效（自动保存），无需重启。
+      </div>`
+    })}
+
+    ${fold({
+      id: 'card-agentbridge',
+      icon: '🧩',
+      title: 'Agent 桥（实验）',
+      sub: '把任务交给别的 CLI agent',
+      open: false,
+      body: ab0 ? `
+      <div class="checkbox-row"><input type="checkbox" id="cfg-ab-enabled" ${ab0.enabled ? 'checked' : ''} />
+        <label for="cfg-ab-enabled">启用 Agent 桥${ab0.label ? `（${esc(ab0.label)}）` : ''}</label></div>
+      <div class="hint">
+        <b>开</b>：白名单里的 QQ 号发 <b>${esc(ab0.prefix || '/agent')} &lt;任务&gt;</b> 会绕过大模型直接交给本机 CLI 执行，
+        结果原样回发；<b>关</b>：完全不认领。白名单为空 = 谁都不响应。
+      </div>
+      <div class="field-row">
+        <div class="field"><label>命令前缀</label>
+          <input type="text" id="cfg-ab-prefix" value="${esc(ab0.prefix || '/agent')}" placeholder="/agent" /></div>
+        <div class="field"><label>允许下指令的 QQ 号（逗号分隔，空 = 谁都不许）</label>
+          <input type="text" id="cfg-ab-senders" value="${esc((ab0.allowedSenderIds || []).join(', '))}" placeholder="填你的 QQ 号" /></div>
+      </div>
+      <div class="field"><label>执行进度提示</label>
+        <select id="cfg-ab-progress">
+          <option value="off" ${(ab0.showProgress || 'private') === 'off' ? 'selected' : ''}>不发（只回结果）</option>
+          <option value="private" ${(ab0.showProgress || 'private') === 'private' ? 'selected' : ''}>只在私聊发</option>
+          <option value="all" ${(ab0.showProgress || 'private') === 'all' ? 'selected' : ''}>所有会话都发</option>
+        </select>
+        <div class="hint">就是那条「⏳ 已交给…，执行中」。群聊里发会显得吵，建议只在私聊发，或者干脆不发。</div>
+      </div>
+      <div class="field"><label>可执行命令（只读，改参数请编辑 config.agentBridges）</label>
+        <div class="hint" style="word-break:break-all"><code>${esc(ab0.cmd || '(未配置)')}</code>
+        ${esc((ab0.newArgs || []).join(' '))}</div>
+      </div>
+      <div class="hint">
+        在 QQ 里发 <b>${esc(ab0.prefix || '/agent')} 帮助</b> 看命令、<b>${esc(ab0.prefix || '/agent')} 状态</b> 看会话、
+        <b>${esc(ab0.prefix || '/agent')} 停</b> 中断。P1 只支持一座桥，多桥与「测试」按钮留到下一阶段。
+      </div>` : `
+      <div class="hint">
+        当前没有 Agent 桥配置（<code>config.agentBridges</code> 为空）。
+        在 <code>data/config.json</code> 里加一条（可用 <code>"preset": "codex"</code> 省掉参数模板），重启后这里会出现开关。
       </div>`
     })}
 

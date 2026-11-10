@@ -637,6 +637,36 @@ export const DEFAULT_CONFIG = {
       extraPatterns: []                    // [{ id, regex, action: 'redact'|'block', replace }]
     }
   },
+  // ── 通用 Agent 桥（P1）────────────────────────────────────────────────
+  // 与上面的 dsh 桥**平行**：命中自己的 prefix 就直接交给本机 agent CLI，不进大模型。
+  // 默认带一条 codex 模板且 enabled:false —— 打开前必须先填 allowedSenderIds，
+  // 否则任何能 @ 到机器人的人都能在你机器上跑 agent（任务只在 workdir 内可写）。
+  // 参数模板里的占位符：{task} 任务正文 / {out} 答案落盘文件 / {session} 会话 id / {cwd} 工作目录。
+  // taskVia='stdin' 时正文走标准输入，不进 argv —— 既避开命令行长度限制也避开注入。
+  agentBridges: [
+    {
+      id: 'codex',
+      label: 'Codex',
+      preset: 'codex',                  // 手改配置时可只写 { id, preset, enabled, allowedSenderIds }
+      enabled: false,
+      kind: 'cli',                      // P1 只实现 cli；P2 再加 kind='http'
+      prefix: '/codex',                 // 必须成词：/codexx 不算
+      cmd: 'codex',                     // npm 全局装的是 codex.cmd，写名字即可（内部会解析 PATH 并走 cmd 外壳）
+      workdir: '',                      // 空 = QQ Agent 自己的目录
+      allowedSenderIds: [],             // 空 = 谁都不响应（安全默认）
+      requireMentionInGroup: true,      // 群里必须 @ 机器人才认领
+      timeoutMs: 600000,                // 单次任务超时（毫秒），到点杀进程树
+      sessionMode: 'per-chat',          // per-chat | global | none
+      resume: 'id',                     // id = 按事件里的 thread_id 续跑；last = --last；none = 不保留上下文
+      taskVia: 'stdin',                 // stdin | arg
+      newArgs: ['exec', '--json', '--skip-git-repo-check', '-o', '{out}', '-'],
+      resumeArgs: ['exec', 'resume', '{session}', '--json', '--skip-git-repo-check', '-o', '{out}', '-'],
+      outputMode: 'last-message',       // last-message（读 {out}）| jsonl（解析事件流）| text（stdout 末尾）
+      resultPromptChars: 200,           // 结果进提示词只留这么多字（0 = 完全不进上下文）
+      showProgress: 'private',          // off | private | all
+      replyPrefix: ''
+    }
+  ],
   // ── QQ 在线状态（在线/请勿打扰…）───────────────────────────────────────
   // 状态码是 QQ 协议里的整数（NapCat 约定）：10 在线 / 30 离开 / 40 隐身 /
   // 50 忙碌 / 60 Q我吧 / 70 请勿打扰。SnowLuma 只实现 set_online_status，

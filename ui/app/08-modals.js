@@ -1543,6 +1543,24 @@ async function saveConfig({ quiet = false } = {}) {
         // 硬写一个勾选框反而可能把用户的设置覆盖掉。留在 config.json 里手改。
       }
     };
+
+    // Agent 桥（P1）：只编辑第一条。⚠️ 数组是**整条替换**的（deepMerge 对数组不做逐项合并），
+    // 所以必须把其余条目原样带上，否则任何一次保存都会把多桥配置抹成一条。
+    const abList = Array.isArray(c.agentBridges) ? c.agentBridges : [];
+    if (abList.length && el('#cfg-ab-enabled')) {
+      patch.agentBridges = abList.map((b, i) => (i === 0 ? {
+        ...b,
+        enabled: chk('#cfg-ab-enabled', !!b.enabled),
+        prefix: String(val('#cfg-ab-prefix', b.prefix || '/agent')).trim() || '/agent',
+        allowedSenderIds: String(val('#cfg-ab-senders', (b.allowedSenderIds || []).join(', ')))
+          .split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean),
+        // 进度提示：非法值回落 private（与后端 normalizeBridge 的默认一致）
+        showProgress: (() => {
+          const v = String(val('#cfg-ab-progress', b.showProgress || 'private'));
+          return ['off', 'private', 'all'].includes(v) ? v : 'private';
+        })()
+      } : b));
+    }
   }
 
   if (sec === 'desktop') {

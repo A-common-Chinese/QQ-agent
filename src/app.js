@@ -18,6 +18,7 @@ import { MemoryStore } from './memory.js';
 import { StickerManager } from './sticker-manager.js';
 import { SendQueue } from './sender.js';
 import { createDshBridge } from './dsh-bridge.js';
+import { createAgentBridges } from './agent-bridge.js';
 import { SessionRegistry } from './sessions.js';
 import { Orchestrator } from './orchestrator.js';
 import { maybeSilentAt } from './silent-at.js';
@@ -719,6 +720,8 @@ export function createApp({ log = console.log } = {}) {
   const videoReader = new VideoReader(onebot, transport);
   // DSH 桥：/dsh 前缀命令绕过大模型，直接交给本机 dsh headless（详见 src/dsh-bridge.js）
   const dshBridge = createDshBridge({ getConfig, sender, log, emit });
+  // 通用 Agent 桥（P1）：/codex 之类前缀交给别的 CLI，配置见 config.agentBridges
+  const agentBridges = createAgentBridges({ getConfig, sender, log, emit });
   const orchestrator = new Orchestrator({ store, memory, stickers, sender, sessions, onebot, transport, emit, reminders, videoReader });
 
   // 首次启动/重装后回填「曾经收到过官方通道消息」的时间戳：
@@ -1045,6 +1048,12 @@ export function createApp({ log = console.log } = {}) {
       || dshCfg.requireMentionInGroup === false
       || atMe === true;
     if (dshMentionOk && dshBridge.handle(`${kind}:${id}`, entry)) {
+      store.markEntryRead(`${kind}:${id}`, entry.id);
+      return;
+    }
+    // 通用 Agent 桥：/codex 等前缀。@ 判定在桥内部按每条桥的 requireMentionInGroup 做，
+    // 所以这里把 atMe 传进去（不 @ 时桥返回 false，消息照常交给模型）。
+    if (agentBridges.handle(`${kind}:${id}`, entry, { atMe: atMe === true, kind })) {
       store.markEntryRead(`${kind}:${id}`, entry.id);
       return;
     }
@@ -2017,6 +2026,7 @@ try {
     orchestrator.stopReminderLoop();
     // DSH 桥：退出时把还在跑的 headless 子进程树一起带走，别留孤儿
     dshBridge.abortAll();
+    agentBridges.abortAll();
     if (communitySyncTimer) clearInterval(communitySyncTimer);
     if (obPortPollTimer) clearInterval(obPortPollTimer);
     // 记忆解释器：只结束本进程拉起过的那个子进程（接管来的外部实例只解除登记）。
