@@ -80,6 +80,7 @@
     "test:wakesem": "node test/wake-semantics-test.mjs",
     "test:update": "node test/update-install-plan.mjs && node test/update-check-test.mjs",
     "test:faq": "node test/bot-faq-test.mjs",
+    "test:dsh": "node test/dsh-session-cmd-test.mjs",
     "test:studio": "node test/memory-studio-install-test.mjs && node test/memory-studio-bridge-test.mjs && node test/memory-studio-ui-test.mjs"
   },
   "dependencies": {

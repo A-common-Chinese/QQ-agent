@@ -71,7 +71,7 @@ function stripLeadingAt(text) {
 
 /**
  * 解析 `/dsh` 命令。
- * @returns {null | { kind: 'run'|'new'|'stop'|'status'|'help', task: string }}
+ * @returns {null | { kind: 'run'|'new'|'stop'|'status'|'help'|'list'|'use', task: string }}
  */
 export function parseDshCommand(text, prefix = DEFAULT_PREFIX) {
   const p = String(prefix || DEFAULT_PREFIX).trim() || DEFAULT_PREFIX;
@@ -85,6 +85,9 @@ export function parseDshCommand(text, prefix = DEFAULT_PREFIX) {
   if (/^(帮助|help|命令|用法)$/i.test(rest)) return { kind: 'help', task: '' };
   if (/^(状态|status)$/i.test(rest)) return { kind: 'status', task: '' };
   if (/^(停|停止|取消|stop|abort|cancel)$/i.test(rest)) return { kind: 'stop', task: '' };
+  if (/^(?:get_dsh_id|id|list|sessions?|会话列表|列表)$/i.test(rest)) return { kind: 'list', task: '' };
+  const use = rest.match(/^(?:use|接入|绑定)\s+([A-Za-z0-9_-]{4,80})$/i);
+  if (use) return { kind: 'use', task: use[1] };
   const fresh = rest.match(/^(?:新会话|new)\b\s*([\s\S]*)$/i);
   if (fresh) return { kind: 'new', task: fresh[1].trim() };
   return { kind: 'run', task: rest };
@@ -96,6 +99,8 @@ function helpText(prefix) {
     `${prefix} <任务>       在当前会话里执行（会记住上下文，可连续追问）`,
     `${prefix} 新会话 <任务>  丢掉上下文，开一条新会话`,
     `${prefix} 状态         看当前会话 id / 是否在跑`,
+    `${prefix} get_dsh_id   列出未归档的 DSH 会话（id/标题/时间）`,
+    `${prefix} use <id>     把本会话接到指定的 DSH 会话（之后 /dsh 都续在那里）`,
     `${prefix} 停           终止正在跑的任务`,
     `${prefix} 帮助         这条说明`
   ].join('\n');
@@ -299,6 +304,44 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
     } catch { return null; }
   }
 
+  function pluginBase() {
+    const c = readCfg();
+    const url = String(c.pluginUrl || '').trim() || 'http://127.0.0.1:19387/__dsh-qq/message';
+    return url.replace(/\/message\/?$/, '');
+  }
+
+  function pluginHeaders() {
+    const c = readCfg();
+    return {
+      'content-type': 'application/json',
+      ...(c.pluginToken ? { 'x-dsh-qq-token': String(c.pluginToken) } : {})
+    };
+  }
+
+  /** 拉未归档会话列表；失败抛错（命令要如实告诉用户）。 */
+  async function pluginSessions(limit = 20) {
+    const r = await fetch(`${pluginBase()}/sessions?limit=${limit}`, {
+      headers: pluginHeaders(),
+      signal: AbortSignal.timeout(8000)
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok || body?.ok === false) throw new Error(String(body?.error || `HTTP ${r.status}`));
+    return Array.isArray(body.sessions) ? body.sessions : [];
+  }
+
+  /** 把本 QQ 会话绑定到指定 DSH 会话。 */
+  async function pluginUse(chatKey, sessionId) {
+    const r = await fetch(`${pluginBase()}/use`, {
+      method: 'POST',
+      headers: pluginHeaders(),
+      body: JSON.stringify({ chatKey, sessionId }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok || body?.ok === false) throw new Error(String(body?.error || `HTTP ${r.status}`));
+    return body;
+  }
+
   async function askPlugin(chatKey, task, options = {}) {
     const c = readCfg();
     const url = String(c.pluginUrl || '').trim() || 'http://127.0.0.1:19387/__dsh-qq/message';
@@ -443,6 +486,58 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
             `目录：${resolvePaths().cwd}`,
             `上次：${record.updatedAt ? new Date(record.updatedAt).toLocaleString() : '(无)'}`
           ].join('\n'), replyTo);
+          return;
+        }
+
+        if (parsed.kind === 'list') {
+          if (String(c.transport || 'headless') !== 'plugin') {
+            await reply(chatKey, '⚠️ 列会话需要 DSH 常驻会话模式（config.dsh.transport = plugin）。headless 模式没有常驻上下文可列。', replyTo);
+            return;
+          }
+          let sessions = [];
+          try {
+            sessions = await pluginSessions(20);
+          } catch (error) {
+            await reply(chatKey, `❌ 拉取会话列表失败：${error?.message ?? error}`, replyTo);
+            return;
+          }
+          if (!sessions.length) {
+            await reply(chatKey, '（没有未归档的 DSH 会话）', replyTo);
+            return;
+          }
+          const lines = sessions.map((x, i) => {
+            const when = x.at ? new Date(x.at).toLocaleString('zh-CN', { hour12: false }) : '?';
+            return `${i + 1}. ${x.id}\n   ${String(x.title || '').slice(0, 40)}（${when}）`;
+          });
+          await reply(chatKey, [
+            `未归档 DSH 会话（${sessions.length} 条，按最近使用排序）：`,
+            ...lines,
+            '',
+            `接入：${String(c.prefix || DEFAULT_PREFIX)} use <id>`
+          ].join('\n'), replyTo);
+          return;
+        }
+
+        if (parsed.kind === 'use') {
+          if (String(c.transport || 'headless') !== 'plugin') {
+            await reply(chatKey, '⚠️ 接入已有会话需要 DSH 常驻会话模式（config.dsh.transport = plugin）。', replyTo);
+            return;
+          }
+          const target = String(parsed.task || '').trim();
+          if (!target) {
+            await reply(chatKey, `用法：${String(c.prefix || DEFAULT_PREFIX)} use <会话id>（先用 get_dsh_id 列出来）`, replyTo);
+            return;
+          }
+          try {
+            const r = await pluginUse(chatKey, target);
+            if (skey) {
+              state[skey] = { sessionId: target, bound: true, title: r?.title || '', updatedAt: Date.now(), cwd: resolvePaths().cwd };
+              saveState(state);
+            }
+            await reply(chatKey, `✅ 已接入会话 ${target}${r?.title ? `：${r.title}` : ''}\n之后这个会话的 ${String(c.prefix || DEFAULT_PREFIX)} 都会续在这条会话上。`, replyTo);
+          } catch (error) {
+            await reply(chatKey, `❌ 接入失败：${error?.message ?? error}`, replyTo);
+          }
           return;
         }
 
