@@ -28,26 +28,51 @@ function norm(s) {
   return String(s || '').toLowerCase().replace(/[\s，。！？、,.!?;；:："'“”‘’()（）\-—_]/g, '');
 }
 
-/** 关键词打分：命中关键词按长度加权，问题原文按公共字符比例加分 */
+/** 关键词打分：关键词命中为主，问题原文/字面重合为辅；低于阈值视为没命中 */
 export function searchFaq(query, limit = 5) {
   const faq = loadFaq();
   const q = norm(query);
   if (!q) return [];
+  const bigrams = (s) => {
+    const out = new Set();
+    for (let i = 0; i < s.length - 1; i += 1) out.add(s.slice(i, i + 2));
+    return out;
+  };
+  const qb = bigrams(q);
+  // 最长公共子串：抓「记忆不生效」vs「为什么记忆不生效」这种只差几个字的问法
+  const lcs = (a, b) => {
+    let best = 0;
+    const prev = new Array(b.length + 1).fill(0);
+    for (let i = 1; i <= a.length; i += 1) {
+      const cur = new Array(b.length + 1).fill(0);
+      for (let j = 1; j <= b.length; j += 1) {
+        if (a[i - 1] === b[j - 1]) {
+          cur[j] = prev[j - 1] + 1;
+          if (cur[j] > best) best = cur[j];
+        }
+      }
+      for (let j = 0; j <= b.length; j += 1) prev[j] = cur[j];
+    }
+    return best;
+  };
   const scored = [];
   for (const item of faq.items) {
     let score = 0;
     for (const kw of (item.keywords || [])) {
       const k = norm(kw);
-      if (k && q.includes(k)) score += 5 + Math.min(6, k.length);
+      if (k && q.includes(k)) score += 10 + Math.min(8, k.length * 1.5);
     }
     const qq = norm(item.q);
-    if (qq && (q.includes(qq) || qq.includes(q))) score += 4;
-    // 公共字符比例（只算中文/字母，防止短问题乱命中）
-    let common = 0;
-    const set = new Set([...qq]);
-    for (const ch of new Set([...q])) if (set.has(ch)) common += 1;
-    if (common >= 3) score += Math.min(3, common / 3);
-    if (score > 0) scored.push({ item, score });
+    if (qq && (q.includes(qq) || qq.includes(q))) score += 8;
+    // 双字重合率：只奖励真正"问到点上"的，避免短词乱命中
+    const itb = bigrams(qq);
+    let hit = 0;
+    for (const b of qb) if (itb.has(b)) hit += 1;
+    const ratio = qb.size ? hit / qb.size : 0;
+    if (ratio >= 0.4) score += Math.min(6, ratio * 8);
+    const l = lcs(q, qq);
+    if (l >= 4) score += 8 + Math.min(6, l);
+    if (score >= 8) scored.push({ item, score });
   }
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, Math.max(1, Math.min(20, limit))).map((x) => ({ ...x.item, score: Math.round(x.score * 10) / 10 }));
