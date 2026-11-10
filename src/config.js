@@ -597,6 +597,7 @@ export const DEFAULT_CONFIG = {
     prefix: '/dsh',            // 命令前缀（必须成词：`/dshx` 不算）
     transport: 'headless',     // headless = 每次起一个 dsh 进程；plugin = 走 dsh-qq 插件的常驻会话
     allowedSenderIds: [],      // 允许下指令的 QQ 号；**空 = 谁都不响应**（安全默认）
+    requireMentionInGroup: true, // 群聊里必须 @ 本机器人 才认领 /dsh（私聊不受影响）
     workdir: '',               // DSH 任务的工作目录；空 = QQ Agent 自己的目录
     exePath: '',               // DeepSeek Harness.exe；空 = 内置默认路径
     overlayPath: '',           // 模型 overlay（yml）；空 = 仓库根的 dsh-model-overlay.yml

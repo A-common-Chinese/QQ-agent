@@ -1038,7 +1038,13 @@ export function createApp({ log = console.log } = {}) {
     // DSH 桥（确定性，2026-10-10）：/dsh 前缀的命令不进大模型，直接交给本机
     // DeepSeek Harness 执行。认领后立即标已读并结束本轮 —— 不这么做的话这条消息
     // 会留在未读里，被后面的 drain 当成积压喂给模型，变成"模型再答一遍"。
-    if (dshBridge.handle(`${kind}:${id}`, entry)) {
+    // ⚠️ 群聊必须 @ 本机器人 才认领（程序判断，不经过模型）：群里可能有多个装了桥的
+    //    实例，只按 /dsh 前缀认领会把别人的命令也抢过来、回一句"你没在白名单"。
+    const dshCfg = getConfig().dsh || {};
+    const dshMentionOk = kind === 'private'
+      || dshCfg.requireMentionInGroup === false
+      || atMe === true;
+    if (dshMentionOk && dshBridge.handle(`${kind}:${id}`, entry)) {
       store.markEntryRead(`${kind}:${id}`, entry.id);
       return;
     }

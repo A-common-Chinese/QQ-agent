@@ -15,6 +15,7 @@ const check = (name, cond) => {
 check('parse get_dsh_id', parseDshCommand('/dsh get_dsh_id')?.kind === 'list');
 check('parse id 别名', parseDshCommand('/dsh id')?.kind === 'list');
 check('parse list 别名', parseDshCommand('/dsh list')?.kind === 'list');
+check('@机器人 /dsh get_dsh_id 可识别', parseDshCommand('@机器人 /dsh get_dsh_id')?.kind === 'list');
 check('parse use <id>', parseDshCommand('/dsh use session-abc')?.kind === 'use' && parseDshCommand('/dsh use session-abc')?.task === 'session-abc');
 check('普通 /dsh 仍是 run', parseDshCommand('/dsh 跑一下测试')?.kind === 'run');
 check('use 缺参数不当命令', parseDshCommand('/dsh use')?.kind === 'run');
