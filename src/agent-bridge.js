@@ -19,7 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { getPrivacyFilter, privacyBlockedReply } from './privacy.js';
 import { DATA_DIR, ROOT } from './config.js';
 
@@ -297,6 +297,64 @@ export function projectSlug(workdir) {
 
 const FILE_MARK_RE = /\[\[\s*file\s*[:：]\s*([^\]\n]+?)\s*\]\]/gi;
 
+/** 数一下 patch 目录里有多少 .patch（用于判断本轮有没有产出交接产物） */
+export function countPatchFiles(dir) {
+  if (!dir) return 0;
+  try { return fs.readdirSync(dir).filter((n) => n.toLowerCase().endsWith('.patch')).length; } catch { return 0; }
+}
+
+/** 工作树是否有改动（非 git 目录/命令失败都按"无改动"处理，不打扰用户） */
+export function isGitDirty(dir) {
+  if (!dir) return false;
+  try {
+    const out = execFileSync('git', ['-C', String(dir), 'status', '--porcelain'], { encoding: 'utf8', timeout: 5000 });
+    return out.trim().length > 0;
+  } catch { return false; }
+}
+
+/**
+ * 把 CLI 的原始报错翻译成人话建议。
+ * 依据是今天真实踩过的坑（端口占用 / PATH 扩展名 / 未登录 / 缺 .NET 运行时），
+ * 不猜：只在能确定特征时给建议，认不出就返回空数组。
+ */
+export function explainFailure({ spawnError, stderr, stdout } = {}) {
+  const text = `${spawnError || ''}\n${stderr || ''}\n${stdout || ''}`;
+  const tips = [];
+  if (spawnError && /ENOENT/i.test(String(spawnError))) {
+    tips.push('找不到可执行文件：Windows 上 npm 全局装的命令通常是 .cmd，检查 PATH 或改用绝对路径（桥已按扩展名优先查找）');
+  }
+  const auth = /Authentication required|Please use \/login|not logged in/i.test(text);
+  if (auth) {
+    tips.push('CLI 未登录：先在终端跑一次 `codebuddy`，进交互界面后输入 /login 完成授权（登录态不跨用户/跨服务进程共享）');
+  }
+  const port = text.match(/EADDRINUSE[^\n]*?:(\d+)/i) || text.match(/address already in use[^\n]*?:(\d+)/i);
+  if (port) {
+    tips.push(`端口 ${port[1]} 被占用（常见是被桌面版占着）：把桥配置里的 port 改成别的值，例如 ${Number(port[1]) + 1}`);
+  }
+  if (/app-launch-failed|missing_runtime|You must install \.NET|framework.*not found/i.test(text)) {
+    tips.push('缺 .NET 运行时：运行前先设 DOTNET_ROOT 指向随项目带的 .dotnet 目录，并把它加进 PATH');
+  }
+  if (/not recognized as an internal|不是内部或外部命令|command not found/i.test(text)) {
+    tips.push('命令不存在：检查 bridge.cmd 是否写错，或这个程序没装/不在 PATH');
+  }
+  if (!tips.length && /exit 2\b/.test(String(stderr || '')) && /任务|task/i.test(text)) {
+    tips.push('CLI 没收到任务正文：确认 taskVia 与 CLI 的参数约定一致（stdin 还是末尾参数）');
+  }
+  return tips;
+}
+
+/**
+ * 交接一致性检查：工作树有改动、但 patch 目录没有新增文件 → 说明「改了没留痕」。
+ * 纯函数，方便单测；IO 由调用方做。
+ */
+export function patchDisciplineWarning({ dirty, newPatches, patchDir } = {}) {
+  if (!dirty) return '';
+  const n = Number(newPatches) || 0;
+  if (n > 0) return '';
+  return `⚠️ 本任务改了工作树，但 ${patchDir || 'patch 目录'} 里没有新增 patch —— 交接时会缺依据；`
+    + '要么补一份 `git diff`，要么在副本里提交。';
+}
+
 /**
  * 从答案里抠出 `[[file: 路径]]` 标记。
  * 返回清理后的正文 + 去重后的路径列表（最多取前 3 个由调用方决定）。
@@ -391,6 +449,8 @@ export function normalizeBridge(raw, index) {
     fileRoots: Array.isArray(b.fileRoots) ? b.fileRoots.map(String).filter(Boolean) : [],
     // 全盘允许发文件（跳过目录校验，仍查 isFile 与大小）。临时放开用，默认关。
     allowAnyFile: b.allowAnyFile === true,
+    // 交接一致性检查用的 patch 目录：任务改了工作树却没新增 patch 时，回复里提醒
+    patchDir: String(b.patchDir || ''),
     // 会话存档根目录（CodeBuddy: ~/.codebuddy/projects）；空 = 不支持列会话
     sessionsRoot: String(b.sessionsRoot || ''),
     newArgs: Array.isArray(b.newArgs) ? b.newArgs.map(String) : [],
@@ -869,6 +929,9 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
         const rec = readSession(bridge, skey);
         const sessionId = parsed.kind === 'new' ? '' : (rec?.sessionId || '');
         const startedAt = Date.now();
+        // 交接一致性检查：跑之前的 patch 数量 + 有效工作目录
+        const effDir = rec?.workdir || bridge.workdir || ROOT;
+        const patchBefore = countPatchFiles(bridge.patchDir);
 
         // 先给个"收到"，否则一次十分钟的任务在前几分钟里完全没有反馈
         const showAck = bridge.showProgress === 'all' || (bridge.showProgress === 'private' && kind === 'private');
@@ -891,7 +954,9 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
 
         if (result.spawnError) {
           try { fs.rmSync(outFile, { force: true }); } catch { /* ignore */ }
-          await reply(chatKey, `❌ ${bridge.label} 启动失败：${result.spawnError}`, replyTo);
+          const tips = explainFailure({ spawnError: result.spawnError });
+          await reply(chatKey, [`❌ ${bridge.label} 启动失败：${result.spawnError}`,
+            tips.length ? `\n可能原因：\n- ${tips.join('\n- ')}` : ''].filter(Boolean).join(''), replyTo);
           return;
         }
         if (bridge.resume === 'id' && newSession) writeSession(bridge, skey, newSession);
@@ -931,6 +996,16 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
             }
           }
 
+          // 交接一致性：改了工作树却没产出 patch，就在回复里提醒（比靠模型自觉可靠）
+          if (bridge.patchDir && !result.killed) {
+            const warn = patchDisciplineWarning({
+              dirty: isGitDirty(effDir),
+              newPatches: countPatchFiles(bridge.patchDir) - patchBefore,
+              patchDir: bridge.patchDir
+            });
+            if (warn) notes.push(warn);
+          }
+
           const text = [head + body, notes.join('\n'), tail].filter((x) => String(x || '').trim()).join('\n');
           if (text) await reply(chatKey, text, replyTo, { promptText: digest(body || answer, bridge.resultPromptChars) });
           if (!result.killed) log(`[bridge] ${bridge.id} 完成，${cost}s，来源=${from}`);
@@ -939,10 +1014,12 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
 
         // 没有答案就如实说，不许静默丢弃
         const stderrTail = String(result.stderr || '').trim().slice(-STDERR_TAIL);
+        const tips = explainFailure({ stderr: result.stderr, stdout: result.stdout });
         await reply(chatKey, [
           `❌ ${bridge.label} 没有返回内容（exit ${result.code}，耗时 ${cost}s）`,
           result.killed ? '（已按超时中断）' : '',
-          stderrTail ? `错误输出末尾：\n${stderrTail}` : '（没有 stderr 输出，检查命令参数与登录态）'
+          stderrTail ? `错误输出末尾：\n${stderrTail}` : '（没有 stderr 输出，检查命令参数与登录态）',
+          tips.length ? `可能原因：\n- ${tips.join('\n- ')}` : ''
         ].filter(Boolean).join('\n'), replyTo);
       } catch (error) {
         log(`[bridge] ${bridge.id} 执行异常：${error?.message ?? error}`);

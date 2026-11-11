@@ -41,7 +41,7 @@ if (argv.includes('--sleep')) await new Promise((r) => setTimeout(r, 30000));
 process.exit(0);
 `, 'utf8');
 
-const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp, extractFileMarks, resolveOutgoing } =
+const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp, extractFileMarks, resolveOutgoing, explainFailure, patchDisciplineWarning, countPatchFiles } =
   await import(pathToFileURL(path.join(ROOT, 'src', 'agent-bridge.js')).href);
 
 // ── 纯函数 ────────────────────────────────────────────────────────────
@@ -260,6 +260,23 @@ check('「停」提示已发送中断', sent.some((x) => /已发送中断/.test(
   check('新会话清掉 sessionId', !stAfterNew?.sessionId, JSON.stringify(stAfterNew));
   check('新会话保留模型选择', stAfterNew?.model === 'glm-5.3', JSON.stringify(stAfterNew));
   check('新会话清掉目录覆盖', !stAfterNew?.workdir, JSON.stringify(stAfterNew));
+}
+
+// ── 失败诊断 / 交接留痕检查 ──────────────────────────────────
+check('诊断：未登录', explainFailure({ stderr: 'Authentication required. Please use /login command to sign in' }).some((t) => /未登录/.test(t)));
+check('诊断：端口占用带端口号', explainFailure({ stderr: 'Error: listen EADDRINUSE: address already in use 127.0.0.1:60212' }).some((t) => /60212/.test(t)));
+check('诊断：缺运行时', explainFailure({ stderr: 'app-launch-failed\nmissing_runtime' }).some((t) => /DOTNET_ROOT/.test(t)));
+check('诊断：认不出就不猜', explainFailure({ stderr: 'some random error' }).length === 0);
+check('诊断：ENOENT', explainFailure({ spawnError: 'spawn codebuddy ENOENT' }).some((t) => /\.cmd/.test(t)));
+check('留痕：有改动无 patch 会提醒', /没有新增 patch/.test(patchDisciplineWarning({ dirty: true, newPatches: 0, patchDir: 'D:////x////.ai////patches' })));
+check('留痕：产出了 patch 不提醒', patchDisciplineWarning({ dirty: true, newPatches: 1 }) === '');
+check('留痕：没改动不提醒', patchDisciplineWarning({ dirty: false, newPatches: 0 }) === '');
+{
+  const pd = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-patches-'));
+  fs.writeFileSync(path.join(pd, 'a.patch'), 'x');
+  fs.writeFileSync(path.join(pd, 'b.txt'), 'x');
+  check('countPatchFiles 只数 .patch', countPatchFiles(pd) === 1, String(countPatchFiles(pd)));
+  check('countPatchFiles 空目录安全', countPatchFiles(path.join(pd, 'nope')) === 0);
 }
 
 // ── 发文件：标记抠取 / 路径闸 / 直发命令 ─────────────────────
