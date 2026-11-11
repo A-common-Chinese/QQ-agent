@@ -366,6 +366,19 @@ export async function probeBridge(bridge) {
 }
 
 /**
+ * 识别"额度/频率受限"。CLI 会把 429 文案当成**正常答案**返回，
+ * 不识别的话用户只会看到一句报错，不知道是模型额度而不是桥坏了。
+ */
+export function quotaHint(text, prefix = '') {
+  const t = String(text || '');
+  if (!/使用量已超出频率限制|rate.?limit|quota exceeded|429\b/i.test(t)) return '';
+  const reset = t.match(/将在\s*([^）)\n]+?)\s*重置/);
+  const modelCmd = prefix ? `「${prefix} 模型」` : '桥的模型命令';
+  return `这不是桥的故障，是模型额度/频率受限${reset ? `（${reset[1]} 重置）` : ''}：`
+    + `用 ${modelCmd} 换一个模型，或等额度恢复。`;
+}
+
+/**
  * 把 CLI 的原始报错翻译成人话建议。
  * 依据是今天真实踩过的坑（端口占用 / PATH 扩展名 / 未登录 / 缺 .NET 运行时），
  * 不猜：只在能确定特征时给建议，认不出就返回空数组。
@@ -390,6 +403,8 @@ export function explainFailure({ spawnError, stderr, stdout } = {}) {
   if (/not recognized as an internal|不是内部或外部命令|command not found/i.test(text)) {
     tips.push('命令不存在：检查 bridge.cmd 是否写错，或这个程序没装/不在 PATH');
   }
+  const quota = quotaHint(text);
+  if (quota) tips.push(quota);
   if (!tips.length && /exit 2\b/.test(String(stderr || '')) && /任务|task/i.test(text)) {
     tips.push('CLI 没收到任务正文：确认 taskVia 与 CLI 的参数约定一致（stdin 还是末尾参数）');
   }
@@ -1064,6 +1079,10 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
             });
             if (warn) notes.push(warn);
           }
+
+          // 429 被 CLI 当成正常答案返回，识别出来补一句，别让用户以为桥坏了
+          const qh = quotaHint(body, bridge.prefix);
+          if (qh) notes.push(`⚠️ ${qh}`);
 
           const text = [head + body, notes.join('\n'), tail].filter((x) => String(x || '').trim()).join('\n');
           if (text) await reply(chatKey, text, replyTo, { promptText: digest(body || answer, bridge.resultPromptChars) });

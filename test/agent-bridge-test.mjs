@@ -42,7 +42,7 @@ if (argv.includes('--sleep')) await new Promise((r) => setTimeout(r, 30000));
 process.exit(0);
 `, 'utf8');
 
-const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp, extractFileMarks, resolveOutgoing, explainFailure, patchDisciplineWarning, countPatchFiles, probeBridgeSync, portInUse } =
+const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp, extractFileMarks, resolveOutgoing, explainFailure, patchDisciplineWarning, countPatchFiles, probeBridgeSync, portInUse, quotaHint } =
   await import(pathToFileURL(path.join(ROOT, 'src', 'agent-bridge.js')).href);
 
 // ── 纯函数 ────────────────────────────────────────────────────────────
@@ -262,6 +262,10 @@ check('「停」提示已发送中断', sent.some((x) => /已发送中断/.test(
   check('新会话保留模型选择', stAfterNew?.model === 'glm-5.3', JSON.stringify(stAfterNew));
   check('新会话清掉目录覆盖', !stAfterNew?.workdir, JSON.stringify(stAfterNew));
 }
+
+check('额度受限能识别并给建议', /换一个模型/.test(quotaHint('429 您的使用量已超出频率限制，将在 2026-11-12 12:35:56 UTC+8 重置', '/wb')));
+check('额度提示带重置时间', /2026-11-12/.test(quotaHint('您的使用量已超出频率限制，将在 2026-11-12 12:35:56 UTC+8 重置')));
+check('正常回答不误报', quotaHint('我把文件改好了') === '');
 
 // ── 启动自检 ────────────────────────────────────────────────
 {
