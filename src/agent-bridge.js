@@ -94,6 +94,9 @@ export function parseAgentCommand(text, prefix = DEFAULT_PREFIX) {
   if (/^(?:对话|会话|sessions?|列表)$/i.test(rest)) return { kind: 'sessions', task: '' };
   const use = /^(?:对话|会话|use)\s+(\S{1,64})$/i.exec(rest);
   if (use) return { kind: 'use', task: use[1] };
+  // 发文件：`/wb 文件 <路径>`（路径可含空格，取冒号后全部）
+  const sendFile = /^(?:文件|file)\s+(.+)$/i.exec(rest);
+  if (sendFile) return { kind: 'file', task: sendFile[1].trim() };
   const fresh = /^(?:新|新会话|new|reset)(?:\s+([\s\S]*))?$/i.exec(rest);
   if (fresh) return { kind: 'new', task: (fresh[1] || '').trim() };
   return { kind: 'run', task: rest };
@@ -253,6 +256,9 @@ export const PRESETS = {
     port: 61250,
     // headless 下 Bash 要审批（通常被拦），模型拿不到系统时间 → 由桥注入
     injectTime: true,
+    // 发文件：答案里写 [[file: 路径]] 或发 `/wb 文件 <路径>`，桥会校验后上传
+    sendFiles: true,
+    maxFileBytes: 100 * 1024 * 1024,
     // 会话存档根目录（用于 `/wb 对话`）；~ 会展开成用户目录
     sessionsRoot: '~/.codebuddy/projects',
     // `/wb 模型` 列出来的清单（--model 可选值，见 codebuddy --help）
@@ -287,6 +293,57 @@ export function projectSlug(workdir) {
   const drive = (abs.match(/^[A-Za-z]:/) || [''])[0];
   const rest = abs.slice(drive.length).replace(/[\\/]+/g, '-');
   return `${drive ? drive[0].toLowerCase() : ''}${rest}`.replace(/^-+|-+$/g, '');
+}
+
+const FILE_MARK_RE = /\[\[\s*file\s*[:：]\s*([^\]\n]+?)\s*\]\]/gi;
+
+/**
+ * 从答案里抠出 `[[file: 路径]]` 标记。
+ * 返回清理后的正文 + 去重后的路径列表（最多取前 3 个由调用方决定）。
+ */
+export function extractFileMarks(text) {
+  const paths = [];
+  const body = String(text || '').replace(FILE_MARK_RE, (_m, raw) => {
+    const p = String(raw || '').trim().replace(/^["'`]|["'`]$/g, '');
+    if (p) paths.push(p);
+    return '';
+  });
+  return {
+    body: body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim(),
+    paths: [...new Set(paths)]
+  };
+}
+
+/**
+ * 校验要发出去的文件：必须在允许的目录内（防 ../ 穿越）、是普通文件、不超上限。
+ * 允许目录 = workdir + 额外 fileRoots（例如放 patch 的 .ai 目录）。
+ * 只做结构校验；内容隐私扫描按当前需求暂不做（白名单只有本人时风险可控）。
+ */
+export function resolveOutgoing(fileRef, { workdir, fileRoots, maxFileBytes, allowAnyFile } = {}) {
+  const raw = String(fileRef || '').trim();
+  if (!raw) return { error: '路径为空' };
+  const roots = [workdir, ...(Array.isArray(fileRoots) ? fileRoots : [])]
+    .filter(Boolean)
+    .map((r) => path.resolve(String(r)));
+  const uniq = [...new Set(roots.map((r) => r.toLowerCase()))].map((lower) => roots.find((r) => r.toLowerCase() === lower));
+  const base = uniq[0] || path.resolve(ROOT);
+  const abs = path.resolve(base, raw);
+  // allowAnyFile：今天临时放开（用户明确要求"全权限"）。仍保留 isFile 与大小校验。
+  if (allowAnyFile !== true) {
+    const inside = uniq.some((root) => abs.toLowerCase() === root.toLowerCase()
+      || abs.toLowerCase().startsWith(root.toLowerCase() + path.sep));
+    if (!inside) {
+      return { error: `不在允许的目录内（允许：${uniq.join('；') || base}）` };
+    }
+  }
+  let st;
+  try { st = fs.statSync(abs); } catch { return { error: `读不到文件：${abs}` }; }
+  if (!st.isFile()) return { error: `不是普通文件（目录/设备）：${abs}` };
+  const max = Math.max(0, Number(maxFileBytes) || 0);
+  if (max > 0 && st.size > max) {
+    return { error: `文件过大 ${(st.size / 1048576).toFixed(1)}MB，上限 ${(max / 1048576).toFixed(0)}MB` };
+  }
+  return { path: abs, size: st.size, name: path.basename(abs) };
 }
 
 /** 本地时间戳，注入任务正文用：2026-11-11 13:05（周三） */
@@ -325,6 +382,15 @@ export function normalizeBridge(raw, index) {
     port: Math.max(0, Number(b.port) || 0),
     // 可选模型清单（`/wb 模型` 列出来的就是它）；空 = 不支持选择
     models: Array.isArray(b.models) ? b.models.map(String).filter(Boolean) : [],
+    // 发文件：答案里出现 [[file: 路径]] 就把文件发到 QQ；也可用 `/wb 文件 <路径>` 直发。
+    // 默认只对 codebuddy preset 打开（其他 CLI 的输出格式没验证过）。
+    sendFiles: b.sendFiles === true || (b.sendFiles === undefined && String(b.preset || '') === 'codebuddy'),
+    maxFileBytes: Math.max(0, Number(b.maxFileBytes) || 100 * 1024 * 1024),
+    maxFilesPerReply: Math.max(1, Number(b.maxFilesPerReply) || 3),
+    // 除 workdir 之外还允许发文件的目录（例如放 patch 的 .ai 目录）
+    fileRoots: Array.isArray(b.fileRoots) ? b.fileRoots.map(String).filter(Boolean) : [],
+    // 全盘允许发文件（跳过目录校验，仍查 isFile 与大小）。临时放开用，默认关。
+    allowAnyFile: b.allowAnyFile === true,
     // 会话存档根目录（CodeBuddy: ~/.codebuddy/projects）；空 = 不支持列会话
     sessionsRoot: String(b.sessionsRoot || ''),
     newArgs: Array.isArray(b.newArgs) ? b.newArgs.map(String) : [],
@@ -597,6 +663,8 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
       `${bridge.prefix} 状态        看会话 id / 工作目录 / 是否在跑`,
       bridge.models.length ? `${bridge.prefix} 模型 [名字]  看/切换模型（只影响这条桥）` : '',
       bridge.sessionsRoot ? `${bridge.prefix} 对话 [序号|id]  看历史会话 / 切过去接着聊` : '',
+      bridge.sendFiles ? `${bridge.prefix} 文件 <路径>  直接把本机文件发到 QQ（限工作目录内）` : '',
+      bridge.sendFiles ? `发文件也可以让 agent 自己在回复里写 [[file: 相对路径]]，桥会自动上传` : '',
       `${bridge.prefix} 停          中断正在执行的任务`,
       `${bridge.prefix} 帮助        这条说明`,
       bridge.resume === 'none' ? '当前配置不保留上下文（resume=none）' : `续跑方式：${bridge.resume === 'last' ? '接着最近一次会话（--last）' : '按会话 id 续跑'}`
@@ -753,6 +821,20 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
           return;
         }
 
+        // ── 直发文件：`/wb 文件 <路径>`（不跑 agent）──────────────────
+        if (parsed.kind === 'file') {
+          if (!bridge.sendFiles) { await reply(chatKey, `${bridge.label} 桥没开发文件发送。`, replyTo); return; }
+          const picked = resolveOutgoing(parsed.task, bridge);
+          if (picked.error) { await reply(chatKey, `⛔ 没发：${picked.error}`, replyTo); return; }
+          try {
+            await sender.sendFile(chatKey, { path: picked.path }, { name: picked.name });
+            await reply(chatKey, `已发送 ${picked.name}（${(picked.size / 1048576).toFixed(1)}MB）`, replyTo);
+          } catch (e) {
+            await reply(chatKey, `❌ 发送失败：${e?.message ?? e}`, replyTo);
+          }
+          return;
+        }
+
         if (parsed.kind === 'stop') {
           const run = running.get(key);
           if (!run) { await reply(chatKey, '（当前没有在跑的任务）', replyTo); return; }
@@ -826,7 +908,31 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
           // 截断必须显式告知（项目纪律）：超时中断、事件流超上限，都要写进回发内容
           const tail = (result.killed ? `\n（已超时中断，耗时 ${cost}s，以上是中断前的输出）` : '')
             + (result.stdoutTruncated ? '\n（事件流超过 2MB 已截断，以上为读到的部分）' : '');
-          await reply(chatKey, head + answer + tail, replyTo, { promptText: digest(answer, bridge.resultPromptChars) });
+
+          // 发文件：把正文里的 [[file: 路径]] 抠出来，逐个校验后上传。
+          // 失败原因挂在正文末尾，绝不静默丢（项目纪律：任何失败都要如实告知）。
+          let body = answer;
+          const notes = [];
+          if (bridge.sendFiles) {
+            const marks = extractFileMarks(answer);
+            body = marks.body;
+            const list = marks.paths.slice(0, bridge.maxFilesPerReply);
+            if (marks.paths.length > list.length) {
+              notes.push(`（另有 ${marks.paths.length - list.length} 个文件未发：单条最多 ${bridge.maxFilesPerReply} 个）`);
+            }
+            for (const raw of list) {
+              const picked = resolveOutgoing(raw, bridge);
+              if (picked.error) { notes.push(`⚠️ 未发送「${raw}」：${picked.error}`); continue; }
+              try {
+                await sender.sendFile(chatKey, { path: picked.path }, { name: picked.name });
+              } catch (e) {
+                notes.push(`⚠️ 发送失败「${picked.name}」：${e?.message ?? e}`);
+              }
+            }
+          }
+
+          const text = [head + body, notes.join('\n'), tail].filter((x) => String(x || '').trim()).join('\n');
+          if (text) await reply(chatKey, text, replyTo, { promptText: digest(body || answer, bridge.resultPromptChars) });
           if (!result.killed) log(`[bridge] ${bridge.id} 完成，${cost}s，来源=${from}`);
           return;
         }

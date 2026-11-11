@@ -41,7 +41,7 @@ if (argv.includes('--sleep')) await new Promise((r) => setTimeout(r, 30000));
 process.exit(0);
 `, 'utf8');
 
-const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp } =
+const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp, extractFileMarks, resolveOutgoing } =
   await import(pathToFileURL(path.join(ROOT, 'src', 'agent-bridge.js')).href);
 
 // ── 纯函数 ────────────────────────────────────────────────────────────
@@ -96,8 +96,10 @@ check('续跑模板也带 -y', normalizeBridge({ id: 'w', preset: 'codebuddy' },
 check('时间戳格式', nowStamp(new Date('2026-11-11T13:05:00')) === '2026-11-11 13:05（周三）', nowStamp(new Date('2026-11-11T13:05:00')));
 
 const sent = [];
+const fileSends = [];
 const sender = {
-  sendTextBatch: async (chatKey, parts, opts) => { sent.push({ chatKey, text: parts.join(''), opts }); }
+  sendTextBatch: async (chatKey, parts, opts) => { sent.push({ chatKey, text: parts.join(''), opts }); },
+  sendFile: async (chatKey, file, opts) => { fileSends.push({ chatKey, path: file?.path, name: opts?.name }); return { name: opts?.name }; }
 };
 const logs = [];
 
@@ -258,6 +260,55 @@ check('「停」提示已发送中断', sent.some((x) => /已发送中断/.test(
   check('新会话清掉 sessionId', !stAfterNew?.sessionId, JSON.stringify(stAfterNew));
   check('新会话保留模型选择', stAfterNew?.model === 'glm-5.3', JSON.stringify(stAfterNew));
   check('新会话清掉目录覆盖', !stAfterNew?.workdir, JSON.stringify(stAfterNew));
+}
+
+// ── 发文件：标记抠取 / 路径闸 / 直发命令 ─────────────────────
+{
+  fs.writeFileSync(path.join(TMP, 'sample.txt'), 'hello-file', 'utf8');
+
+  const m = extractFileMarks('改好了 [[file: dist/a.zip]] 顺带 [[file:dist/a.zip]] 重复');
+  check('文件标记被抠出', !/\[\[file/.test(m.body), m.body);
+  check('文件标记去重', m.paths.length === 1 && m.paths[0] === 'dist/a.zip', JSON.stringify(m.paths));
+
+  check('目录内放行', !resolveOutgoing('sample.txt', { workdir: TMP, maxFileBytes: 0 }).error);
+  check('相对越界拒绝', !!resolveOutgoing('..\\..\\secret.txt', { workdir: TMP, maxFileBytes: 0 }).error);
+  check('绝对路径越界拒绝', !!resolveOutgoing('C:\\Windows\\win.ini', { workdir: TMP, maxFileBytes: 0 }).error);
+  check('超上限拒绝', !!resolveOutgoing('sample.txt', { workdir: TMP, maxFileBytes: 2 }).error);
+  check('文件命令解析', parseAgentCommand('/wb 文件 dist/a.zip', '/wb')?.kind === 'file'
+    && parseAgentCommand('/wb 文件 dist/a.zip', '/wb')?.task === 'dist/a.zip');
+
+  const fileBridges = createAgentBridges({
+    getConfig: makeCfg({ prefix: '/wb', workdir: TMP, sendFiles: true }),
+    sender, log: () => {}, emit: () => {}
+  });
+
+  sent.length = 0; fileSends.length = 0;
+  fileBridges.handle('private:1001', { text: '/wb 帮我打包 [[file: sample.txt]]', senderId: '1001', mid: 30 }, { atMe: false, kind: 'private' });
+  await fileBridges.awaitIdle();
+  check('答案里带标记会自动发文件', fileSends.length === 1 && fileSends[0].path.endsWith('sample.txt'), JSON.stringify(fileSends));
+  check('回发正文去掉标记', !/\[\[file/.test(sent.at(-1)?.text || ''), sent.at(-1)?.text);
+
+  sent.length = 0; fileSends.length = 0;
+  fileBridges.handle('private:1001', { text: '/wb 文件 ..\\..\\secret.txt', senderId: '1001', mid: 31 }, { atMe: false, kind: 'private' });
+  await fileBridges.awaitIdle();
+  check('越界直发被拒', fileSends.length === 0 && /不在允许的目录内/.test(sent.at(-1)?.text || ''), sent.at(-1)?.text);
+
+  // 额外允许目录（fileRoots）：patch 放在 workdir 之外也能发
+  // 必须建在 workdir **外面**，否则默认就在允许范围内，测不出 fileRoots 的作用
+  const extraRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-agent-extra-'));
+  fs.writeFileSync(path.join(extraRoot, 'p.patch'), 'diff --git a b', 'utf8');
+  check('额外目录默认不放行', !!resolveOutgoing(path.join(extraRoot, 'p.patch'), { workdir: TMP, maxFileBytes: 0 }).error);
+  check('配置 fileRoots 后放行', !resolveOutgoing(path.join(extraRoot, 'p.patch'), { workdir: TMP, fileRoots: [extraRoot], maxFileBytes: 0 }).error);
+
+  // allowAnyFile：全盘放行（临时开关），但仍不允许目录、仍查大小
+  check('默认拒绝全盘路径', !!resolveOutgoing(path.join(extraRoot, 'p.patch'), { workdir: TMP, maxFileBytes: 0 }).error);
+  check('allowAnyFile 放行全盘路径', !resolveOutgoing(path.join(extraRoot, 'p.patch'), { workdir: TMP, allowAnyFile: true, maxFileBytes: 0 }).error);
+  check('allowAnyFile 仍拒绝目录', !!resolveOutgoing(extraRoot, { workdir: TMP, allowAnyFile: true, maxFileBytes: 0 }).error);
+
+  sent.length = 0; fileSends.length = 0;
+  fileBridges.handle('private:1001', { text: '/wb 文件 sample.txt', senderId: '1001', mid: 32 }, { atMe: false, kind: 'private' });
+  await fileBridges.awaitIdle();
+  check('直发合法文件', fileSends.length === 1 && /已发送 sample\.txt/.test(sent.at(-1)?.text || ''), sent.at(-1)?.text);
 }
 
 // ── Windows：npm 装的 codex 是 .cmd，必须能起来 ────────────────────────
