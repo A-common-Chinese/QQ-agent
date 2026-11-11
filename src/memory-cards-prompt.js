@@ -79,7 +79,10 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
   // ③ 在场成员（最近 windowSize 条出现过的人 + 被点名的人）
   const present = new Set();
   const useWindow = cfg.presenceWindow !== false;
-  const useMention = cfg.presenceMention !== false;
+  // 默认关（2026-11-11）：文本反查名字/外号是无边界子串匹配，会把"提到产品名/同名"
+  // 的人当成在场（实测 DeepSeek/白丸 等在多个群被误判），模型随即对着不在场的人接话。
+  // 只有用户显式打开才启用；关掉后在场依据 = 实际发言者 + 真实 @ 段。
+  const useMention = cfg.presenceMention === true;
   const scan = [...(triggerEntries || []), ...(useWindow ? (pastMessages || []).slice(-windowSize) : [])];
   for (const m of scan) {
     if (!m || m.self) continue;
@@ -134,7 +137,8 @@ export function buildMemoryCardsBlock({ chatKey, triggerEntries = [], pastMessag
       const textAll2 = scan.map((m) => String(m.text || '')).join('\n');
       const presentQq = new Set([...present].map(String));
       const candidates = [];
-      for (const p of readJsonDir(PERSONS, '')) {
+      // 候选同样靠"文本里出现名字"筛，和上面的在场判定是同一个误判源 → 跟随同一个开关
+      for (const p of (useMention ? readJsonDir(PERSONS, '') : [])) {
         if (isEmptyPersonCard(p)) continue;
         const qq = String(p.qq || '');
         if (!qq || presentQq.has(qq)) continue;

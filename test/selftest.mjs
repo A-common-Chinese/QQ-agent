@@ -1505,6 +1505,31 @@ refs:
     pass('提醒时间严格校验 + 工具 id 全部符合函数名规范');
   }
 
+  // ── 场景 41：引用 id 守卫（防止模型抓到不存在/不相干的消息 id）──
+  {
+    const { buildToolDefs } = await import('../src/tools.js');
+    const send = buildToolDefs().find((t) => t.id === 'send_message');
+    assert.ok(send, 'send_message 工具必须存在');
+    const sentTexts = [];
+    const ctx = {
+      chatKey: 'group:456',
+      store: { recent: () => [{ mid: 111, text: 'a' }, { mid: -222, text: 'b' }] },
+      sender: {
+        sendTextBatch: async (k, list) => {
+          sentTexts.push(...list);
+          return { sent: list.map((x) => ({ text: x, messageId: 1 })), failed: [] };
+        }
+      },
+      session: { sent: [] },
+      emit: () => {}
+    };
+    assert.ok((await send.execute(ctx, { messages: '你好', replyToMessageId: 999 })).isError, '不存在的 replyToMessageId 必须被拒绝');
+    assert.ok((await send.execute(ctx, { messages: '你好', replyToMessageId: 'abc' })).isError, '非整数的 replyToMessageId 必须被拒绝');
+    assert.ok(!(await send.execute(ctx, { messages: '你好', replyToMessageId: -222 })).isError, '存在于最近消息里的 id 应放行');
+    assert.ok(sentTexts.length === 1, '只有放行的那次真的发送了');
+    pass('引用 id 守卫：不存在/非整数拒绝，存在的放行');
+  }
+
   // ── 收尾 ──
   await app.stop();
   onebotWs.close();

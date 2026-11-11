@@ -177,6 +177,17 @@ function registerAllTools() {
       try {
         const messages = normalizeMessageList(args.messages);
         if (!messages.length) return err('消息内容为空');
+        // 引用 id 硬校验（2026-11-11）：必须真的在本会话最近消息里。
+        // 为什么要有：提示词里纯文本历史行**不带** #id（只有未读和带图消息带），模型想引用
+        // "刚才那句"时手里没 id，就会抓一个邻近的 #（常见是带图那条），于是 QQ 里引用到了
+        // 不相干的消息 —— 用户看到的就是"@错消息"。宁可让它重查一次，也不要把错的消息发出去。
+        const rawReply = args.replyToMessageId;
+        if (rawReply !== undefined && rawReply !== null && String(rawReply).trim() !== '') {
+          const rid = String(rawReply).trim();
+          if (!/^-?[1-9]\d*$/.test(rid)) return err(`replyToMessageId 必须是消息 id（整数）：${midHint(ctx)}`);
+          const known = ctx.store.recent(ctx.chatKey, { limit: 300 }).some((m) => String(m.mid) === rid);
+          if (!known) return err(`要引用的消息 id ${rid} 不在本会话最近 300 条里。${midHint(ctx)}；查不到就不要引用，直接发正文`);
+        }
         // 人设黑名单出站过滤（mode=filter/both 时生效；只删短语）
         const filtered = messages.map((m) => applyBannedFilter(m)).filter((m) => String(m || '').trim());
         if (!filtered.length) return ok({ sent: 0, note: '内容命中了黑名单并被过滤器清空，本次没有发送。可以换个说法再说。' });

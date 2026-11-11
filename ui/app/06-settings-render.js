@@ -565,7 +565,14 @@ function renderSearchSection(c) {
       </div>
     </div>
     <div class="field"><label>整理冷却时间（毫秒）</label><input type="number" id="cfg-mem-interval" min="1800000" step="600000" value="${esc(mem.consolidateMinIntervalMs ?? 21600000)}" /></div>
-    <div class="hint">条数超过阈值且距上次整理超过该冷却时间后，才会在运行结束后后台整理。默认 6 小时（21600000 毫秒）。</div>`;
+    <div class="hint">条数超过阈值且距上次整理超过该冷却时间后，才会在运行结束后后台整理。默认 6 小时（21600000 毫秒）。</div>
+    <div class="checkbox-row" style="margin-top:12px"><input type="checkbox" id="cfg-mc-presence-mention" ${c.memoryCards?.presenceMention === true ? 'checked' : ''} />
+      <label for="cfg-mc-presence-mention">在场判定：用名字/外号从聊天文本里反查（默认关）</label></div>
+    <div class="hint">
+      关着的时候，只有<b>真的发过言</b>和<b>被 @ 过</b>的人算在场。打开后，"聊天里出现某个名字/外号"也算在场 ——
+      这是无词边界的子串匹配，实测会把产品名（如 DeepSeek）当成在场成员，让模型对着不在场的人接话、@ 错人。
+      <b>除非确实需要，别打开。</b>
+    </div>`;
 }
 
   // ═══ 记忆 V2：群聊 / 个人 / 基本事实 ═══

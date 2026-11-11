@@ -1267,6 +1267,11 @@ async function saveConfig({ quiet = false } = {}) {
       model: val('#cfg-mem-model', c.memory?.model || '').trim(),
       consolidateMinIntervalMs: Number(val('#cfg-mem-interval', c.memory?.consolidateMinIntervalMs ?? 21600000)) || 21600000
     };
+    // 在场判定里的"名字/外号文本反查"：默认关，只有勾了才开（误判实测见 config.js 注释）
+    patch.memoryCards = {
+      ...(c.memoryCards || {}),
+      presenceMention: chk('#cfg-mc-presence-mention', c.memoryCards?.presenceMention === true)
+    };
   }
 
   if (sec === 'api') {

@@ -60,7 +60,11 @@ export const DEFAULT_CONFIG = {
     maxPersonCount: 6,      // 最多带几个在场成员
     presentWindow: 20,      // "在场"判定：最近多少条消息里出现过
     presenceWindow: true,   // 在场判定：用"最近 N 条出现过的人"
-    presenceMention: true,  // 在场判定：用"被点名的人"
+    // 在场判定：把"名字/外号出现在聊天文本里"的人也算在场。
+    // ⚠️ 默认关（2026-11-11）：这是**无词边界的子串匹配**，实测把产品名当成在场成员
+    //    （5 个群里 "DeepSeek" 都被误判），模型会对着并不在场的人接话/@。
+    //    真正可靠的在场依据是「实际发过言」+「QQ 的 @ 段」，不需要靠猜名字。
+    presenceMention: false,
     flashbackCount: 2,      // 随机闪回几张话题卡（0=关）
     autoCreatePersons: true,   // 群友第一次出现就建空卡（不调模型，空卡进隐藏区）
     modelQuery: false,         // 允许模型用工具检索记忆卡（默认关）
