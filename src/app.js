@@ -1829,6 +1829,48 @@ export function createApp({ log = console.log } = {}) {
     });
   }
 
+  /**
+   * Agent 桥启动自检：可执行文件 / 工作目录 / 会话与 patch 目录 / 端口。
+   * 结果写 data/bridge-health.json（供 /wb 状态与排查用）；
+   * 有问题时给白名单用户发一条 QQ 提示，2 小时内不重复（避免反复重启刷屏）。
+   */
+  async function runBridgeSelfCheck() {
+    const file = path.join(DATA_DIR, 'bridge-health.json');
+    let prev = {};
+    try { prev = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* 首次运行没有文件 */ }
+    const results = await agentBridges.probeAll();
+    const bad = results.filter((r) => !r.ok);
+    try {
+      fs.writeFileSync(file, JSON.stringify({ checkedAt: Date.now(), alertedAt: Number(prev.alertedAt || 0), results }, null, 2));
+    } catch (error) {
+      log('[bridge][自检] 写结果失败：' + (error?.message ?? error));
+    }
+    for (const r of results) {
+      const fail = r.checks.filter((c) => !c.ok);
+      log(`[bridge][自检] ${r.label}：${fail.length ? fail.map((c) => `${c.name}✗ ${c.detail}`).join('；') : '正常'}`);
+    }
+    if (!bad.length) return;
+    // 2 小时节流：开发期反复重启时不要每次都发
+    if (Date.now() - Number(prev.alertedAt || 0) < 2 * 3600 * 1000) return;
+
+    const lines = ['🔧 Agent 桥自检发现问题：'];
+    for (const r of bad) {
+      lines.push(`【${r.label}】`);
+      for (const c of r.checks.filter((x) => !x.ok)) lines.push(`- ${c.name}：${c.detail}`);
+    }
+    lines.push('发「/wb 状态」可随时复查；改完配置重启生效。');
+    const text = lines.join('\n');
+    for (const b of (getConfig()?.agentBridges || [])) {
+      if (!b?.enabled) continue;
+      for (const uid of (b.allowedSenderIds || [])) {
+        try { await sender.sendTextBatch(`private:${uid}`, [text]); } catch { /* 发不出去就只留日志 */ }
+      }
+    }
+    try {
+      fs.writeFileSync(file, JSON.stringify({ checkedAt: Date.now(), alertedAt: Date.now(), results }, null, 2));
+    } catch { /* ignore */ }
+  }
+
   async function start() {
     // ── 启动顺序（2026-09-18 按耗时画像重排）────────────────────────────
     // 旧顺序的瓶颈：HTTP → 遥测 → Skill加载(串行import) → SnowLuma启动(最长20s等端口)
@@ -1850,6 +1892,9 @@ export function createApp({ log = console.log } = {}) {
       }
     }
     if (port == null) throw lastError ?? new Error('无法监听端口');
+
+    // Agent 桥启动自检：延后 8 秒（等 OneBot 连上，提示才发得出去），不挡启动
+    setTimeout(() => { runBridgeSelfCheck().catch((error) => log('[bridge][自检] 异常：' + (error?.message ?? error))); }, 8000);
 
     // 匿名用量遥测：启动 90 秒后发第一次，之后每 6 小时一次；失败静默不影响使用
     startTelemetryLoop(log);

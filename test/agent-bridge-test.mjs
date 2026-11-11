@@ -6,6 +6,7 @@
 //   .cmd 外壳），所以这些用例能证明接线是通的；等真装 codex 再补一条真机用例即可。
 import fs from 'node:fs';
 import os from 'node:os';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -41,7 +42,7 @@ if (argv.includes('--sleep')) await new Promise((r) => setTimeout(r, 30000));
 process.exit(0);
 `, 'utf8');
 
-const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp, extractFileMarks, resolveOutgoing, explainFailure, patchDisciplineWarning, countPatchFiles } =
+const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp, extractFileMarks, resolveOutgoing, explainFailure, patchDisciplineWarning, countPatchFiles, probeBridgeSync, portInUse } =
   await import(pathToFileURL(path.join(ROOT, 'src', 'agent-bridge.js')).href);
 
 // ── 纯函数 ────────────────────────────────────────────────────────────
@@ -260,6 +261,29 @@ check('「停」提示已发送中断', sent.some((x) => /已发送中断/.test(
   check('新会话清掉 sessionId', !stAfterNew?.sessionId, JSON.stringify(stAfterNew));
   check('新会话保留模型选择', stAfterNew?.model === 'glm-5.3', JSON.stringify(stAfterNew));
   check('新会话清掉目录覆盖', !stAfterNew?.workdir, JSON.stringify(stAfterNew));
+}
+
+// ── 启动自检 ────────────────────────────────────────────────
+{
+  const okBridge = normalizeBridge({ id: 'h', cmd: process.execPath, workdir: TMP });
+  check('自检：可执行文件通过', probeBridgeSync(okBridge).find((c) => c.name === '可执行文件').ok);
+  check('自检：工作目录通过', probeBridgeSync(okBridge).find((c) => c.name === '工作目录').ok);
+  const badExe = normalizeBridge({ id: 'h', cmd: 'definitely-not-a-cmd-xyz', workdir: TMP });
+  check('自检：缺可执行文件报错', !probeBridgeSync(badExe).find((c) => c.name === '可执行文件').ok);
+  const badDir = normalizeBridge({ id: 'h', cmd: process.execPath, workdir: path.join(TMP, 'nope-dir') });
+  check('自检：目录缺失报错', !probeBridgeSync(badDir).find((c) => c.name === '工作目录').ok);
+  const pd = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-health-'));
+  const withPatch = normalizeBridge({ id: 'h', cmd: process.execPath, workdir: TMP, patchDir: path.join(pd, 'missing') });
+  check('自检：patch 目录缺失报错', !probeBridgeSync(withPatch).find((c) => c.name === 'patch 目录').ok);
+  const withPatchOk = normalizeBridge({ id: 'h', cmd: process.execPath, workdir: TMP, patchDir: pd });
+  check('自检：patch 目录存在通过', probeBridgeSync(withPatchOk).find((c) => c.name === 'patch 目录').ok);
+
+  const srv = net.createServer();
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const busyPort = srv.address().port;
+  check('端口探测：占用中能识别', (await portInUse(busyPort)) === true);
+  await new Promise((r) => srv.close(r));
+  check('端口探测：0 视为不检查', (await portInUse(0)) === false);
 }
 
 // ── 失败诊断 / 交接留痕检查 ──────────────────────────────────

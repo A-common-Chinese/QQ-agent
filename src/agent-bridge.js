@@ -19,6 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
 import { getPrivacyFilter, privacyBlockedReply } from './privacy.js';
 import { DATA_DIR, ROOT } from './config.js';
@@ -310,6 +311,58 @@ export function isGitDirty(dir) {
     const out = execFileSync('git', ['-C', String(dir), 'status', '--porcelain'], { encoding: 'utf8', timeout: 5000 });
     return out.trim().length > 0;
   } catch { return false; }
+}
+
+/** 同步部分的自检：可执行文件 / 工作目录 / 会话目录 / patch 目录 */
+export function probeBridgeSync(bridge) {
+  const checks = [];
+  const res = resolveExec(bridge.cmd);
+  checks.push({
+    name: '可执行文件',
+    ok: !!res,
+    detail: res ? res.file : `找不到 ${bridge.cmd || '(未配置)'}（检查 PATH，或改填绝对路径）`
+  });
+  const wd = String(bridge.workdir || '');
+  checks.push({ name: '工作目录', ok: !wd || fs.existsSync(wd), detail: wd || '(未配置，用默认目录)' });
+  if (bridge.sessionsRoot) {
+    const root = path.normalize(String(bridge.sessionsRoot).replace(/^~(?=$|[\\/])/, os.homedir()));
+    checks.push({ name: '会话目录', ok: fs.existsSync(root), detail: root });
+  }
+  if (bridge.patchDir) {
+    checks.push({ name: 'patch 目录', ok: fs.existsSync(bridge.patchDir), detail: bridge.patchDir });
+  }
+  if (bridge.cmd === 'codebuddy' || bridge.preset === 'codebuddy') {
+    // 登录态没法同步探（要跑 CLI），只能提示"未验证"，真失败时靠 explainFailure 说清楚
+    checks.push({ name: '登录态', ok: true, detail: '未主动探测（首次调用失败时会给出具体原因）' });
+  }
+  return checks;
+}
+
+/** 端口是否被占（600ms 超时；连上=有人在听） */
+export function portInUse(port, timeoutMs = 600) {
+  return new Promise((resolve) => {
+    const n = Number(port) || 0;
+    if (!n) return resolve(false);
+    const sock = net.connect({ host: '127.0.0.1', port: n });
+    const done = (busy) => { try { sock.destroy(); } catch { /* ignore */ } resolve(busy); };
+    sock.setTimeout(timeoutMs, () => done(false));
+    sock.once('connect', () => done(true));
+    sock.once('error', () => done(false));
+  });
+}
+
+/** 完整自检（含端口），给启动自检用 */
+export async function probeBridge(bridge) {
+  const checks = probeBridgeSync(bridge);
+  if (bridge.port) {
+    const busy = await portInUse(bridge.port);
+    checks.push({
+      name: '端口',
+      ok: !busy,
+      detail: busy ? `${bridge.port} 已被占用（多半是桌面版在跑），把 port 改成别的值` : `${bridge.port} 可用`
+    });
+  }
+  return { id: bridge.id, label: bridge.label, ok: checks.every((c) => c.ok), checks };
 }
 
 /**
@@ -742,7 +795,13 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
       `会话：${rec?.sessionId || '(还没建)'}`,
       `模型：${rec?.model || '(默认)'}`,
       `超时：${Math.round(bridge.timeoutMs / 1000)}s`,
-      `上次：${rec?.updatedAt ? new Date(rec.updatedAt).toLocaleString() : '(无)'}`
+      `上次：${rec?.updatedAt ? new Date(rec.updatedAt).toLocaleString() : '(无)'}`,
+      (() => {
+        const bad = probeBridgeSync(bridge).filter((c) => !c.ok);
+        return bad.length
+          ? `自检：${bad.map((c) => `${c.name}✗（${c.detail}）`).join('；')}`
+          : '自检：可执行文件/目录都正常';
+      })()
     ].join('\n');
   }
 
@@ -1046,5 +1105,14 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
     running.clear();
   }
 
-  return { handle, abortAll, awaitIdle, parseAgentCommand };
+  /** 自检所有启用的桥（启动时调用；也可由外部按需调） */
+  async function probeAll() {
+    const out = [];
+    for (const b of readBridges()) {
+      try { out.push(await probeBridge(b)); } catch (e) { out.push({ id: b.id, label: b.label, ok: false, checks: [{ name: '自检', ok: false, detail: String(e?.message ?? e) }] }); }
+    }
+    return out;
+  }
+
+  return { handle, abortAll, awaitIdle, parseAgentCommand, probeAll };
 }
