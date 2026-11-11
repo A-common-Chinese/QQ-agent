@@ -41,7 +41,7 @@ if (argv.includes('--sleep')) await new Promise((r) => setTimeout(r, 30000));
 process.exit(0);
 `, 'utf8');
 
-const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge } =
+const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp } =
   await import(pathToFileURL(path.join(ROOT, 'src', 'agent-bridge.js')).href);
 
 // ── 纯函数 ────────────────────────────────────────────────────────────
@@ -54,10 +54,17 @@ check('新会话带任务', parseAgentCommand('/codex 新 重来', '/codex')?.ta
 check('前面带 @', parseAgentCommand('@机器人 /codex 干活', '/codex')?.task === '干活');
 check('前缀必须成词', parseAgentCommand('/codexx 干活', '/codex') === null);
 check('大小写不敏感', parseAgentCommand('/CODEX 干活', '/codex')?.task === '干活');
+// 模型 / 对话（WorkBuddy 专用命令，2026-11-11 加）
+check('模型列表', parseAgentCommand('/wb 模型', '/wb')?.kind === 'model');
+check('切模型', parseAgentCommand('/wb 模型 glm-5.3', '/wb')?.task === 'glm-5.3');
+check('对话列表', parseAgentCommand('/wb 对话', '/wb')?.kind === 'sessions');
+check('按序号切会话', parseAgentCommand('/wb 对话 2', '/wb')?.kind === 'use' && parseAgentCommand('/wb 对话 2', '/wb')?.task === '2');
+check('按 id 切会话', parseAgentCommand('/wb 对话 01a1c8ea-c337', '/wb')?.task === '01a1c8ea-c337');
 
 console.log('\n[args]');
 check('占位符替换', JSON.stringify(buildArgs(['exec', '-o', '{out}', '{task}'], { out: 'X', task: 'Y' })) === JSON.stringify(['exec', '-o', 'X', 'Y']));
 check('缺省占位符不炸', JSON.stringify(buildArgs(['{session}'], {})) === JSON.stringify(['']));
+check('端口占位符', JSON.stringify(buildArgs(['--port', '{port}'], { port: 61250 })) === JSON.stringify(['--port', '61250']));
 
 console.log('\n[解析]');
 check('抓 thread_id', extractSessionId('{"type":"thread.started","thread_id":"abc-123-def"}') === 'abc-123-def');
@@ -65,6 +72,15 @@ check('抓 session_id', extractSessionId('{"session_id":"xyz-987"}') === 'xyz-98
 check('无关行返回空', extractSessionId('{"type":"other"}') === '');
 check('JSONL 取最后一条消息', extractJsonlAnswer('{"type":"item.completed","item":{"type":"agent_message","text":"一"}}\n{"type":"item.completed","item":{"type":"agent_message","text":"二"}}') === '二');
 check('跳过工具事件', extractJsonlAnswer('{"type":"tool_call","text":"不该是答案"}\n{"type":"item.completed","item":{"text":"答案"}}') === '答案');
+// codebuddy --output-format stream-json 的真实形状（2026-11-11 实测）：
+// assistant 行带 message.content[]，最后一行是 {type:'result', result:'...'}
+const cbStream = [
+  '{"type":"assistant","session_id":"01a1c8e5-777b-762e-9735-842e3262772f","message":{"content":[{"type":"thinking","thinking":"思考"}]}}',
+  '{"type":"assistant","session_id":"01a1c8e5-777b-762e-9735-842e3262772f","message":{"content":[{"type":"text","text":"收到"}]}}',
+  '{"type":"result","subtype":"success","result":"收到","session_id":"01a1c8e5-777b-762e-9735-842e3262772f"}'
+].join('\n');
+check('codebuddy 流取答案', extractJsonlAnswer(cbStream) === '收到');
+check('codebuddy 流取会话 id', extractSessionId(cbStream.split('\n')[0]) === '01a1c8e5-777b-762e-9735-842e3262772f');
 
 // ── 端到端 ────────────────────────────────────────────────────────────
 // preset 兜底：数组是整条替换的，手改配置只写几个字段时参数模板不能丢
@@ -74,6 +90,10 @@ check('preset 补齐参数模板', Array.isArray(fromPreset.newArgs) && fromPres
 check('preset 补齐续跑模板', fromPreset.resumeArgs.some((x) => x === '{session}'));
 check('用户字段优先于 preset', fromPreset.allowedSenderIds[0] === '1001' && fromPreset.enabled === true);
 check('无 preset 时保持空白', normalizeBridge({ id: 'x', enabled: true }, 1).newArgs.length === 0);
+check('preset 带时间注入开关', normalizeBridge({ id: 'w', preset: 'codebuddy' }, 0).injectTime === true);
+check('preset 带 -y（否则 headless 下 Bash 被拒）', normalizeBridge({ id: 'w', preset: 'codebuddy' }, 0).newArgs.includes('-y'));
+check('续跑模板也带 -y', normalizeBridge({ id: 'w', preset: 'codebuddy' }, 0).resumeArgs.includes('-y'));
+check('时间戳格式', nowStamp(new Date('2026-11-11T13:05:00')) === '2026-11-11 13:05（周三）', nowStamp(new Date('2026-11-11T13:05:00')));
 
 const sent = [];
 const sender = {
@@ -161,6 +181,84 @@ const stopAck = slowBridges.handle('private:1001', { text: '/codex 停', senderI
 await slowBridges.awaitIdle();
 check('「停」认领', stopAck === true);
 check('「停」提示已发送中断', sent.some((x) => /已发送中断/.test(x.text)), JSON.stringify(sent.map((x) => x.text)));
+
+// ── 模型 / 对话（WorkBuddy 专用）──────────────────────────────────────
+{
+  const projRoot = path.join(TMP, 'sessions');
+  const slug = projectSlug(TMP);
+  const projDir = path.join(projRoot, slug);
+  fs.mkdirSync(projDir, { recursive: true });
+  const mkSession = (id, text, ageMs, { project = slug, cwd = '' } = {}) => {
+    const dir = path.join(projRoot, project);
+    fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, `${id}.jsonl`);
+    fs.writeFileSync(f, JSON.stringify({ type: 'message', role: 'user', content: [{ type: 'input_text', text }], sessionId: id, cwd }) + '\n', 'utf8');
+    const t = new Date(Date.now() - ageMs);
+    fs.utimesSync(f, t, t);
+  };
+  // 两个在"桥自己的工作目录"里（测试题），一个在别的项目里（模拟用户真正在用的会话）
+  mkSession('aaaaaaaa-1111-2222-3333-444444444444', '第一句测试', 60_000, { cwd: TMP });
+  mkSession('bbbbbbbb-1111-2222-3333-444444444444', '第二句测试', 1_000, { cwd: TMP });
+  mkSession('cccccccc-1111-2222-3333-444444444444', 'WtHud 的会话', 0, { project: 'c-Users-noapi-WtHud', cwd: 'C:\\Users\\noapi\\WtHud' });
+
+  const uiBridges = createAgentBridges({
+    getConfig: makeCfg({ prefix: '/wb', resume: 'none', sessionsRoot: projRoot, workdir: TMP, models: ['hy4-free', 'glm-5.3'] }),
+    sender, log: () => {}, emit: () => {}
+  });
+
+  sent.length = 0;
+  uiBridges.handle('private:1001', { text: '/wb 对话', senderId: '1001', mid: 20 }, { atMe: false, kind: 'private' });
+  await uiBridges.awaitIdle();
+  const listText = sent.at(-1)?.text || '';
+  check('对话列表：三条都在（跨项目）', /第一句测试/.test(listText) && /第二句测试/.test(listText) && /WtHud 的会话/.test(listText), listText.slice(0, 200));
+  check('对话列表：最近的在前面', listText.indexOf('WtHud 的会话') < listText.indexOf('第二句测试'));
+  check('对话列表：标注所属目录', /\[WtHud\]/.test(listText), listText.slice(0, 200));
+
+  sent.length = 0;
+  uiBridges.handle('private:1001', { text: '/wb 对话 3', senderId: '1001', mid: 21 }, { atMe: false, kind: 'private' });
+  await uiBridges.awaitIdle();
+  check('按序号切到较早那个', /已切到会话/.test(sent.at(-1)?.text || ''), sent.at(-1)?.text);
+  check('会话 id 已落盘', JSON.parse(fs.readFileSync(path.join(process.env.QQ_AGENT_DATA_DIR, 'agent-bridges.json'), 'utf8')).codex?.['private:1001']?.sessionId === 'aaaaaaaa-1111-2222-3333-444444444444');
+
+  // 关键词筛：先给候选，不直接切
+  sent.length = 0;
+  uiBridges.handle('private:1001', { text: '/wb 对话 WtHud', senderId: '1001', mid: 25 }, { atMe: false, kind: 'private' });
+  await uiBridges.awaitIdle();
+  check('关键词能筛出目标', /匹配「WtHud」/.test(sent.at(-1)?.text || '') && /WtHud 的会话/.test(sent.at(-1)?.text || ''), sent.at(-1)?.text);
+
+  // 切到别的项目的会话：工作目录要跟着切
+  sent.length = 0;
+  uiBridges.handle('private:1001', { text: '/wb 对话 cccccccc', senderId: '1001', mid: 26 }, { atMe: false, kind: 'private' });
+  await uiBridges.awaitIdle();
+  const st2 = JSON.parse(fs.readFileSync(path.join(process.env.QQ_AGENT_DATA_DIR, 'agent-bridges.json'), 'utf8')).codex?.['private:1001'];
+  check('跨项目切换：会话已落盘', st2?.sessionId === 'cccccccc-1111-2222-3333-444444444444', JSON.stringify(st2));
+  check('跨项目切换：工作目录跟着切', st2?.workdir === 'C:\\Users\\noapi\\WtHud', JSON.stringify(st2));
+
+  sent.length = 0;
+  uiBridges.handle('private:1001', { text: '/wb 模型', senderId: '1001', mid: 22 }, { atMe: false, kind: 'private' });
+  await uiBridges.awaitIdle();
+  check('模型清单列出', /hy4-free/.test(sent.at(-1)?.text || '') && /glm-5\.3/.test(sent.at(-1)?.text || ''));
+
+  sent.length = 0;
+  uiBridges.handle('private:1001', { text: '/wb 模型 2', senderId: '1001', mid: 23 }, { atMe: false, kind: 'private' });
+  await uiBridges.awaitIdle();
+  check('按序号切模型', /已切到 glm-5\.3/.test(sent.at(-1)?.text || ''), sent.at(-1)?.text);
+  check('模型已落盘', JSON.parse(fs.readFileSync(path.join(process.env.QQ_AGENT_DATA_DIR, 'agent-bridges.json'), 'utf8')).codex?.['private:1001']?.model === 'glm-5.3');
+
+  sent.length = 0;
+  uiBridges.handle('private:1001', { text: '/wb 模型 不存在的', senderId: '1001', mid: 24 }, { atMe: false, kind: 'private' });
+  await uiBridges.awaitIdle();
+  check('不存在的模型被拒', /没有这个模型/.test(sent.at(-1)?.text || ''));
+
+  // 「新会话」只清会话与目录，模型选择要留着（否则每次开新会话都得重选模型）
+  sent.length = 0;
+  uiBridges.handle('private:1001', { text: '/wb 新', senderId: '1001', mid: 27 }, { atMe: false, kind: 'private' });
+  await uiBridges.awaitIdle();
+  const stAfterNew = JSON.parse(fs.readFileSync(path.join(process.env.QQ_AGENT_DATA_DIR, 'agent-bridges.json'), 'utf8')).codex?.['private:1001'];
+  check('新会话清掉 sessionId', !stAfterNew?.sessionId, JSON.stringify(stAfterNew));
+  check('新会话保留模型选择', stAfterNew?.model === 'glm-5.3', JSON.stringify(stAfterNew));
+  check('新会话清掉目录覆盖', !stAfterNew?.workdir, JSON.stringify(stAfterNew));
+}
 
 // ── Windows：npm 装的 codex 是 .cmd，必须能起来 ────────────────────────
 if (process.platform === 'win32') {

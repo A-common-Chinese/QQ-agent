@@ -2422,7 +2422,7 @@ return `
         <div class="hint">就是那条「⏳ 已交给…，执行中」。群聊里发会显得吵，建议只在私聊发，或者干脆不发。</div>
       </div>
       <div class="field"><label>可执行命令（只读，改参数请编辑 config.agentBridges）</label>
-        <div class="hint" style="word-break:break-all"><code>${esc(ab0.cmd || '(未配置)')}</code>
+        <div class="hint" style="word-break:break-all"><code>${esc(ab0.cmd || (ab0.preset ? `（由 preset「${ab0.preset}」提供）` : '(未配置)'))}</code>
         ${esc((ab0.newArgs || []).join(' '))}</div>
       </div>
       <div class="hint">

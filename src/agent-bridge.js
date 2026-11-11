@@ -86,6 +86,14 @@ export function parseAgentCommand(text, prefix = DEFAULT_PREFIX) {
   if (/^(帮助|help|命令|用法)$/i.test(rest)) return { kind: 'help', task: '' };
   if (/^(状态|status)$/i.test(rest)) return { kind: 'status', task: '' };
   if (/^(停|停止|取消|stop|abort|cancel)$/i.test(rest)) return { kind: 'stop', task: '' };
+  // 模型：`/wb 模型` 列表、`/wb 模型 <id>` 切换（只影响这条桥，不动 CLI 全局配置）
+  if (/^(?:模型|model)$/i.test(rest)) return { kind: 'model', task: '' };
+  const setModel = /^(?:模型|model)\s+(\S{1,40})$/i.exec(rest);
+  if (setModel) return { kind: 'setmodel', task: setModel[1] };
+  // 对话：`/wb 对话` 列出最近会话、`/wb 对话 <序号|id>` 切过去
+  if (/^(?:对话|会话|sessions?|列表)$/i.test(rest)) return { kind: 'sessions', task: '' };
+  const use = /^(?:对话|会话|use)\s+(\S{1,64})$/i.exec(rest);
+  if (use) return { kind: 'use', task: use[1] };
   const fresh = /^(?:新|新会话|new|reset)(?:\s+([\s\S]*))?$/i.exec(rest);
   if (fresh) return { kind: 'new', task: (fresh[1] || '').trim() };
   return { kind: 'run', task: rest };
@@ -105,7 +113,8 @@ export function buildArgs(template, vars = {}) {
     .replace(/\{task\}/g, String(vars.task ?? ''))
     .replace(/\{out\}/g, String(vars.out ?? ''))
     .replace(/\{session\}/g, String(vars.session ?? ''))
-    .replace(/\{cwd\}/g, String(vars.cwd ?? '')));
+    .replace(/\{cwd\}/g, String(vars.cwd ?? ''))
+    .replace(/\{port\}/g, String(vars.port ?? '')));
 }
 
 /** 从一行 JSONL 里抠会话 id（codex 的 thread.started 事件带 thread_id） */
@@ -123,7 +132,8 @@ function textOf(node, depth = 0) {
     return parts.join('');
   }
   if (typeof node !== 'object') return '';
-  for (const key of ['text', 'content', 'message', 'last_agent_message', 'answer', 'output']) {
+  // 'result' 是 codebuddy/部分 CLI 的最终答案字段（stream-json 的最后一行）
+  for (const key of ['text', 'content', 'message', 'last_agent_message', 'answer', 'output', 'result']) {
     const v = node[key];
     if (typeof v === 'string' && v.trim()) return v;
     if (v && typeof v === 'object') {
@@ -171,9 +181,14 @@ function resolveExec(cmd) {
     return null;
   }
   const exts = String(process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean);
-  const names = [raw];
+  // ⚠️ 顺序很重要：先按 PATHEXT 找 .exe/.cmd/.bat，最后才找**无扩展名**的文件。
+  // npm 全局同时放了两个 shim：`codebuddy`（Unix 的 #!/usr/bin/env node 脚本）和
+  // `codebuddy.cmd`（Windows 批处理）。先命中无扩展名那个的话，spawn 会报 ENOENT
+  // （Windows 不会把无扩展名文件当可执行），实测踩过（2026-11-11）。
+  const names = [];
   for (const e of exts) names.push(raw + e.toLowerCase());
   for (const e of exts) names.push(raw + e.toUpperCase());
+  names.push(raw);
   const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
   for (const dir of dirs) {
     for (const name of names) {
@@ -223,8 +238,63 @@ export const PRESETS = {
     newArgs: ['exec', '--json', '--skip-git-repo-check', '-o', '{out}', '-'],
     resumeArgs: ['exec', 'resume', '{session}', '--json', '--skip-git-repo-check', '-o', '{out}', '-'],
     outputMode: 'last-message'
+  },
+  // WorkBuddy 自带/独立版的 CodeBuddy CLI（npm i -g @tencent-ai/codebuddy-code）
+  // 实测要点（2026-11-11）：
+  //   · 必须显式 --port：不带会和 WorkBuddy 桌面抢端口（EADDRINUSE 127.0.0.1:60212）
+  //   · 任务走 stdin：-p 不带 prompt 时读标准输入，避免 .cmd 外壳把 & | < > 当命令解析
+  //   · 输出用 stream-json：逐行 JSON，含 session_id，末行 {type:'result', result:'...'}
+  codebuddy: {
+    label: 'WorkBuddy',
+    prefix: '/wb',
+    cmd: 'codebuddy',
+    taskVia: 'stdin',
+    resume: 'id',
+    port: 61250,
+    // headless 下 Bash 要审批（通常被拦），模型拿不到系统时间 → 由桥注入
+    injectTime: true,
+    // 会话存档根目录（用于 `/wb 对话`）；~ 会展开成用户目录
+    sessionsRoot: '~/.codebuddy/projects',
+    // `/wb 模型` 列出来的清单（--model 可选值，见 codebuddy --help）
+    models: [
+      'hy4-free', 'hy4-preview', 'hy3', 'hy3-x',
+      'deepseek-v4.1-flash', 'deepseek-v4-pro',
+      'glm-5.3', 'glm-5.3-flash', 'glm-5.2',
+      'kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed', 'kimi-k3-2',
+      'minimax-m3.1-flash', 'step-5-preview', 'mimo-v2.6-pro'
+    ],
+    // ⚠️ 只给 -y，**不要同时给 --permission-mode acceptEdits**：实测（2026-11-11）
+    //    -y 会把模式设成 bypassPermissions，而 --permission-mode acceptEdits 会把它按回去，
+    //    结果 Bash 仍要审批、在 headless 下被直接拒。三种组合实测结论：
+    //      -y                          → Bash 可跑（echo hi 成功）
+    //      -y --tools "Read,Edit,Bash" → Bash 可跑
+    //      -y --permission-mode acceptEdits → Bash 被拒（就是这个坑）
+    // 风险边界：工具仍限 Read,Edit,Bash，目录仍锁 workdir；HIGH/CRITICAL 风险操作仍会被拦。
+    newArgs: ['-p', '--output-format', 'stream-json', '--port', '{port}', '-y',
+      '--tools', 'Read,Edit,Bash'],
+    resumeArgs: ['-p', '--output-format', 'stream-json', '--port', '{port}', '--resume', '{session}', '-y',
+      '--tools', 'Read,Edit,Bash'],
+    outputMode: 'jsonl'
   }
 };
+
+/**
+ * CLI 把会话按"工作目录"分目录存：C:\Users\noapi → c-Users-noapi。
+ * 规则（实测自 ~/.codebuddy/projects）：盘符转小写，其余部分的分隔符换成 -。
+ */
+export function projectSlug(workdir) {
+  const abs = path.resolve(String(workdir || ROOT));
+  const drive = (abs.match(/^[A-Za-z]:/) || [''])[0];
+  const rest = abs.slice(drive.length).replace(/[\\/]+/g, '-');
+  return `${drive ? drive[0].toLowerCase() : ''}${rest}`.replace(/^-+|-+$/g, '');
+}
+
+/** 本地时间戳，注入任务正文用：2026-11-11 13:05（周三） */
+export function nowStamp(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}（周${week}）`;
+}
 
 /** 把适配器配置补齐默认值（配置里只写关心的字段即可） */
 export function normalizeBridge(raw, index) {
@@ -248,6 +318,15 @@ export function normalizeBridge(raw, index) {
     sessionMode,
     resume,
     taskVia: b.taskVia === 'arg' ? 'arg' : 'stdin',
+    // 给任务正文前面加一行【当前时间】：headless 下 Bash 往往要审批（无人应答=被拦），
+    // 模型拿不到系统时间，留痕/日志只能写 HH:MM 占位。由桥注入最省事。
+    injectTime: b.injectTime === true,
+    // 有些 CLI（CodeBuddy）必须显式指定 HTTP 端口，不带会和桌面版抢默认端口
+    port: Math.max(0, Number(b.port) || 0),
+    // 可选模型清单（`/wb 模型` 列出来的就是它）；空 = 不支持选择
+    models: Array.isArray(b.models) ? b.models.map(String).filter(Boolean) : [],
+    // 会话存档根目录（CodeBuddy: ~/.codebuddy/projects）；空 = 不支持列会话
+    sessionsRoot: String(b.sessionsRoot || ''),
     newArgs: Array.isArray(b.newArgs) ? b.newArgs.map(String) : [],
     resumeArgs: Array.isArray(b.resumeArgs) ? b.resumeArgs.map(String) : [],
     outputMode: ['last-message', 'jsonl', 'text'].includes(b.outputMode) ? b.outputMode : 'last-message',
@@ -307,23 +386,89 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
     return all?.[bridge.id]?.[skey] || null;
   }
 
-  function writeSession(bridge, skey, sessionId) {
-    if (!skey || !sessionId) return;
+  function writeSession(bridge, skey, patch) {
+    if (!skey) return;
     const all = loadState();
     if (!all[bridge.id]) all[bridge.id] = {};
-    all[bridge.id][skey] = { sessionId, updatedAt: Date.now() };
+    const prev = all[bridge.id][skey] || {};
+    const next = typeof patch === 'string' ? { sessionId: patch } : (patch || {});
+    all[bridge.id][skey] = { ...prev, ...next, updatedAt: Date.now() };
     saveState(all);
   }
 
+  /**
+   * 列出**所有项目**下的历史会话（按最近活动倒序）。
+   *
+   * ⚠️ 只扫桥自己的工作目录是不够的（2026-11-11 被指出）：用户真正在用的会话
+   *    （QQ Agent 那几个、WtHud 等）在别的项目目录里，按时间排序就会被本目录的
+   *    测试会话挤出去。所以这里跨项目扫，并带上每条会话自己的 cwd —— 切过去时
+   *    要连工作目录一起切，否则 --resume 会在错误的目录里续跑。
+   */
+  function listSessions(bridge, limit = 12) {
+    const root = String(bridge.sessionsRoot || '').replace(/^~(?=$|[\\/])/, os.homedir());
+    if (!root) return [];
+    let projects = [];
+    try {
+      projects = fs.readdirSync(root).filter((n) => {
+        try { return fs.statSync(path.join(root, n)).isDirectory(); } catch { return false; }
+      });
+    } catch { return []; }
+
+    // 先只 stat（便宜），排完序再读标题，避免把全库文件都读一遍
+    const files = [];
+    for (const proj of projects) {
+      const dir = path.join(root, proj);
+      let names = [];
+      try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.jsonl')); } catch { continue; }
+      for (const name of names) {
+        const full = path.join(dir, name);
+        let st; try { st = fs.statSync(full); } catch { continue; }
+        files.push({ id: name.replace(/\.jsonl$/, ''), mtime: st.mtimeMs, project: proj, full });
+      }
+    }
+    files.sort((a, b) => b.mtime - a.mtime);
+
+    // 每个项目保底取最近 2 条：只按全局时间排的话，某个目录里刚跑的一堆测试会话
+    // 会把别的项目（用户真正在用的）整片挤掉 —— 2026-11-11 就是这个问题。
+    const used = new Map();
+    const picked = [];
+    for (const f of files) {
+      const n = used.get(f.project) || 0;
+      if (n >= 2) continue;
+      used.set(f.project, n + 1);
+      picked.push(f);
+      if (picked.length >= Math.max(1, limit)) break;
+    }
+    picked.sort((a, b) => b.mtime - a.mtime);
+
+    const items = picked.map((f) => {
+      let title = '';
+      let cwd = '';
+      try {
+        const head = fs.readFileSync(f.full, 'utf8').split(/\r?\n/, 3).find((l) => l.trim());
+        const first = JSON.parse(head);
+        cwd = String(first?.cwd || '');
+        const text = Array.isArray(first?.content) ? first.content.map((c) => c?.text || '').join('') : '';
+        title = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 24);
+      } catch { /* 标题/cwd 读不出来不影响列表 */ }
+      // 项目目录名对用户不直观，展示 cwd 的最后一段
+      const label = cwd ? path.basename(cwd.replace(/[\\/]+$/, '')) || f.project : f.project;
+      return { id: f.id, mtime: f.mtime, title, cwd, project: f.project, label };
+    });
+    return { items, total: files.length };
+  }
+
   /** 跑一次。resolve 出来永远不抛错：让调用方能决定回发什么。 */
-  function runOnce(bridge, { task, sessionId, outFile, onLine, onSpawn }) {
+  function runOnce(bridge, { task, sessionId, outFile, onLine, onSpawn, model, workdir }) {
     return new Promise((resolve) => {
       const res = resolveExec(bridge.cmd);
       if (!res) {
         resolve({ spawnError: `找不到可执行文件：${bridge.cmd || '(未配置)'}（检查 PATH 或改填绝对路径）` });
         return;
       }
-      const cwd = bridge.workdir && fs.existsSync(bridge.workdir) ? bridge.workdir : ROOT;
+      // 会话切到别的项目时，workdir 跟着切（--resume 会校验工作目录）
+      const wantDir = String(workdir || bridge.workdir || '').trim();
+      const cwd = wantDir && fs.existsSync(wantDir) ? wantDir : ROOT;
       // resume='last' 时第一次跑必须用新会话模板：--last 会接上"该目录里最近一次会话"，
       // 那很可能是你自己手动跑的 codex，不该被一条 QQ 消息续上。
       const resumeNow = bridge.resume === 'id'
@@ -335,7 +480,9 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
         resolve({ spawnError: `桥 ${bridge.id} 没有配置参数模板（newArgs / resumeArgs）` });
         return;
       }
-      let args = buildArgs(template, { task, out: outFile, session: resolvedSession, cwd });
+      let args = buildArgs(template, { task, out: outFile, session: resolvedSession, cwd, port: bridge.port || '' });
+      // 手动选的模型：只在本次调用追加 --model，不写 CLI 的全局配置（不影响你桌面端）
+      if (model) args.push('--model', String(model));
       if (bridge.taskVia === 'arg' && !args.includes(task)) args.push(task);
 
       let file = res.file;
@@ -448,10 +595,12 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
       `${bridge.prefix} <任务>      在当前会话里执行（可连续追问）`,
       `${bridge.prefix} 新 [任务]   丢掉上下文开新会话；不带任务 = 只重置`,
       `${bridge.prefix} 状态        看会话 id / 工作目录 / 是否在跑`,
+      bridge.models.length ? `${bridge.prefix} 模型 [名字]  看/切换模型（只影响这条桥）` : '',
+      bridge.sessionsRoot ? `${bridge.prefix} 对话 [序号|id]  看历史会话 / 切过去接着聊` : '',
       `${bridge.prefix} 停          中断正在执行的任务`,
       `${bridge.prefix} 帮助        这条说明`,
       bridge.resume === 'none' ? '当前配置不保留上下文（resume=none）' : `续跑方式：${bridge.resume === 'last' ? '接着最近一次会话（--last）' : '按会话 id 续跑'}`
-    ].join('\n');
+    ].filter(Boolean).join('\n');
   }
 
   function statusText(bridge, chatKey, skey) {
@@ -461,8 +610,9 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
     return [
       `${bridge.label} 桥：${run ? `有任务在跑（${Math.round((Date.now() - run.startedAt) / 1000)}s）` : '空闲'}`,
       `可执行：${bridge.cmd}${resolveExec(bridge.cmd) ? '' : '（⚠️ 找不到）'}`,
-      `目录：${bridge.workdir || ROOT}`,
+      `目录：${rec?.workdir || bridge.workdir || ROOT}`,
       `会话：${rec?.sessionId || '(还没建)'}`,
+      `模型：${rec?.model || '(默认)'}`,
       `超时：${Math.round(bridge.timeoutMs / 1000)}s`,
       `上次：${rec?.updatedAt ? new Date(rec.updatedAt).toLocaleString() : '(无)'}`
     ].join('\n');
@@ -515,6 +665,94 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
         if (parsed.kind === 'help') { await reply(chatKey, helpText(bridge), replyTo); return; }
         if (parsed.kind === 'status') { await reply(chatKey, statusText(bridge, chatKey, skey), replyTo); return; }
 
+        // ── 模型：列表 / 切换（存进本会话状态，只影响这条桥）──────────────
+        if (parsed.kind === 'model' || parsed.kind === 'setmodel') {
+          if (!bridge.models.length) { await reply(chatKey, `${bridge.label} 没有配置可选模型清单（config 里加 models: [] 才能选）。`, replyTo); return; }
+          const rec = readSession(bridge, skey);
+          const current = rec?.model || '(默认)';
+          if (parsed.kind === 'model') {
+            const lines = bridge.models.map((m, i) => `${i + 1}. ${m}${m === rec?.model ? '  ← 当前' : ''}`);
+            await reply(chatKey, [
+              `【${bridge.label} 可选模型】当前：${current}`,
+              ...lines,
+              `切换：${bridge.prefix} 模型 <名字>（只影响这条桥，不改桌面端设置）`
+            ].join('\n'), replyTo);
+            return;
+          }
+          const want = String(task || '').trim();
+          // 允许用序号选，省得打长名字
+          const byIndex = /^\d{1,2}$/.test(want) ? bridge.models[Number(want) - 1] : null;
+          const picked = byIndex || bridge.models.find((m) => m.toLowerCase() === want.toLowerCase());
+          if (!picked) {
+            await reply(chatKey, `没有这个模型：${want}\n发「${bridge.prefix} 模型」看清单。`, replyTo);
+            return;
+          }
+          writeSession(bridge, skey, { model: picked });
+          await reply(chatKey, `已切到 ${picked}。下一条任务生效。`, replyTo);
+          return;
+        }
+
+        // ── 对话：列出历史会话（跨项目） / 切过去 / 按关键词筛 ──────────
+        if (parsed.kind === 'sessions' || parsed.kind === 'use') {
+          if (!bridge.sessionsRoot) { await reply(chatKey, `${bridge.label} 没有配置会话目录（config 里加 sessionsRoot）。`, replyTo); return; }
+          const rec = readSession(bridge, skey);
+          // 跨项目扫，多取一些，切到别的项目的会话时工作目录也要跟着切
+          const { items: all, total } = listSessions(bridge, 12);
+          if (!all.length) { await reply(chatKey, '（还没有历史会话）', replyTo); return; }
+
+          const fmtLine = (s, i) => {
+            const when = new Date(s.mtime).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+            const mark = (s.id === rec?.sessionId) ? '  ← 当前' : '';
+            return `${i + 1}. ${s.id.slice(0, 8)}  ${when}  [${s.label}]  ${s.title || '(无标题)'}${mark}`;
+          };
+
+          const want = String(parsed.task || '').trim();
+          const isIndex = /^\d{1,2}$/.test(want);
+          const byIndex = isIndex ? all[Number(want) - 1] : null;
+          const byId = want ? (all.find((s) => s.id === want) || all.find((s) => s.id.startsWith(want))) : null;
+
+          // 既不是序号也不是 id → 当关键词筛（省得翻十几条找自己那个）
+          if (parsed.kind === 'use' && want && !byIndex && !byId) {
+            // 关键词要在**全库**里搜，不能只搜当前展示的那 12 条
+            const { items: everything } = listSessions(bridge, 200);
+            const hit = everything.filter((s) => `${s.title} ${s.label} ${s.id}`.toLowerCase().includes(want.toLowerCase())).slice(0, 10);
+            if (!hit.length) { await reply(chatKey, `没有匹配「${want}」的会话。发「${bridge.prefix} 对话」看全部。`, replyTo); return; }
+            await reply(chatKey, [
+              `【匹配「${want}」的会话】${hit.length} 个`,
+              ...hit.map((s, i) => fmtLine(s, i)),
+              `切换：${bridge.prefix} 对话 <id 前 8 位>（序号只对上面这份列表有效）`
+            ].join('\n'), replyTo);
+            return;
+          }
+
+          if (parsed.kind === 'sessions') {
+            const list = all.slice(0, 12);
+            await reply(chatKey, [
+              `【${bridge.label} 最近会话】共 ${total} 个，显示 ${list.length} 个（每个项目保底 2 条）`,
+              ...list.map((s, i) => fmtLine(s, i)),
+              `切换：${bridge.prefix} 对话 <序号或 id>　筛：${bridge.prefix} 对话 <关键词>`,
+              `开新的：${bridge.prefix} 新（回到默认目录 ${bridge.workdir || ROOT}）`
+            ].join('\n'), replyTo);
+            return;
+          }
+
+          const picked = byIndex || byId;
+          if (!picked) {
+            await reply(chatKey, `没找到这个会话：${want}\n发「${bridge.prefix} 对话」看列表。`, replyTo);
+            return;
+          }
+          // 会话属于哪个目录，就在哪个目录续跑：--resume 会校验 cwd
+          const patch = { sessionId: picked.id };
+          if (picked.cwd) patch.workdir = picked.cwd;
+          writeSession(bridge, skey, patch);
+          await reply(chatKey, [
+            `已切到会话 ${picked.id.slice(0, 8)}${picked.title ? `（${picked.title}）` : ''}`,
+            picked.cwd ? `工作目录：${picked.cwd}` : '',
+            '下一条任务接着它聊。'
+          ].filter(Boolean).join('\n'), replyTo);
+          return;
+        }
+
         if (parsed.kind === 'stop') {
           const run = running.get(key);
           if (!run) { await reply(chatKey, '（当前没有在跑的任务）', replyTo); return; }
@@ -532,9 +770,15 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
         if (parsed.kind === 'new') {
           if (skey) {
             const all = loadState();
-            if (all[bridge.id]) { delete all[bridge.id][skey]; saveState(all); }
+            if (all[bridge.id]) {
+              // 只清「会话 + 工作目录」，**保留模型选择**：换新会话不该顺手把模型也重置
+              const keepModel = all[bridge.id][skey]?.model;
+              if (keepModel) all[bridge.id][skey] = { model: keepModel, updatedAt: Date.now() };
+              else delete all[bridge.id][skey];
+              saveState(all);
+            }
           }
-          if (!task) { await reply(chatKey, '已重置会话，下一条重新开。', replyTo); return; }
+          if (!task) { await reply(chatKey, '已重置会话（模型选择保留），下一条重新开。', replyTo); return; }
         }
 
         if (!task) { await reply(chatKey, `用法：${bridge.prefix} <任务>（发「${bridge.prefix} 帮助」看全部）`, replyTo); return; }
@@ -553,8 +797,10 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
         running.set(key, holder);
         let newSession = '';
         const result = await runOnce(bridge, {
-          task,
+          task: bridge.injectTime ? `【当前时间】${nowStamp()}\n\n${task}` : task,
           sessionId,
+          model: rec?.model || '',
+          workdir: rec?.workdir || '',
           outFile,
           onSpawn: (child) => { holder.child = child; },
           onLine: (line) => { const id = extractSessionId(line); if (id) newSession = id; }
