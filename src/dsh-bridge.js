@@ -21,6 +21,7 @@ import path from 'node:path';
 import { getPrivacyFilter, privacyBlockedReply } from './privacy.js';
 import { spawn } from 'node:child_process';
 import { DATA_DIR, ROOT } from './config.js';
+import { createStateStore, stripLeadingAt, sessionKeyFor as coreSessionKeyFor, killTree } from './bridge-core.js';
 
 /** 本机 DeepSeek Harness 的默认入口（可用 config.dsh.exePath 覆盖）。 */
 const DEFAULT_EXE = 'C:\\Users\\noapi\\AppData\\Local\\Programs\\DeepSeek Harness\\DeepSeek Harness.exe';
@@ -30,49 +31,22 @@ const DEFAULT_PREFIX = '/dsh';
 const STATE_BASENAME = 'dsh-sessions.json';
 const STDERR_TAIL_CHARS = 1500;
 
+const stateStore = createStateStore({ basename: STATE_BASENAME, tag: '[dsh]' });
+
 /** 会话记录落盘路径（放在 DATA_DIR 下，跟随 PROFILE / QQ_AGENT_DATA_DIR）。 */
 function stateFile() {
-  return path.join(DATA_DIR, STATE_BASENAME);
+  return stateStore.file();
 }
 
 function loadState() {
-  try {
-    const raw = fs.readFileSync(stateFile(), 'utf8').replace(/^\uFEFF/, '');
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
+  return stateStore.load();
 }
 
 function saveState(state) {
-  const file = stateFile();
-  const tmp = `${file}.${process.pid}.tmp`;
-  try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    // 原子写：先写 tmp 再 rename（理由同 agent-bridge：避免半截 JSON 毁掉全部会话记录）
-    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-    fs.renameSync(tmp, file);
-  } catch (error) {
-    try { fs.rmSync(tmp, { force: true }); } catch { /* 清不掉就算了 */ }
-    // 存不下会话 id 只影响"下次能否续跑"，不该影响本轮任务
-    console.warn('[dsh] 会话记录写入失败:', error?.message ?? error);
-  }
+  stateStore.save(state);
 }
 
-/**
- * 去掉消息开头的 @ 段：群里下命令通常是「@机器人 /dsh 跑测试」，
- * segmentsToText 会把 @ 渲染成文本，前缀匹配前必须剥掉。
- */
-function stripLeadingAt(text) {
-  let out = String(text ?? '').trim();
-  for (let i = 0; i < 2; i++) {
-    const next = out.replace(/^(?:\[@[^\]\n]{0,64}\]|@[^\s]{1,64})\s*/u, '');
-    if (next === out) break;
-    out = next;
-  }
-  return out;
-}
+
 
 /**
  * 解析 `/dsh` 命令。
@@ -163,17 +137,6 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
     }
   }
 
-  /** Windows 上 child.kill() 杀不掉子进程树，任务超时必须整棵树带走。 */
-  function killTree(pid) {
-    if (!pid) return;
-    try {
-      const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-      killer.on('error', () => {});
-      killer.unref?.();
-    } catch {
-      /* 退化成只杀父进程也比重试好 */
-    }
-  }
 
   /**
    * 跑一次 headless。返回 { sessionId, answer, code, stderr, killed, spawnError }。
@@ -451,9 +414,7 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
     return `[DSH 执行结果已直接发到本会话（共 ${full.length} 字，此处只是摘要）] ${head}${full.length > limit ? '…' : ''}`;
   }
   function sessionKeyFor(chatKey) {
-    const mode = String(readCfg().sessionMode || 'per-chat');
-    if (mode === 'none') return null;
-    return mode === 'global' ? '__global__' : chatKey;
+    return coreSessionKeyFor(readCfg().sessionMode || 'per-chat', chatKey);
   }
 
   /** 处理一条消息。返回 true = 这条消息被桥认领（调用方不要再交给编排器）。 */

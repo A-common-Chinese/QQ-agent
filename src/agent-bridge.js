@@ -23,6 +23,7 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { getPrivacyFilter, privacyBlockedReply } from './privacy.js';
 import { DATA_DIR, ROOT } from './config.js';
+import { createStateStore, stripLeadingAt, sessionKeyFor as coreSessionKeyFor, killTree } from './bridge-core.js';
 
 const STATE_BASENAME = 'agent-bridges.json';
 const STDOUT_CAP = 2 * 1024 * 1024;   // 事件流上限，防止异常进程把内存吃爆
@@ -32,50 +33,21 @@ const DEFAULT_PREFIX = '/agent';
 /** 会话 id 探测：兼容 codex 的 thread_id、其它 CLI 的 session_id / sessionId */
 const SESSION_ID_RE = /"(?:thread_id|session_id|sessionId)"\s*:\s*"([0-9A-Za-z_-]{6,})"/;
 
+const stateStore = createStateStore({ basename: STATE_BASENAME, tag: '[bridge]' });
+
 function stateFile() {
-  return path.join(DATA_DIR, STATE_BASENAME);
+  return stateStore.file();
 }
 
 function loadState() {
-  try {
-    const raw = fs.readFileSync(stateFile(), 'utf8').replace(/^\uFEFF/, '');
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
+  return stateStore.load();
 }
 
 function saveState(state) {
-  const file = stateFile();
-  const tmp = `${file}.${process.pid}.tmp`;
-  try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    // 原子写：先写 tmp 再 rename。崩在写 tmp 中途时旧文件仍然完整，
-    // 不会出现"JSON 被截断 → 所有桥的会话记录一次性丢失"。
-    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-    fs.renameSync(tmp, file);
-  } catch (error) {
-    try { fs.rmSync(tmp, { force: true }); } catch { /* 清不掉就算了 */ }
-    // 存不下会话 id 只影响"下次能不能续跑"，不影响本轮
-    console.warn('[bridge] 会话记录写入失败:', error?.message ?? error);
-  }
+  stateStore.save(state);
 }
 
-/**
- * 去掉消息开头的 @ 段。群里下命令通常是「@机器人 /codex 跑测试」，
- * segmentsToText 会把 @ 渲染成文本，前缀匹配前必须剥掉。
- * （与 dsh-bridge 同一套规则，刻意保持行为一致）
- */
-function stripLeadingAt(text) {
-  let out = String(text ?? '').trim();
-  for (let i = 0; i < 2; i += 1) {
-    const next = out.replace(/^(?:\[@[^\]\n]{0,64}\]|@[^\s]{1,64})\s*/u, '');
-    if (next === out) break;
-    out = next;
-  }
-  return out;
-}
+
 
 /**
  * 解析「/prefix 子命令」。纯函数，便于离线测试。
@@ -218,18 +190,7 @@ function quoteForCmd(s) {
 }
 
 /** Windows 上 child.kill() 杀不掉子进程树，超时必须整棵树带走。 */
-function killTree(pid) {
-  if (!pid) return;
-  try {
-    if (process.platform === 'win32') {
-      const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
-      killer.on('error', () => {});
-      killer.unref?.();
-    } else {
-      process.kill(pid, 'SIGKILL');
-    }
-  } catch { /* 杀不掉也比不杀好 */ }
-}
+
 
 /**
  * 预设：给"手改 config.json 只写两三个字段"的场景兜底。
@@ -593,8 +554,7 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
   }
 
   function sessionKeyFor(bridge, chatKey) {
-    if (bridge.sessionMode === 'none') return null;
-    return bridge.sessionMode === 'global' ? '__global__' : chatKey;
+    return coreSessionKeyFor(bridge.sessionMode, chatKey);
   }
 
   function readSession(bridge, skey) {
