@@ -1089,7 +1089,11 @@ c.section('15. 接口覆盖率统计');
   ]);
 
   await c.check('声明的 API 路由覆盖率 ≥ 90%', async () => {
-    const src = fs.readFileSync(path.join(ROOT, 'src', 'routes.js'), 'utf8');
+    // 路由已按域拆到 src/routes/*.js（2026-11-12），解析要覆盖主文件 + 全部域文件
+    const routeDir = path.join(ROOT, 'src', 'routes');
+    const src = [path.join(ROOT, 'src', 'routes.js'),
+      ...fs.readdirSync(routeDir).filter((f) => f.endsWith('.js')).map((f) => path.join(routeDir, f))]
+      .map((f) => fs.readFileSync(f, 'utf8')).join('\n');
     // 正确解析：正则字面量（支持 \/ 转义与字符类），不能用非贪婪 [^\n]*?
     const routeRe = /method:\s*'([^']+)'\s*,\s*pattern:\s*(?:'([^']*)'|(\/(?:\\.|\[[^\]]*\]|[^/\n\\])+\/[gimsuy]*))/g;
     const routes = [];
@@ -1097,7 +1101,7 @@ c.section('15. 接口覆盖率统计');
     while ((m = routeRe.exec(src))) {
       routes.push({ method: m[1], literal: m[2] ?? m[3], isRegex: !!m[3] });
     }
-    assert.ok(routes.length > 60, `应从 routes.js 解析出全部路由，实际只解析到 ${routes.length} 条`);
+    assert.ok(routes.length > 60, `应从 routes.js + routes/*.js 解析出全部路由，实际只解析到 ${routes.length} 条`);
 
     const covered = [];
     const missing = [];
