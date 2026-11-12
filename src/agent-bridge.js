@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { getPrivacyFilter, privacyBlockedReply } from './privacy.js';
 import { DATA_DIR, ROOT } from './config.js';
 
@@ -47,10 +47,16 @@ function loadState() {
 }
 
 function saveState(state) {
+  const file = stateFile();
+  const tmp = `${file}.${process.pid}.tmp`;
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(stateFile(), `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    // 原子写：先写 tmp 再 rename。崩在写 tmp 中途时旧文件仍然完整，
+    // 不会出现"JSON 被截断 → 所有桥的会话记录一次性丢失"。
+    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp, file);
   } catch (error) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* 清不掉就算了 */ }
     // 存不下会话 id 只影响"下次能不能续跑"，不影响本轮
     console.warn('[bridge] 会话记录写入失败:', error?.message ?? error);
   }
@@ -304,13 +310,30 @@ export function countPatchFiles(dir) {
   try { return fs.readdirSync(dir).filter((n) => n.toLowerCase().endsWith('.patch')).length; } catch { return 0; }
 }
 
-/** 工作树是否有改动（非 git 目录/命令失败都按"无改动"处理，不打扰用户） */
-export function isGitDirty(dir) {
-  if (!dir) return false;
-  try {
-    const out = execFileSync('git', ['-C', String(dir), 'status', '--porcelain'], { encoding: 'utf8', timeout: 5000 });
-    return out.trim().length > 0;
-  } catch { return false; }
+/**
+ * 工作树是否有改动（异步版）。
+ *
+ * ⚠️ 原来这里用 execFileSync(timeout:5000)，它跑在**消息处理路径**上：
+ * 仓库大/磁盘忙/杀软扫描时会把事件循环堵满 5 秒，表现为「QQ 不回复、HTTP 卡住」。
+ * Node 是单线程，一个同步子进程能卡死所有请求。改成 spawn + 硬超时。
+ *
+ * 非 git 目录、git 不存在、超时 —— 一律按"无改动"处理，不打扰用户。
+ */
+export function isGitDirty(dir, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    if (!dir) return resolve(false);
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; resolve(v); };
+    let child;
+    try {
+      child = spawn('git', ['-C', String(dir), 'status', '--porcelain'], { windowsHide: true });
+    } catch { return finish(false); }
+    let out = '';
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish(false); }, timeoutMs);
+    child.stdout?.on('data', (d) => { out += d; });
+    child.once('error', () => { clearTimeout(timer); finish(false); });
+    child.once('close', () => { clearTimeout(timer); finish(out.trim().length > 0); });
+  });
 }
 
 /** 同步部分的自检：可执行文件 / 工作目录 / 会话目录 / patch 目录 */
@@ -1073,7 +1096,7 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
           // 交接一致性：改了工作树却没产出 patch，就在回复里提醒（比靠模型自觉可靠）
           if (bridge.patchDir && !result.killed) {
             const warn = patchDisciplineWarning({
-              dirty: isGitDirty(effDir),
+              dirty: await isGitDirty(effDir),
               newPatches: countPatchFiles(bridge.patchDir) - patchBefore,
               patchDir: bridge.patchDir
             });

@@ -46,10 +46,15 @@ function loadState() {
 }
 
 function saveState(state) {
+  const file = stateFile();
+  const tmp = `${file}.${process.pid}.tmp`;
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(stateFile(), `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    // 原子写：先写 tmp 再 rename（理由同 agent-bridge：避免半截 JSON 毁掉全部会话记录）
+    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp, file);
   } catch (error) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* 清不掉就算了 */ }
     // 存不下会话 id 只影响"下次能否续跑"，不该影响本轮任务
     console.warn('[dsh] 会话记录写入失败:', error?.message ?? error);
   }

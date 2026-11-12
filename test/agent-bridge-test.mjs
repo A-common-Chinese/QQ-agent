@@ -42,7 +42,7 @@ if (argv.includes('--sleep')) await new Promise((r) => setTimeout(r, 30000));
 process.exit(0);
 `, 'utf8');
 
-const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp, extractFileMarks, resolveOutgoing, explainFailure, patchDisciplineWarning, countPatchFiles, probeBridgeSync, portInUse, quotaHint } =
+const { createAgentBridges, parseAgentCommand, buildArgs, extractSessionId, extractJsonlAnswer, normalizeBridge, projectSlug, nowStamp, extractFileMarks, resolveOutgoing, explainFailure, patchDisciplineWarning, countPatchFiles, probeBridgeSync, portInUse, quotaHint, isGitDirty } =
   await import(pathToFileURL(path.join(ROOT, 'src', 'agent-bridge.js')).href);
 
 // ── 纯函数 ────────────────────────────────────────────────────────────
@@ -266,6 +266,43 @@ check('「停」提示已发送中断', sent.some((x) => /已发送中断/.test(
 check('额度受限能识别并给建议', /换一个模型/.test(quotaHint('429 您的使用量已超出频率限制，将在 2026-11-12 12:35:56 UTC+8 重置', '/wb')));
 check('额度提示带重置时间', /2026-11-12/.test(quotaHint('您的使用量已超出频率限制，将在 2026-11-12 12:35:56 UTC+8 重置')));
 check('正常回答不误报', quotaHint('我把文件改好了') === '');
+
+// ── P0：工作树检查必须异步（不允许阻塞事件循环）─────────────
+{
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-nogit-'));
+  check('非 git 目录按无改动', (await isGitDirty(plain)) === false);
+
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-git-'));
+  const { execFileSync } = await import('node:child_process');
+  const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+  git('init', '-q');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
+  check('干净仓库 → 无改动', (await isGitDirty(repo)) === false);
+  fs.writeFileSync(path.join(repo, 'dirty.txt'), 'x');
+  check('有未跟踪文件 → 有改动', (await isGitDirty(repo)) === true);
+
+  // 事件循环不被堵：并发 5 次检查应当很快完成（同步版会串行堵住）
+  const t0 = Date.now();
+  await Promise.all(Array.from({ length: 5 }, () => isGitDirty(repo)));
+  check('5 次并发检查在 3s 内完成', Date.now() - t0 < 3000, String(Date.now() - t0));
+}
+
+// ── 状态写入：原子性 / 无残留 ────────────────────────────────
+{
+  const dataDir = process.env.QQ_AGENT_DATA_DIR;
+  const statePath = path.join(dataDir, 'agent-bridges.json');
+  // 前面多轮测试已经写过若干次状态；这里检查文件仍可解析、且没留下 .tmp
+  const raw = fs.readFileSync(statePath, 'utf8');
+  let parsed = null;
+  try { parsed = JSON.parse(raw); } catch { /* 下面断言会失败 */ }
+  check('状态文件是完整 JSON', parsed !== null && typeof parsed === 'object');
+  const leftovers = fs.readdirSync(dataDir).filter((n) => n.includes('agent-bridges') && n.endsWith('.tmp'));
+  check('写入后没有残留 .tmp', leftovers.length === 0, JSON.stringify(leftovers));
+
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  check('新桥测试已进 npm test', String(pkg.scripts?.test || '').includes('agent-bridge-test.mjs'));
+  check('有单独跑桥测试的入口', String(pkg.scripts?.['test:bridge'] || '').includes('agent-bridge-test.mjs'));
+}
 
 // ── 启动自检 ────────────────────────────────────────────────
 {
