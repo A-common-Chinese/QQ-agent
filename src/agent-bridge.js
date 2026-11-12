@@ -47,8 +47,6 @@ function saveState(state) {
   stateStore.save(state);
 }
 
-
-
 /**
  * 解析「/prefix 子命令」。纯函数，便于离线测试。
  * @returns {null | {kind:'run'|'new'|'stop'|'status'|'help', task:string}}
@@ -190,7 +188,6 @@ function quoteForCmd(s) {
 }
 
 /** Windows 上 child.kill() 杀不掉子进程树，超时必须整棵树带走。 */
-
 
 /**
  * 预设：给"手改 config.json 只写两三个字段"的场景兜底。
@@ -573,6 +570,137 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
     saveState(all);
   }
 
+  /** 命令：直发一个本机文件（不跑 agent） */
+  async function cmdFile(bridge, parsed, chatKey, replyTo) {
+  // ── 直发文件：`/wb 文件 <路径>`（不跑 agent）──────────────────
+  if (!bridge.sendFiles) { await reply(chatKey, `${bridge.label} 桥没开发文件发送。`, replyTo); return; }
+  const picked = resolveOutgoing(parsed.task, bridge);
+  if (picked.error) { await reply(chatKey, `⛔ 没发：${picked.error}`, replyTo); return; }
+  try {
+    await sender.sendFile(chatKey, { path: picked.path }, { name: picked.name });
+    await reply(chatKey, `已发送 ${picked.name}（${(picked.size / 1048576).toFixed(1)}MB）`, replyTo);
+  } catch (e) {
+    await reply(chatKey, `❌ 发送失败：${e?.message ?? e}`, replyTo);
+  }
+  return;
+  }
+
+  /** 命令：中断正在跑的任务（进程树一起带走） */
+  async function cmdStop(bridge, parsed, chatKey, replyTo) {
+  // key 原来是 handle 里的局部变量，抽成函数后自己算一遍（与 handle 同规则）
+  const key = `${bridge.id}\u0000${chatKey}`;
+  const run = running.get(key);
+  if (!run) { await reply(chatKey, '（当前没有在跑的任务）', replyTo); return; }
+  run.killed = true;
+  killTree(run.child?.pid);
+  await reply(chatKey, '已发送中断。', replyTo);
+  return;
+  }
+
+  /** 跑一次任务：起进程、收答案、发文件、回发（从 handle 里拆出） */
+  async function runTask(bridge, parsed, chatKey, replyTo, task, skey, kind, key) {
+    const outFile = path.join(os.tmpdir(), `qq-agent-bridge-${process.pid}-${Date.now()}.txt`);
+    const rec = readSession(bridge, skey);
+    const sessionId = parsed.kind === 'new' ? '' : (rec?.sessionId || '');
+    const startedAt = Date.now();
+    // 交接一致性检查：跑之前的 patch 数量 + 有效工作目录
+    const effDir = rec?.workdir || bridge.workdir || ROOT;
+    const patchBefore = countPatchFiles(bridge.patchDir);
+
+    // 先给个"收到"，否则一次十分钟的任务在前几分钟里完全没有反馈
+    const showAck = bridge.showProgress === 'all' || (bridge.showProgress === 'private' && kind === 'private');
+    if (showAck) await reply(chatKey, `⏳ 已交给 ${bridge.label}，执行中…（发「${bridge.prefix} 停」可中断）`, replyTo);
+
+    const holder = { child: null, killed: false, startedAt };
+    // 先占位再 spawn：并发进来的第二条会被"上一个还在跑"挡住
+    running.set(key, holder);
+    let newSession = '';
+    const result = await runOnce(bridge, {
+      task: bridge.injectTime ? `【当前时间】${nowStamp()}\n\n${task}` : task,
+      sessionId,
+      model: rec?.model || '',
+      workdir: rec?.workdir || '',
+      outFile,
+      onSpawn: (child) => { holder.child = child; },
+      onLine: (line) => { const id = extractSessionId(line); if (id) newSession = id; }
+    });
+    running.delete(key);
+
+    if (result.spawnError) {
+      try { fs.rmSync(outFile, { force: true }); } catch { /* ignore */ }
+      const tips = explainFailure({ spawnError: result.spawnError });
+      await reply(chatKey, [`❌ ${bridge.label} 启动失败：${result.spawnError}`,
+        tips.length ? `\n可能原因：\n- ${tips.join('\n- ')}` : ''].filter(Boolean).join(''), replyTo);
+      return;
+    }
+    if (bridge.resume === 'id' && newSession) writeSession(bridge, skey, newSession);
+    // resume='last' 不自带 id：跑成功一次就记个占位，下一条才会走 --last 模板
+    else if (bridge.resume === 'last' && result.code === 0) writeSession(bridge, skey, '--last');
+
+    // ⚠️ 先取答案再删临时文件 —— 反过来会把 last-message 模式的文件删掉，
+    //    于是永远退到 jsonl 兜底（实测踩过，表现为"答案能出但来源不对"）。
+    const { answer, from } = pickAnswer(bridge, result);
+    try { fs.rmSync(outFile, { force: true }); } catch { /* ignore */ }
+    const cost = ((Date.now() - startedAt) / 1000).toFixed(1);
+    if (answer) {
+      const head = bridge.replyPrefix || '';
+      // 截断必须显式告知（项目纪律）：超时中断、事件流超上限，都要写进回发内容
+      const tail = (result.killed ? `\n（已超时中断，耗时 ${cost}s，以上是中断前的输出）` : '')
+        + (result.stdoutTruncated ? '\n（事件流超过 2MB 已截断，以上为读到的部分）' : '');
+
+      // 发文件：把正文里的 [[file: 路径]] 抠出来，逐个校验后上传。
+      // 失败原因挂在正文末尾，绝不静默丢（项目纪律：任何失败都要如实告知）。
+      let body = answer;
+      const notes = [];
+      if (bridge.sendFiles) {
+        const marks = extractFileMarks(answer);
+        body = marks.body;
+        const list = marks.paths.slice(0, bridge.maxFilesPerReply);
+        if (marks.paths.length > list.length) {
+          notes.push(`（另有 ${marks.paths.length - list.length} 个文件未发：单条最多 ${bridge.maxFilesPerReply} 个）`);
+        }
+        for (const raw of list) {
+          const picked = resolveOutgoing(raw, bridge);
+          if (picked.error) { notes.push(`⚠️ 未发送「${raw}」：${picked.error}`); continue; }
+          try {
+            await sender.sendFile(chatKey, { path: picked.path }, { name: picked.name });
+          } catch (e) {
+            notes.push(`⚠️ 发送失败「${picked.name}」：${e?.message ?? e}`);
+          }
+        }
+      }
+
+      // 交接一致性：改了工作树却没产出 patch，就在回复里提醒（比靠模型自觉可靠）
+      if (bridge.patchDir && !result.killed) {
+        const warn = patchDisciplineWarning({
+          dirty: await isGitDirty(effDir),
+          newPatches: countPatchFiles(bridge.patchDir) - patchBefore,
+          patchDir: bridge.patchDir
+        });
+        if (warn) notes.push(warn);
+      }
+
+      // 429 被 CLI 当成正常答案返回，识别出来补一句，别让用户以为桥坏了
+      const qh = quotaHint(body, bridge.prefix);
+      if (qh) notes.push(`⚠️ ${qh}`);
+
+      const text = [head + body, notes.join('\n'), tail].filter((x) => String(x || '').trim()).join('\n');
+      if (text) await reply(chatKey, text, replyTo, { promptText: digest(body || answer, bridge.resultPromptChars) });
+      if (!result.killed) log(`[bridge] ${bridge.id} 完成，${cost}s，来源=${from}`);
+      return;
+    }
+
+    // 没有答案就如实说，不许静默丢弃
+    const stderrTail = String(result.stderr || '').trim().slice(-STDERR_TAIL);
+    const tips = explainFailure({ stderr: result.stderr, stdout: result.stdout });
+    await reply(chatKey, [
+      `❌ ${bridge.label} 没有返回内容（exit ${result.code}，耗时 ${cost}s）`,
+      result.killed ? '（已按超时中断）' : '',
+      stderrTail ? `错误输出末尾：\n${stderrTail}` : '（没有 stderr 输出，检查命令参数与登录态）',
+      tips.length ? `可能原因：\n- ${tips.join('\n- ')}` : ''
+    ].filter(Boolean).join('\n'), replyTo);
+  }
+
   /**
    * 列出**所有项目**下的历史会话（按最近活动倒序）。
    *
@@ -803,6 +931,96 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
     ].join('\n');
   }
 
+  /** 命令：模型清单 / 切换（存本会话状态，只影响这条桥） */
+  async function cmdModel(bridge, parsed, chatKey, replyTo, task, skey) {
+  // ── 模型：列表 / 切换（存进本会话状态，只影响这条桥）──────────────
+  if (!bridge.models.length) { await reply(chatKey, `${bridge.label} 没有配置可选模型清单（config 里加 models: [] 才能选）。`, replyTo); return; }
+  const rec = readSession(bridge, skey);
+  const current = rec?.model || '(默认)';
+  if (parsed.kind === 'model') {
+    const lines = bridge.models.map((m, i) => `${i + 1}. ${m}${m === rec?.model ? '  ← 当前' : ''}`);
+    await reply(chatKey, [
+      `【${bridge.label} 可选模型】当前：${current}`,
+      ...lines,
+      `切换：${bridge.prefix} 模型 <名字>（只影响这条桥，不改桌面端设置）`
+    ].join('\n'), replyTo);
+    return;
+  }
+  const want = String(task || '').trim();
+  // 允许用序号选，省得打长名字
+  const byIndex = /^\d{1,2}$/.test(want) ? bridge.models[Number(want) - 1] : null;
+  const picked = byIndex || bridge.models.find((m) => m.toLowerCase() === want.toLowerCase());
+  if (!picked) {
+    await reply(chatKey, `没有这个模型：${want}\n发「${bridge.prefix} 模型」看清单。`, replyTo);
+    return;
+  }
+  writeSession(bridge, skey, { model: picked });
+  await reply(chatKey, `已切到 ${picked}。下一条任务生效。`, replyTo);
+  return;
+  }
+
+  /** 命令：跨项目列会话 / 切过去 / 关键词筛 */
+  async function cmdSessions(bridge, parsed, chatKey, replyTo, task, skey) {
+  // ── 对话：列出历史会话（跨项目） / 切过去 / 按关键词筛 ──────────
+  if (!bridge.sessionsRoot) { await reply(chatKey, `${bridge.label} 没有配置会话目录（config 里加 sessionsRoot）。`, replyTo); return; }
+  const rec = readSession(bridge, skey);
+  // 跨项目扫，多取一些，切到别的项目的会话时工作目录也要跟着切
+  const { items: all, total } = listSessions(bridge, 12);
+  if (!all.length) { await reply(chatKey, '（还没有历史会话）', replyTo); return; }
+
+  const fmtLine = (s, i) => {
+    const when = new Date(s.mtime).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const mark = (s.id === rec?.sessionId) ? '  ← 当前' : '';
+    return `${i + 1}. ${s.id.slice(0, 8)}  ${when}  [${s.label}]  ${s.title || '(无标题)'}${mark}`;
+  };
+
+  const want = String(parsed.task || '').trim();
+  const isIndex = /^\d{1,2}$/.test(want);
+  const byIndex = isIndex ? all[Number(want) - 1] : null;
+  const byId = want ? (all.find((s) => s.id === want) || all.find((s) => s.id.startsWith(want))) : null;
+
+  // 既不是序号也不是 id → 当关键词筛（省得翻十几条找自己那个）
+  if (parsed.kind === 'use' && want && !byIndex && !byId) {
+    // 关键词要在**全库**里搜，不能只搜当前展示的那 12 条
+    const { items: everything } = listSessions(bridge, 200);
+    const hit = everything.filter((s) => `${s.title} ${s.label} ${s.id}`.toLowerCase().includes(want.toLowerCase())).slice(0, 10);
+    if (!hit.length) { await reply(chatKey, `没有匹配「${want}」的会话。发「${bridge.prefix} 对话」看全部。`, replyTo); return; }
+    await reply(chatKey, [
+      `【匹配「${want}」的会话】${hit.length} 个`,
+      ...hit.map((s, i) => fmtLine(s, i)),
+      `切换：${bridge.prefix} 对话 <id 前 8 位>（序号只对上面这份列表有效）`
+    ].join('\n'), replyTo);
+    return;
+  }
+
+  if (parsed.kind === 'sessions') {
+    const list = all.slice(0, 12);
+    await reply(chatKey, [
+      `【${bridge.label} 最近会话】共 ${total} 个，显示 ${list.length} 个（每个项目保底 2 条）`,
+      ...list.map((s, i) => fmtLine(s, i)),
+      `切换：${bridge.prefix} 对话 <序号或 id>　筛：${bridge.prefix} 对话 <关键词>`,
+      `开新的：${bridge.prefix} 新（回到默认目录 ${bridge.workdir || ROOT}）`
+    ].join('\n'), replyTo);
+    return;
+  }
+
+  const picked = byIndex || byId;
+  if (!picked) {
+    await reply(chatKey, `没找到这个会话：${want}\n发「${bridge.prefix} 对话」看列表。`, replyTo);
+    return;
+  }
+  // 会话属于哪个目录，就在哪个目录续跑：--resume 会校验 cwd
+  const patch = { sessionId: picked.id };
+  if (picked.cwd) patch.workdir = picked.cwd;
+  writeSession(bridge, skey, patch);
+  await reply(chatKey, [
+    `已切到会话 ${picked.id.slice(0, 8)}${picked.title ? `（${picked.title}）` : ''}`,
+    picked.cwd ? `工作目录：${picked.cwd}` : '',
+    '下一条任务接着它聊。'
+  ].filter(Boolean).join('\n'), replyTo);
+  return;
+  }
+
   /**
    * 处理一条消息。返回 true = 这条被桥认领（调用方不要再交给编排器）。
    * opts.atMe：群里是否 @ 了本机器人（未 @ 且要求 @ 时返回 false，交给模型）。
@@ -850,114 +1068,23 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
         if (parsed.kind === 'help') { await reply(chatKey, helpText(bridge), replyTo); return; }
         if (parsed.kind === 'status') { await reply(chatKey, statusText(bridge, chatKey, skey), replyTo); return; }
 
-        // ── 模型：列表 / 切换（存进本会话状态，只影响这条桥）──────────────
         if (parsed.kind === 'model' || parsed.kind === 'setmodel') {
-          if (!bridge.models.length) { await reply(chatKey, `${bridge.label} 没有配置可选模型清单（config 里加 models: [] 才能选）。`, replyTo); return; }
-          const rec = readSession(bridge, skey);
-          const current = rec?.model || '(默认)';
-          if (parsed.kind === 'model') {
-            const lines = bridge.models.map((m, i) => `${i + 1}. ${m}${m === rec?.model ? '  ← 当前' : ''}`);
-            await reply(chatKey, [
-              `【${bridge.label} 可选模型】当前：${current}`,
-              ...lines,
-              `切换：${bridge.prefix} 模型 <名字>（只影响这条桥，不改桌面端设置）`
-            ].join('\n'), replyTo);
-            return;
-          }
-          const want = String(task || '').trim();
-          // 允许用序号选，省得打长名字
-          const byIndex = /^\d{1,2}$/.test(want) ? bridge.models[Number(want) - 1] : null;
-          const picked = byIndex || bridge.models.find((m) => m.toLowerCase() === want.toLowerCase());
-          if (!picked) {
-            await reply(chatKey, `没有这个模型：${want}\n发「${bridge.prefix} 模型」看清单。`, replyTo);
-            return;
-          }
-          writeSession(bridge, skey, { model: picked });
-          await reply(chatKey, `已切到 ${picked}。下一条任务生效。`, replyTo);
+          await cmdModel(bridge, parsed, chatKey, replyTo, task, skey);
           return;
         }
 
-        // ── 对话：列出历史会话（跨项目） / 切过去 / 按关键词筛 ──────────
         if (parsed.kind === 'sessions' || parsed.kind === 'use') {
-          if (!bridge.sessionsRoot) { await reply(chatKey, `${bridge.label} 没有配置会话目录（config 里加 sessionsRoot）。`, replyTo); return; }
-          const rec = readSession(bridge, skey);
-          // 跨项目扫，多取一些，切到别的项目的会话时工作目录也要跟着切
-          const { items: all, total } = listSessions(bridge, 12);
-          if (!all.length) { await reply(chatKey, '（还没有历史会话）', replyTo); return; }
-
-          const fmtLine = (s, i) => {
-            const when = new Date(s.mtime).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-            const mark = (s.id === rec?.sessionId) ? '  ← 当前' : '';
-            return `${i + 1}. ${s.id.slice(0, 8)}  ${when}  [${s.label}]  ${s.title || '(无标题)'}${mark}`;
-          };
-
-          const want = String(parsed.task || '').trim();
-          const isIndex = /^\d{1,2}$/.test(want);
-          const byIndex = isIndex ? all[Number(want) - 1] : null;
-          const byId = want ? (all.find((s) => s.id === want) || all.find((s) => s.id.startsWith(want))) : null;
-
-          // 既不是序号也不是 id → 当关键词筛（省得翻十几条找自己那个）
-          if (parsed.kind === 'use' && want && !byIndex && !byId) {
-            // 关键词要在**全库**里搜，不能只搜当前展示的那 12 条
-            const { items: everything } = listSessions(bridge, 200);
-            const hit = everything.filter((s) => `${s.title} ${s.label} ${s.id}`.toLowerCase().includes(want.toLowerCase())).slice(0, 10);
-            if (!hit.length) { await reply(chatKey, `没有匹配「${want}」的会话。发「${bridge.prefix} 对话」看全部。`, replyTo); return; }
-            await reply(chatKey, [
-              `【匹配「${want}」的会话】${hit.length} 个`,
-              ...hit.map((s, i) => fmtLine(s, i)),
-              `切换：${bridge.prefix} 对话 <id 前 8 位>（序号只对上面这份列表有效）`
-            ].join('\n'), replyTo);
-            return;
-          }
-
-          if (parsed.kind === 'sessions') {
-            const list = all.slice(0, 12);
-            await reply(chatKey, [
-              `【${bridge.label} 最近会话】共 ${total} 个，显示 ${list.length} 个（每个项目保底 2 条）`,
-              ...list.map((s, i) => fmtLine(s, i)),
-              `切换：${bridge.prefix} 对话 <序号或 id>　筛：${bridge.prefix} 对话 <关键词>`,
-              `开新的：${bridge.prefix} 新（回到默认目录 ${bridge.workdir || ROOT}）`
-            ].join('\n'), replyTo);
-            return;
-          }
-
-          const picked = byIndex || byId;
-          if (!picked) {
-            await reply(chatKey, `没找到这个会话：${want}\n发「${bridge.prefix} 对话」看列表。`, replyTo);
-            return;
-          }
-          // 会话属于哪个目录，就在哪个目录续跑：--resume 会校验 cwd
-          const patch = { sessionId: picked.id };
-          if (picked.cwd) patch.workdir = picked.cwd;
-          writeSession(bridge, skey, patch);
-          await reply(chatKey, [
-            `已切到会话 ${picked.id.slice(0, 8)}${picked.title ? `（${picked.title}）` : ''}`,
-            picked.cwd ? `工作目录：${picked.cwd}` : '',
-            '下一条任务接着它聊。'
-          ].filter(Boolean).join('\n'), replyTo);
+          await cmdSessions(bridge, parsed, chatKey, replyTo, task, skey);
           return;
         }
 
-        // ── 直发文件：`/wb 文件 <路径>`（不跑 agent）──────────────────
         if (parsed.kind === 'file') {
-          if (!bridge.sendFiles) { await reply(chatKey, `${bridge.label} 桥没开发文件发送。`, replyTo); return; }
-          const picked = resolveOutgoing(parsed.task, bridge);
-          if (picked.error) { await reply(chatKey, `⛔ 没发：${picked.error}`, replyTo); return; }
-          try {
-            await sender.sendFile(chatKey, { path: picked.path }, { name: picked.name });
-            await reply(chatKey, `已发送 ${picked.name}（${(picked.size / 1048576).toFixed(1)}MB）`, replyTo);
-          } catch (e) {
-            await reply(chatKey, `❌ 发送失败：${e?.message ?? e}`, replyTo);
-          }
+          await cmdFile(bridge, parsed, chatKey, replyTo);
           return;
         }
 
         if (parsed.kind === 'stop') {
-          const run = running.get(key);
-          if (!run) { await reply(chatKey, '（当前没有在跑的任务）', replyTo); return; }
-          run.killed = true;
-          killTree(run.child?.pid);
-          await reply(chatKey, '已发送中断。', replyTo);
+          await cmdStop(bridge, parsed, chatKey, replyTo);
           return;
         }
 
@@ -982,106 +1109,7 @@ export function createAgentBridges({ getConfig, sender, log = console.log, emit 
 
         if (!task) { await reply(chatKey, `用法：${bridge.prefix} <任务>（发「${bridge.prefix} 帮助」看全部）`, replyTo); return; }
 
-        const outFile = path.join(os.tmpdir(), `qq-agent-bridge-${process.pid}-${Date.now()}.txt`);
-        const rec = readSession(bridge, skey);
-        const sessionId = parsed.kind === 'new' ? '' : (rec?.sessionId || '');
-        const startedAt = Date.now();
-        // 交接一致性检查：跑之前的 patch 数量 + 有效工作目录
-        const effDir = rec?.workdir || bridge.workdir || ROOT;
-        const patchBefore = countPatchFiles(bridge.patchDir);
-
-        // 先给个"收到"，否则一次十分钟的任务在前几分钟里完全没有反馈
-        const showAck = bridge.showProgress === 'all' || (bridge.showProgress === 'private' && kind === 'private');
-        if (showAck) await reply(chatKey, `⏳ 已交给 ${bridge.label}，执行中…（发「${bridge.prefix} 停」可中断）`, replyTo);
-
-        const holder = { child: null, killed: false, startedAt };
-        // 先占位再 spawn：并发进来的第二条会被"上一个还在跑"挡住
-        running.set(key, holder);
-        let newSession = '';
-        const result = await runOnce(bridge, {
-          task: bridge.injectTime ? `【当前时间】${nowStamp()}\n\n${task}` : task,
-          sessionId,
-          model: rec?.model || '',
-          workdir: rec?.workdir || '',
-          outFile,
-          onSpawn: (child) => { holder.child = child; },
-          onLine: (line) => { const id = extractSessionId(line); if (id) newSession = id; }
-        });
-        running.delete(key);
-
-        if (result.spawnError) {
-          try { fs.rmSync(outFile, { force: true }); } catch { /* ignore */ }
-          const tips = explainFailure({ spawnError: result.spawnError });
-          await reply(chatKey, [`❌ ${bridge.label} 启动失败：${result.spawnError}`,
-            tips.length ? `\n可能原因：\n- ${tips.join('\n- ')}` : ''].filter(Boolean).join(''), replyTo);
-          return;
-        }
-        if (bridge.resume === 'id' && newSession) writeSession(bridge, skey, newSession);
-        // resume='last' 不自带 id：跑成功一次就记个占位，下一条才会走 --last 模板
-        else if (bridge.resume === 'last' && result.code === 0) writeSession(bridge, skey, '--last');
-
-        // ⚠️ 先取答案再删临时文件 —— 反过来会把 last-message 模式的文件删掉，
-        //    于是永远退到 jsonl 兜底（实测踩过，表现为"答案能出但来源不对"）。
-        const { answer, from } = pickAnswer(bridge, result);
-        try { fs.rmSync(outFile, { force: true }); } catch { /* ignore */ }
-        const cost = ((Date.now() - startedAt) / 1000).toFixed(1);
-        if (answer) {
-          const head = bridge.replyPrefix || '';
-          // 截断必须显式告知（项目纪律）：超时中断、事件流超上限，都要写进回发内容
-          const tail = (result.killed ? `\n（已超时中断，耗时 ${cost}s，以上是中断前的输出）` : '')
-            + (result.stdoutTruncated ? '\n（事件流超过 2MB 已截断，以上为读到的部分）' : '');
-
-          // 发文件：把正文里的 [[file: 路径]] 抠出来，逐个校验后上传。
-          // 失败原因挂在正文末尾，绝不静默丢（项目纪律：任何失败都要如实告知）。
-          let body = answer;
-          const notes = [];
-          if (bridge.sendFiles) {
-            const marks = extractFileMarks(answer);
-            body = marks.body;
-            const list = marks.paths.slice(0, bridge.maxFilesPerReply);
-            if (marks.paths.length > list.length) {
-              notes.push(`（另有 ${marks.paths.length - list.length} 个文件未发：单条最多 ${bridge.maxFilesPerReply} 个）`);
-            }
-            for (const raw of list) {
-              const picked = resolveOutgoing(raw, bridge);
-              if (picked.error) { notes.push(`⚠️ 未发送「${raw}」：${picked.error}`); continue; }
-              try {
-                await sender.sendFile(chatKey, { path: picked.path }, { name: picked.name });
-              } catch (e) {
-                notes.push(`⚠️ 发送失败「${picked.name}」：${e?.message ?? e}`);
-              }
-            }
-          }
-
-          // 交接一致性：改了工作树却没产出 patch，就在回复里提醒（比靠模型自觉可靠）
-          if (bridge.patchDir && !result.killed) {
-            const warn = patchDisciplineWarning({
-              dirty: await isGitDirty(effDir),
-              newPatches: countPatchFiles(bridge.patchDir) - patchBefore,
-              patchDir: bridge.patchDir
-            });
-            if (warn) notes.push(warn);
-          }
-
-          // 429 被 CLI 当成正常答案返回，识别出来补一句，别让用户以为桥坏了
-          const qh = quotaHint(body, bridge.prefix);
-          if (qh) notes.push(`⚠️ ${qh}`);
-
-          const text = [head + body, notes.join('\n'), tail].filter((x) => String(x || '').trim()).join('\n');
-          if (text) await reply(chatKey, text, replyTo, { promptText: digest(body || answer, bridge.resultPromptChars) });
-          if (!result.killed) log(`[bridge] ${bridge.id} 完成，${cost}s，来源=${from}`);
-          return;
-        }
-
-        // 没有答案就如实说，不许静默丢弃
-        const stderrTail = String(result.stderr || '').trim().slice(-STDERR_TAIL);
-        const tips = explainFailure({ stderr: result.stderr, stdout: result.stdout });
-        await reply(chatKey, [
-          `❌ ${bridge.label} 没有返回内容（exit ${result.code}，耗时 ${cost}s）`,
-          result.killed ? '（已按超时中断）' : '',
-          stderrTail ? `错误输出末尾：\n${stderrTail}` : '（没有 stderr 输出，检查命令参数与登录态）',
-          tips.length ? `可能原因：\n- ${tips.join('\n- ')}` : ''
-        ].filter(Boolean).join('\n'), replyTo);
+        await runTask(bridge, parsed, chatKey, replyTo, task, skey, kind, key);
       } catch (error) {
         log(`[bridge] ${bridge.id} 执行异常：${error?.message ?? error}`);
         await reply(chatKey, `❌ ${bridge.label} 执行异常：${error?.message ?? error}`, replyTo);
