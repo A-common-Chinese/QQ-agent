@@ -8,12 +8,16 @@ const ROOT = path.resolve('src');
 const FILE = path.join(ROOT, 'routes.js');
 const src = fs.readFileSync(FILE, 'utf8');
 const lines = src.split('\n');
+const srcText = src;
 
 // ── 1. 找域标记 ────────────────────────────────────────────
 const marks = [];
 lines.forEach((l, i) => { if (/^    \/\/ ── /.test(l)) marks.push(i); });
 const tail = lines.findIndex((l, i) => i > marks.at(-1) && l.trim() === '];');
 if (tail < 0) throw new Error('找不到 return [ ... ]; 的结尾');
+
+const retIdx = lines.findIndex((l, i) => i > 80 && l.trim() === 'return [');
+const lastImport = lines.reduce((acc, l, i) => (l.startsWith('import ') ? i : acc), 0);
 
 const sections = marks.map((start, k) => ({
   start,
@@ -79,7 +83,19 @@ for (const block of importText) {
   }
 }
 
-const helperNames = ['conn', 'copyAfterUnlink', 'bodyOf', 'skillRuntimeContext', 'parseSectionsQuery'];
+// 局部辅助函数有两类，都必须进 C，否则模块里 ReferenceError：
+//   1) createRoutes 内部、缩进正好 2 空格的 function/const（如 bodyOf）
+//   2) 模块级、顶格定义的 function/const（如 ensureSharedPresets，定义在 createRoutes 之后）
+// 只认这两档缩进，避免把函数体里的局部变量（names/picked/stats…）也收进来。
+const createStart = lines.findIndex((l) => l.startsWith('export function createRoutes'));
+const createBody = lines.slice(createStart + 1, retIdx).join('\n');
+const inCreate = [...createBody.matchAll(/^  (?:function|const|let)\s+([A-Za-z_$][\w$]*)/gm)].map((m) => m[1]);
+const topLevel = [...srcText.matchAll(/^(?:function|const|let)\s+([A-Za-z_$][\w$]*)/gm)]
+  .map((m) => m[1])
+  .filter((n) => n !== 'createRoutes');
+const localNames = [...new Set([...inCreate, ...topLevel])]
+  .filter((n) => !depNames.includes(n) && !importNames.includes(n));
+const helperNames = [...new Set(['conn', 'copyAfterUnlink', 'bodyOf', 'skillRuntimeContext', 'parseSectionsQuery', ...localNames])];
 const master = [...new Set([...depNames, ...importNames, ...helperNames, 'deps'])];
 
 // ── 4. 生成模块 ────────────────────────────────────────────
@@ -156,8 +172,6 @@ ${blocks.join('\n')}
 }
 
 // ── 5. 改写 routes.js ──────────────────────────────────────
-const retIdx = lines.findIndex((l, i) => i > 80 && l.trim() === 'return [');
-const lastImport = lines.reduce((acc, l, i) => (l.startsWith('import ') ? i : acc), 0);
 const top = lines.slice(0, lastImport + 1);
 const head = lines.slice(lastImport + 1, retIdx);
 // 去掉原 return [ 与 ]; 之间的内容
@@ -177,8 +191,7 @@ const newFile = [
   '  const C = {',
   '    deps,          // 路由体里有直接 deps.xxx() 的写法，必须带上原对象',
   '    ...deps,',
-  '    conn, copyAfterUnlink, bodyOf, skillRuntimeContext, parseSectionsQuery,',
-  `    ${master.filter((n) => importNames.includes(n)).join(', ')}`,
+  `    ${[...new Set([...helperNames, ...importNames])].join(', ')}`,
   '  };',
   '',
   calls,

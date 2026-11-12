@@ -73,6 +73,7 @@ export function memoryRoutes(C) {
     conn,
     copyAfterUnlink,
     bodyOf,
+    ensureSharedPresets,
     deps
   } = C;
 
