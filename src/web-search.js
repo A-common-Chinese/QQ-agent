@@ -8,6 +8,13 @@
 import { getConfig } from './config.js';
 import { safeFetch } from './safe-fetch.js';
 
+let warnedNoSearchKey = false;
+
+/** 当前配置的搜索模型名（只用于提示文案） */
+function cfgDeepseekModel() {
+  try { return String(getConfig().webSearch?.deepseek?.model || 'deepseek-v4-flash'); } catch { return 'deepseek-v4-flash'; }
+}
+
 /** 查询词清洗：去 CQ 码、控制字符、超长截断。 */
 export function sanitizeQuery(query) {
   return String(query ?? '')
@@ -111,7 +118,35 @@ export async function webSearch(query) {
   if (!clean) throw new Error('查询词为空');
   const cfg = getConfig().webSearch ?? {};
   const provider = String(cfg.provider || 'bing').toLowerCase();
-  if (provider === 'deepseek') return deepSeekSearch(clean);
+  if (provider === 'deepseek') {
+    // C 方案兜底：没配 Key 时不要抛错让模型干等，直接用 Bing 搜，
+    // 并在结果里注明来源，免得用户以为用的是 DeepSeek 原生搜索。
+    const { key } = resolveSearchKey(getConfig());
+    if (!key) {
+      if (!warnedNoSearchKey) {
+        warnedNoSearchKey = true;
+        console.warn('[search] DeepSeek 搜索没有可用 Key，已自动回退 Bing（在设置里填 Key 或复用对话 Key 可恢复）');
+      }
+      const r = await bingSearch(clean);
+      return { ...r, note: 'DeepSeek 搜索未配置 Key，本次已回退 Bing' };
+    }
+    let r = null;
+    try {
+      r = await deepSeekSearch(clean);
+    } catch { r = null; }
+    // 模型选了不支持 web_search 的（如 v4-flash）：接口 200 但一次没搜，
+    // 不报错、不花钱、答案却是瞎编的 —— 必须识别出来回退 Bing。
+    if (!r || !(r.usage?.searches > 0)) {
+      const b = await bingSearch(clean);
+      return {
+        ...b,
+        note: r
+          ? `DeepSeek 搜索未实际执行（模型 ${cfgDeepseekModel()} 可能不支持 web_search），本次回退 Bing`
+          : 'DeepSeek 搜索调用失败，本次回退 Bing'
+      };
+    }
+    return r;
+  }
   if (provider === 'zhipu') return zhipuSearch(clean);
   if (provider === 'bocha') return bochaSearch(clean);
   if (provider === 'baidu') return baiduSearch(clean);
@@ -130,10 +165,44 @@ export async function webSearch(query) {
  * 搜索结果生成的最终回答；URL/标题/摘要为黑盒，拿不到结构化来源。适合
  * “只要能搜到并总结”的场景；需要引用列表时请用 Bing / 其他搜索 API。
  */
+/**
+ * 对话用的 Key（与 llm.resolveApiKey 同规则）。
+ * 这里不 import llm.js：搜索路径要保持轻，否则会把 skills/manager 一起串进来。
+ */
+export function resolveChatKey(cfg) {
+  const pid = String(cfg?.api?.provider ?? '').trim();
+  if (pid) {
+    const fromDsh = String(cfg?.dshProviderKeys?.[pid] ?? '').trim();
+    if (fromDsh && fromDsh !== '******') return fromDsh;
+    const p = (cfg?.providers || []).find((x) => x.id === pid);
+    const legacy = String(p?.apiKey ?? '').trim();
+    if (legacy && legacy !== '******') return legacy;
+  }
+  const direct = String(cfg?.api?.apiKey ?? '').trim();
+  return direct === '******' ? '' : direct;
+}
+
+/**
+ * 搜索 Key 的取用顺序：
+ *   1. 搜索专用 Key（设置页那一栏）
+ *   2. 环境变量 DEEPSEEK_API_KEY
+ *   3. **复用对话模型的 Key**（同一账号通常同一个，省得填两遍）
+ * 返回 source 便于日志里说清"这次用的是哪把钥匙"。
+ */
+export function resolveSearchKey(cfg = getConfig(), env = process.env) {
+  const own = String(cfg?.webSearch?.deepseek?.apiKey ?? '').trim();
+  if (own && own !== '******') return { key: own, source: 'search' };
+  const envKey = String(env?.DEEPSEEK_API_KEY ?? '').trim();
+  if (envKey) return { key: envKey, source: 'env' };
+  const chat = String(resolveChatKey(cfg) ?? '').trim();
+  if (chat) return { key: chat, source: 'chat' };
+  return { key: '', source: '' };
+}
+
 export async function deepSeekSearch(query) {
   const cfg = getConfig().webSearch?.deepseek ?? {};
-  const apiKey = String(cfg.apiKey || process.env.DEEPSEEK_API_KEY || '').trim();
-  if (!apiKey) throw new Error('DeepSeek 搜索需要 API Key（设置里填，或环境变量 DEEPSEEK_API_KEY）');
+  const { key: apiKey } = resolveSearchKey(getConfig());
+  if (!apiKey) throw new Error('DeepSeek 搜索没有可用 Key（设置里填、设环境变量 DEEPSEEK_API_KEY，或给对话模型配一把）');
   const baseUrl = String(cfg.baseUrl || 'https://api.deepseek.com/responses').replace(/\/+$/, '');
   const model = String(cfg.model || 'deepseek-v4-flash');
 
@@ -156,15 +225,18 @@ export async function deepSeekSearch(query) {
     throw new Error(`DeepSeek 搜索 HTTP ${res.status}：${text.slice(0, 300)}`);
   }
   const data = await res.json().catch(() => { throw new Error('DeepSeek 搜索返回了无法解析的 JSON'); });
+  // server_tool_use 是官方计费口径：tool_search / tool_fetch 就是"成功次数"
+  const su = data?.usage?.server_tool_use ?? {};
+  const usage = { searches: Number(su.tool_search) || 0, fetches: Number(su.tool_fetch) || 0 };
   const outputText = String(data?.output_text ?? '').trim();
   if (!outputText) {
     // 兼容不同字段位置
     const alt = data?.output?.find?.((item) => item?.type === 'message' && item?.content?.length)
       ?.content?.map((c) => c?.text ?? '').join('') ?? '';
     if (!alt) throw new Error('DeepSeek 搜索没有返回文本（可能是模型不支持 web_search 工具）');
-    return { query, results: [{ title: 'DeepSeek 搜索', url: '', snippet: alt }] };
+    return { query, results: [{ title: 'DeepSeek 搜索', url: '', snippet: alt }], usage };
   }
-  return { query, results: [{ title: 'DeepSeek 搜索', url: '', snippet: outputText }] };
+  return { query, results: [{ title: 'DeepSeek 搜索', url: '', snippet: outputText }], usage };
 }
 
 /** 抓取网页正文（走 safe-fetch 的 SSRF 全防护）。

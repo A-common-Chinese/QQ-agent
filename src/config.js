@@ -207,7 +207,7 @@ export const DEFAULT_CONFIG = {
     deepseek: {
       apiKey: '',                     // 留空时回退环境变量 DEEPSEEK_API_KEY
       baseUrl: 'https://api.deepseek.com/responses',
-      model: 'deepseek-v4-flash',     // Responses API 模型名：deepseek-v4-flash / deepseek-v4-pro
+      model: 'deepseek-v4-pro',       // 必须用 pro：flash 会静默忽略 web_search（实测 200 但一次没搜）
       timeoutMs: 60000
     },
     zhipu: {

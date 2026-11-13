@@ -474,7 +474,7 @@ function renderSearchSection(c) {
           <button class="btn btn-small" id="cfg-ds-searchkey-toggle" type="button">显示</button>
           <button class="btn btn-small btn-danger" id="cfg-ds-searchkey-clear" type="button" title="清除已保存的 API Key（留空保存并不会清除，必须点这个按钮）">清除密钥</button>
         </div></div>
-      <div class="field"><label>模型</label><input type="text" id="cfg-ds-searchmodel" value="${esc(c.webSearch?.deepseek?.model || 'deepseek-v4-flash')}" /></div>
+      <div class="field"><label>模型</label><input type="text" id="cfg-ds-searchmodel" value="${esc(c.webSearch?.deepseek?.model || 'deepseek-v4-pro')}" /></div>
     </div>
     <div class="field-row" id="zhipu-search-fields" style="${prov === 'zhipu' ? '' : 'display:none'}">
       <div class="field"><label>智谱 API Key（留空用环境变量 ZHIPU_API_KEY）</label>
