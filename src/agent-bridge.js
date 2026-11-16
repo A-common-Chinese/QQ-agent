@@ -25,7 +25,7 @@ import { getPrivacyFilter, privacyBlockedReply } from './privacy.js';
 import { DATA_DIR, ROOT } from './config.js';
 import { createStateStore, stripLeadingAt, sessionKeyFor as coreSessionKeyFor, killTree } from './bridge-core.js';
 
-const STATE_BASENAME = 'agent-bridges.json';
+const STATE_BASENAME = 'bridge-state.json';
 const STDOUT_CAP = 2 * 1024 * 1024;   // 事件流上限，防止异常进程把内存吃爆
 const STDERR_TAIL = 1500;
 const DEFAULT_PREFIX = '/agent';
@@ -33,7 +33,13 @@ const DEFAULT_PREFIX = '/agent';
 /** 会话 id 探测：兼容 codex 的 thread_id、其它 CLI 的 session_id / sessionId */
 const SESSION_ID_RE = /"(?:thread_id|session_id|sessionId)"\s*:\s*"([0-9A-Za-z_-]{6,})"/;
 
-const stateStore = createStateStore({ basename: STATE_BASENAME, tag: '[bridge]' });
+// 附件化后：与 DSH 桥共用 bridge-state.json，本桥读写 attachments 段。
+const stateStore = createStateStore({
+  basename: STATE_BASENAME,
+  section: 'attachments',
+  legacy: ['agent-bridges.json'],
+  tag: '[bridge]'
+});
 
 function stateFile() {
   return stateStore.file();

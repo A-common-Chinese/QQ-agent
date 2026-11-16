@@ -28,10 +28,17 @@ const DEFAULT_EXE = 'C:\\Users\\noapi\\AppData\\Local\\Programs\\DeepSeek Harnes
 /** 与 exe 同级的 asar 内 CLI 入口（dsh.cmd 里那一行是唯一样本）。 */
 const CLI_REL = ['resources', 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js'];
 const DEFAULT_PREFIX = '/dsh';
-const STATE_BASENAME = 'dsh-sessions.json';
+const STATE_BASENAME = 'bridge-state.json';
 const STDERR_TAIL_CHARS = 1500;
 
-const stateStore = createStateStore({ basename: STATE_BASENAME, tag: '[dsh]' });
+// 附件化后：两座桥共用 bridge-state.json，各读写自己的 section。
+// 旧的 dsh-sessions.json 会在读到时自动迁移（旧文件保留）。
+const stateStore = createStateStore({
+  basename: STATE_BASENAME,
+  section: 'dsh',
+  legacy: ['dsh-sessions.json'],
+  tag: '[dsh]'
+});
 
 /** 会话记录落盘路径（放在 DATA_DIR 下，跟随 PROFILE / QQ_AGENT_DATA_DIR）。 */
 function stateFile() {

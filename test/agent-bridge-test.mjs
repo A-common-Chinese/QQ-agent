@@ -25,6 +25,14 @@ const check = (name, cond, extra = '') => {
 };
 
 // ── stub CLI ──────────────────────────────────────────────────────────
+const readAttachmentsState = () => {
+  try {
+    const all = JSON.parse(fs.readFileSync(path.join(process.env.QQ_AGENT_DATA_DIR, 'bridge-state.json'), 'utf8'));
+    return all && typeof all.attachments === 'object' ? all.attachments : {};
+  } catch {
+    return {};
+  }
+};
 const stub = path.join(TMP, 'stub-cli.mjs');
 fs.writeFileSync(stub, `import fs from 'node:fs';
 const argv = process.argv.slice(2);
@@ -129,7 +137,7 @@ console.log('\n[端到端]');
 check('认领 /codex', bridges.handle('private:1001', { text: '/codex 你好', senderId: '1001', mid: 1 }, { atMe: false, kind: 'private' }) === true);
 await bridges.awaitIdle();
 check('拿到答案', sent.at(-1)?.text === '收到：你好', JSON.stringify(sent.at(-1)));
-check('会话 id 已落盘', JSON.parse(fs.readFileSync(path.join(process.env.QQ_AGENT_DATA_DIR, 'agent-bridges.json'), 'utf8')).codex?.['private:1001']?.sessionId === 'stub-thread-0001');
+check('会话 id 已落盘', readAttachmentsState().codex?.['private:1001']?.sessionId === 'stub-thread-0001');
 
 sent.length = 0;
 bridges.handle('private:1001', { text: '/codex 第二句', senderId: '1001', mid: 2 }, { atMe: false, kind: 'private' });
@@ -221,7 +229,7 @@ check('「停」提示已发送中断', sent.some((x) => /已发送中断/.test(
   uiBridges.handle('private:1001', { text: '/wb 对话 3', senderId: '1001', mid: 21 }, { atMe: false, kind: 'private' });
   await uiBridges.awaitIdle();
   check('按序号切到较早那个', /已切到会话/.test(sent.at(-1)?.text || ''), sent.at(-1)?.text);
-  check('会话 id 已落盘', JSON.parse(fs.readFileSync(path.join(process.env.QQ_AGENT_DATA_DIR, 'agent-bridges.json'), 'utf8')).codex?.['private:1001']?.sessionId === 'aaaaaaaa-1111-2222-3333-444444444444');
+  check('会话 id 已落盘', readAttachmentsState().codex?.['private:1001']?.sessionId === 'aaaaaaaa-1111-2222-3333-444444444444');
 
   // 关键词筛：先给候选，不直接切
   sent.length = 0;
@@ -233,7 +241,7 @@ check('「停」提示已发送中断', sent.some((x) => /已发送中断/.test(
   sent.length = 0;
   uiBridges.handle('private:1001', { text: '/wb 对话 cccccccc', senderId: '1001', mid: 26 }, { atMe: false, kind: 'private' });
   await uiBridges.awaitIdle();
-  const st2 = JSON.parse(fs.readFileSync(path.join(process.env.QQ_AGENT_DATA_DIR, 'agent-bridges.json'), 'utf8')).codex?.['private:1001'];
+  const st2 = readAttachmentsState().codex?.['private:1001'];
   check('跨项目切换：会话已落盘', st2?.sessionId === 'cccccccc-1111-2222-3333-444444444444', JSON.stringify(st2));
   check('跨项目切换：工作目录跟着切', st2?.workdir === 'C:\\Users\\noapi\\WtHud', JSON.stringify(st2));
 
@@ -246,7 +254,7 @@ check('「停」提示已发送中断', sent.some((x) => /已发送中断/.test(
   uiBridges.handle('private:1001', { text: '/wb 模型 2', senderId: '1001', mid: 23 }, { atMe: false, kind: 'private' });
   await uiBridges.awaitIdle();
   check('按序号切模型', /已切到 glm-5\.3/.test(sent.at(-1)?.text || ''), sent.at(-1)?.text);
-  check('模型已落盘', JSON.parse(fs.readFileSync(path.join(process.env.QQ_AGENT_DATA_DIR, 'agent-bridges.json'), 'utf8')).codex?.['private:1001']?.model === 'glm-5.3');
+  check('模型已落盘', readAttachmentsState().codex?.['private:1001']?.model === 'glm-5.3');
 
   sent.length = 0;
   uiBridges.handle('private:1001', { text: '/wb 模型 不存在的', senderId: '1001', mid: 24 }, { atMe: false, kind: 'private' });
@@ -257,7 +265,7 @@ check('「停」提示已发送中断', sent.some((x) => /已发送中断/.test(
   sent.length = 0;
   uiBridges.handle('private:1001', { text: '/wb 新', senderId: '1001', mid: 27 }, { atMe: false, kind: 'private' });
   await uiBridges.awaitIdle();
-  const stAfterNew = JSON.parse(fs.readFileSync(path.join(process.env.QQ_AGENT_DATA_DIR, 'agent-bridges.json'), 'utf8')).codex?.['private:1001'];
+  const stAfterNew = readAttachmentsState().codex?.['private:1001'];
   check('新会话清掉 sessionId', !stAfterNew?.sessionId, JSON.stringify(stAfterNew));
   check('新会话保留模型选择', stAfterNew?.model === 'glm-5.3', JSON.stringify(stAfterNew));
   check('新会话清掉目录覆盖', !stAfterNew?.workdir, JSON.stringify(stAfterNew));
@@ -290,13 +298,13 @@ check('正常回答不误报', quotaHint('我把文件改好了') === '');
 // ── 状态写入：原子性 / 无残留 ────────────────────────────────
 {
   const dataDir = process.env.QQ_AGENT_DATA_DIR;
-  const statePath = path.join(dataDir, 'agent-bridges.json');
+  const statePath = path.join(dataDir, 'bridge-state.json');
   // 前面多轮测试已经写过若干次状态；这里检查文件仍可解析、且没留下 .tmp
   const raw = fs.readFileSync(statePath, 'utf8');
   let parsed = null;
   try { parsed = JSON.parse(raw); } catch { /* 下面断言会失败 */ }
   check('状态文件是完整 JSON', parsed !== null && typeof parsed === 'object');
-  const leftovers = fs.readdirSync(dataDir).filter((n) => n.includes('agent-bridges') && n.endsWith('.tmp'));
+  const leftovers = fs.readdirSync(dataDir).filter((n) => n.includes('bridge-state') && n.endsWith('.tmp'));
   check('写入后没有残留 .tmp', leftovers.length === 0, JSON.stringify(leftovers));
 
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));

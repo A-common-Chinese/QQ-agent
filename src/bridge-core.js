@@ -1,4 +1,4 @@
-// 两座桥（/dsh 与通用 Agent 桥）共用的底座。
+// 两座桥（/dsh 与附件 Agent 桥）共用的底座。
 //
 // 抽取原则：只搬**逻辑完全一致**、且不涉及各自协议细节的部分。
 // 不碰的部分：命令解析（前缀/别名各不相同）、runOnce（一个走 asar+ELECTRON_RUN_AS_NODE，
@@ -19,33 +19,78 @@ import { DATA_DIR } from './config.js';
  * 会话状态存储：一个 basename 一个文件，读坏/读不到都当空对象。
  * 写用「tmp → rename」原子替换：崩在写 tmp 中途时旧文件仍完整。
  *
- * @param {{ basename: string, tag?: string }} opts tag 用于失败日志前缀（如 '[dsh]'）
+ * 附件化改造后支持分区：
+ *   createStateStore({ basename: 'bridge-state.json', section: 'dsh' })
+ *   → 文件形如 { "dsh": {...}, "attachments": {...} }，各桥只读写自己的 section，
+ *     写入时先读全文件再只替换自己的段（避免把别的桥的段覆盖掉）。
+ *   legacy: ['dsh-sessions.json'] → section 还没有时自动从旧文件迁移（只读旧文件）。
+ *
+ * @param {{ basename: string, tag?: string, section?: string, legacy?: string[] }} opts
  */
-export function createStateStore({ basename, tag = '[bridge]' }) {
+export function createStateStore({ basename, tag = '[bridge]', section = '', legacy = [] }) {
   const file = () => path.join(DATA_DIR, String(basename));
+  const legacyFile = (name) => path.join(DATA_DIR, String(name));
+  const sec = String(section || '');
 
-  function load() {
+  function readJson(target) {
     try {
-      const raw = fs.readFileSync(file(), 'utf8').replace(/^\uFEFF/, '');
+      const raw = fs.readFileSync(target, 'utf8').replace(/^\uFEFF/, '');
       const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? parsed : {};
+      return parsed && typeof parsed === 'object' ? parsed : null;
     } catch {
-      return {};
+      return null;
     }
   }
 
-  function save(state) {
+  function writeAll(state) {
     const target = file();
     const tmp = `${target}.${process.pid}.tmp`;
     try {
       fs.mkdirSync(DATA_DIR, { recursive: true });
       fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
       fs.renameSync(tmp, target);
+      return true;
     } catch (error) {
       try { fs.rmSync(tmp, { force: true }); } catch { /* 清不掉就算了 */ }
       // 存不下会话 id 只影响"下次能不能续跑"，不影响本轮
       console.warn(`${tag} 会话记录写入失败:`, error?.message ?? error);
+      return false;
     }
+  }
+
+  function readAll() {
+    return readJson(file()) || {};
+  }
+
+  /** 旧文件 → 新 section（只读旧文件，旧文件保留可回滚）。 */
+  function migrateLegacy() {
+    if (!sec) return {};
+    for (const name of (Array.isArray(legacy) ? legacy : [])) {
+      const old = readJson(legacyFile(name));
+      if (!old || !Object.keys(old).length) continue;
+      const all = readAll();
+      all[sec] = old;
+      writeAll(all);
+      return old;
+    }
+    return {};
+  }
+
+  function load() {
+    if (!sec) return readAll();
+    const all = readAll();
+    if (all[sec] && typeof all[sec] === 'object') return all[sec];
+    return migrateLegacy();
+  }
+
+  function save(state) {
+    if (!sec) {
+      writeAll(state);
+      return;
+    }
+    const all = readAll();
+    all[sec] = state;
+    writeAll(all);
   }
 
   return { file, load, save };

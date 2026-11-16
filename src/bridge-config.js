@@ -25,11 +25,40 @@ export function resolveAttachmentBridges(config = {}) {
   const migratedFrom = useExplicit ? null : (legacy.length ? 'agentBridges' : null);
   const dshPrefix = String(dsh.prefix || '/dsh').trim() || '/dsh';
 
+  /** 附件没写的策略字段继承主桥；显式写了的（包括空白名单）不继承。 */
+  function inheritFromDsh(raw) {
+    const r = raw && typeof raw === 'object' ? { ...raw } : {};
+    const inherited = [];
+    if (!Array.isArray(r.allowedSenderIds) || r.allowedSenderIds.length === 0) {
+      if (Array.isArray(dsh.allowedSenderIds) && dsh.allowedSenderIds.length) {
+        r.allowedSenderIds = dsh.allowedSenderIds.map(String);
+        inherited.push('allowedSenderIds');
+      }
+    }
+    if (r.requireMentionInGroup === undefined && dsh.requireMentionInGroup !== undefined) {
+      r.requireMentionInGroup = dsh.requireMentionInGroup !== false;
+      inherited.push('requireMentionInGroup');
+    }
+    if (r.timeoutMs === undefined && Number(dsh.timeoutMs) > 0) {
+      r.timeoutMs = dsh.timeoutMs;
+      inherited.push('timeoutMs');
+    }
+    if (r.showProgress === undefined && dsh.showProgress) {
+      r.showProgress = dsh.showProgress;
+      inherited.push('showProgress');
+    }
+    if (r.resultPromptChars === undefined && dsh.resultPromptChars !== undefined) {
+      r.resultPromptChars = dsh.resultPromptChars;
+      inherited.push('resultPromptChars');
+    }
+    return { raw: r, inherited };
+  }
+
   const seen = new Map([[dshPrefix.toLowerCase(), 'dsh 主桥']]);
   const list = [];
   for (let i = 0; i < source.length; i += 1) {
-    const raw = source[i];
-    const b = normalizeBridge(raw, i);
+    const { raw: mergedRaw, inherited } = inheritFromDsh(source[i]);
+    const b = normalizeBridge(mergedRaw, i);
     let disabledReason = '';
     const prefix = String(b.prefix || '');
     if (!prefix.startsWith('/')) {
@@ -43,6 +72,7 @@ export function resolveAttachmentBridges(config = {}) {
       // 冲突时即使配了 enabled 也不生效，但保留原值方便 UI 显示
       enabled: b.enabled === true && !disabledReason,
       disabledReason,
+      inherited: inherited.slice(),
       source: useExplicit ? 'dsh.attachments' : 'agentBridges'
     });
   }

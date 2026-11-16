@@ -47,6 +47,49 @@ check('附件之间重名前缀被禁用', conflict.attachmentBridges[2].enabled
 check('无冲突项仍启用', conflict.attachmentBridges[1].enabled === true);
 check('前缀不带 / 被禁用', resolveAttachmentBridges({ dsh: { attachments: [{ id: 'x', prefix: 'wb', enabled: true, cmd: 'x' }] } }).attachmentBridges[0].enabled === false);
 
+// ── 附件继承主桥策略 ──
+const inherited = resolveAttachmentBridges({
+  dsh: {
+    prefix: '/dsh', allowedSenderIds: ['10001'], requireMentionInGroup: true,
+    timeoutMs: 12345, showProgress: 'all', resultPromptChars: 50,
+    attachments: [{ id: 'wb', prefix: '/wb', enabled: true, cmd: 'x' }]
+  }
+});
+const inh = inherited.attachmentBridges[0];
+check('继承主桥白名单', JSON.stringify(inh.allowedSenderIds) === JSON.stringify(['10001']));
+check('继承群聊 @ 要求', inh.requireMentionInGroup === true);
+check('继承超时', inh.timeoutMs === 12345);
+check('继承进度设置', inh.showProgress === 'all');
+check('继承结果摘要字数', inh.resultPromptChars === 50);
+check('标记继承来源', inh.inherited.includes('allowedSenderIds') && inh.inherited.includes('timeoutMs'));
+
+const overridden = resolveAttachmentBridges({
+  dsh: {
+    prefix: '/dsh', allowedSenderIds: ['10001'], requireMentionInGroup: true, timeoutMs: 12345,
+    attachments: [{ id: 'wb', prefix: '/wb', enabled: true, cmd: 'x',
+      allowedSenderIds: ['20002'], requireMentionInGroup: false, timeoutMs: 15000 }]
+  }
+}).attachmentBridges[0];
+check('显式白名单覆盖主桥', JSON.stringify(overridden.allowedSenderIds) === JSON.stringify(['20002']));
+check('显式 @ 策略覆盖主桥', overridden.requireMentionInGroup === false);
+check('显式超时覆盖主桥', overridden.timeoutMs === 15000);
+check('空白名单仍继承主桥', JSON.stringify(resolveAttachmentBridges({
+  dsh: { prefix: '/dsh', allowedSenderIds: ['10001'], attachments: [{ id: 'wb', prefix: '/wb', enabled: true, cmd: 'x', allowedSenderIds: [] }] }
+}).attachmentBridges[0].allowedSenderIds) === JSON.stringify(['10001']));
+
+// ── 状态文件合并 + 旧文件迁移 ──
+const { createStateStore } = await import(pathToFileURL(path.join(ROOT, 'src', 'bridge-core.js')).href);
+fs.writeFileSync(path.join(DATA, 'dsh-sessions.json'), JSON.stringify({ 'group:1': { sessionId: 'dsh-old' } }), 'utf8');
+fs.writeFileSync(path.join(DATA, 'agent-bridges.json'), JSON.stringify({ wb: { 'private:1': { sessionId: 'wb-old' } } }), 'utf8');
+const dshStore = createStateStore({ basename: 'bridge-state.json', section: 'dsh', legacy: ['dsh-sessions.json'] });
+const attachStore = createStateStore({ basename: 'bridge-state.json', section: 'attachments', legacy: ['agent-bridges.json'] });
+check('dsh 旧文件自动迁移', dshStore.load()['group:1']?.sessionId === 'dsh-old');
+check('附件旧文件自动迁移', attachStore.load().wb?.['private:1']?.sessionId === 'wb-old');
+attachStore.save({ wb: { 'private:1': { sessionId: 'wb-new' } } });
+const merged = JSON.parse(fs.readFileSync(path.join(DATA, 'bridge-state.json'), 'utf8'));
+check('两个 section 共存', merged.dsh?.['group:1']?.sessionId === 'dsh-old' && merged.attachments?.wb?.['private:1']?.sessionId === 'wb-new');
+check('旧文件保留（可回滚）', fs.existsSync(path.join(DATA, 'dsh-sessions.json')) && fs.existsSync(path.join(DATA, 'agent-bridges.json')));
+
 // ── /dsh 状态列出附件 ──
 const sent = [];
 const bridge = createDshBridge({

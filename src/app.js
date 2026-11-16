@@ -17,9 +17,7 @@ import { ensureGroupCard, ensurePersonCard, purgeHiddenPersons } from './memory-
 import { MemoryStore } from './memory.js';
 import { StickerManager } from './sticker-manager.js';
 import { SendQueue } from './sender.js';
-import { createDshBridge } from './dsh-bridge.js';
-import { createAgentBridges } from './agent-bridge.js';
-import { resolveAttachmentBridges } from './bridge-config.js';
+import { createBridges } from './bridges.js';
 import { SessionRegistry } from './sessions.js';
 import { Orchestrator } from './orchestrator.js';
 import { maybeSilentAt } from './silent-at.js';
@@ -719,30 +717,9 @@ export function createApp({ log = console.log } = {}) {
   });
   const reminders = new ReminderStore();
   const videoReader = new VideoReader(onebot, transport);
-  // DSH 桥：/dsh 前缀命令绕过大模型，直接交给本机 dsh headless（详见 src/dsh-bridge.js）
-  // 附件桥（第 1 步）：/wb、/codex 仍在 agent-bridge 里执行，但配置统一从 dsh.attachments
-  // 解析（为空时自动迁移旧 agentBridges）。getConfig 包一层，执行逻辑零改动。
-  let bridgeCfgRaw = null;
-  let bridgeCfgView = null;
-  const bridgeConfig = () => {
-    const raw = getConfig();
-    if (raw !== bridgeCfgRaw) {
-      const resolved = resolveAttachmentBridges(raw);
-      bridgeCfgRaw = raw;
-      bridgeCfgView = { ...raw, agentBridges: resolved.attachmentBridges };
-      if (resolved.migratedFrom) log(`[bridge] 附件桥配置迁移自 ${resolved.migratedFrom}（运行时，不写盘）`);
-    }
-    return bridgeCfgView;
-  };
-  const dshBridge = createDshBridge({
-    getConfig,
-    sender,
-    log,
-    emit,
-    getAttachments: () => resolveAttachmentBridges(getConfig()).attachmentBridges
-  });
-  // 通用 Agent 桥（P1）：/codex、/wb 等附件前缀交给别的 CLI
-  const agentBridges = createAgentBridges({ getConfig: bridgeConfig, sender, log, emit });
+  // 桥的统一入口：/dsh 主桥 + 附件桥（/wb、/codex…）。
+  // 附件配置来自 dsh.attachments；为空时自动迁移旧 agentBridges（运行时，不写盘）。
+  const bridges = createBridges({ getConfig, sender, log, emit });
   const orchestrator = new Orchestrator({ store, memory, stickers, sender, sessions, onebot, transport, emit, reminders, videoReader });
 
   // 首次启动/重装后回填「曾经收到过官方通道消息」的时间戳：
@@ -1059,22 +1036,11 @@ export function createApp({ log = console.log } = {}) {
     } catch { /* 建卡失败不影响消息 */ }
     emit('chat-update', `${kind}:${id}`);
 
-    // DSH 桥（确定性，2026-10-10）：/dsh 前缀的命令不进大模型，直接交给本机
-    // DeepSeek Harness 执行。认领后立即标已读并结束本轮 —— 不这么做的话这条消息
-    // 会留在未读里，被后面的 drain 当成积压喂给模型，变成"模型再答一遍"。
-    // ⚠️ 群聊必须 @ 本机器人 才认领（程序判断，不经过模型）：群里可能有多个装了桥的
-    //    实例，只按 /dsh 前缀认领会把别人的命令也抢过来、回一句"你没在白名单"。
-    const dshCfg = getConfig().dsh || {};
-    const dshMentionOk = kind === 'private'
-      || dshCfg.requireMentionInGroup === false
-      || atMe === true;
-    if (dshMentionOk && dshBridge.handle(`${kind}:${id}`, entry)) {
-      store.markEntryRead(`${kind}:${id}`, entry.id);
-      return;
-    }
-    // 通用 Agent 桥：/codex 等前缀。@ 判定在桥内部按每条桥的 requireMentionInGroup 做，
-    // 所以这里把 atMe 传进去（不 @ 时桥返回 false，消息照常交给模型）。
-    if (agentBridges.handle(`${kind}:${id}`, entry, { atMe: atMe === true, kind })) {
+    // 桥（确定性）：/dsh 主桥 + 附件桥（/wb、/codex…）。
+    // 命令不进大模型，认领后立即标已读并结束本轮 —— 否则会留在未读里被 drain 再喂给模型。
+    // 群聊 @ 闸门由 bridges.handle 内部判断（主桥看 dsh.requireMentionInGroup，
+    // 附件看各自的 requireMentionInGroup），不经过模型。
+    if (bridges.handle(`${kind}:${id}`, entry, { atMe: atMe === true, kind })) {
       store.markEntryRead(`${kind}:${id}`, entry.id);
       return;
     }
@@ -1859,7 +1825,7 @@ export function createApp({ log = console.log } = {}) {
     const file = path.join(DATA_DIR, 'bridge-health.json');
     let prev = {};
     try { prev = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* 首次运行没有文件 */ }
-    const results = await agentBridges.probeAll();
+    const results = await bridges.attachments.probeAll();
     const bad = results.filter((r) => !r.ok);
     try {
       fs.writeFileSync(file, JSON.stringify({ checkedAt: Date.now(), alertedAt: Number(prev.alertedAt || 0), results }, null, 2));
@@ -1881,7 +1847,7 @@ export function createApp({ log = console.log } = {}) {
     }
     lines.push('发「/wb 状态」可随时复查；改完配置重启生效。');
     const text = lines.join('\n');
-    for (const b of (getConfig()?.agentBridges || [])) {
+    for (const b of bridges.resolve().attachmentBridges) {
       if (!b?.enabled) continue;
       for (const uid of (b.allowedSenderIds || [])) {
         try { await sender.sendTextBatch(`private:${uid}`, [text]); } catch { /* 发不出去就只留日志 */ }
@@ -2090,9 +2056,8 @@ try {
     pluginWatcher = null;
     await orchestrator.abortAll();
     orchestrator.stopReminderLoop();
-    // DSH 桥：退出时把还在跑的 headless 子进程树一起带走，别留孤儿
-    dshBridge.abortAll();
-    agentBridges.abortAll();
+    // 桥：退出时把还在跑的 headless 子进程树一起带走，别留孤儿
+    bridges.abortAll();
     if (communitySyncTimer) clearInterval(communitySyncTimer);
     if (obPortPollTimer) clearInterval(obPortPollTimer);
     // 记忆解释器：只结束本进程拉起过的那个子进程（接管来的外部实例只解除登记）。

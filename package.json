@@ -85,7 +85,8 @@
     "test:bridge": "node test/agent-bridge-test.mjs",
     "test:core": "node test/bridge-core-test.mjs",
     "test:routes": "node test/routes-integrity-test.mjs",
-    "test:searchkey": "node test/web-search-key-test.mjs"
+    "test:searchkey": "node test/web-search-key-test.mjs",
+    "test:bridgemerge": "node test/bridge-merge-test.mjs"
   },
   "dependencies": {
     "js-yaml": "^5.4.1",
