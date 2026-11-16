@@ -94,7 +94,7 @@ function toolNameOf(event) {
   return '工具';
 }
 
-export function createDshBridge({ getConfig, sender, log = console.log, emit = () => {} }) {
+export function createDshBridge({ getConfig, sender, log = console.log, emit = () => {}, getAttachments = null }) {
   /** chatKey -> { child, startedAt, task, progressSent, lastProgressAt, aborted } */
   const running = new Map();
 
@@ -457,13 +457,21 @@ export function createDshBridge({ getConfig, sender, log = console.log, emit = (
           const rotLine = info?.chat
             ? `轮次：第 ${info.chat.turns ?? 0} 轮（自动轮换：${rot.maxTurnsPerSession ? `满 ${rot.maxTurnsPerSession} 轮` : '关'}${rot.maxSessionIdleHours ? ` / 空闲 ${rot.maxSessionIdleHours} 小时` : ''}）`
             : null;
+          const attachments = typeof getAttachments === 'function' ? (getAttachments() || []) : [];
+          const attachmentLines = attachments.length
+            ? ['', '附件桥：', ...attachments.map((a) => {
+                const reason = a.disabledReason ? `（${a.disabledReason}）` : (a.enabled ? '' : '（未启用）');
+                return `· ${a.label || a.id} ${a.prefix}${reason}`;
+              })]
+            : [];
           await reply(chatKey, [
             `DSH 桥：${busy ? '有任务在跑' : '空闲'}`,
             ...(rotLine ? [rotLine] : []),
             `重置：发「${String(c.prefix || DEFAULT_PREFIX)} 新 <任务>」开新会话`,
             `会话：${record.sessionId || '(还没建)'}`,
             `目录：${resolvePaths().cwd}`,
-            `上次：${record.updatedAt ? new Date(record.updatedAt).toLocaleString() : '(无)'}`
+            `上次：${record.updatedAt ? new Date(record.updatedAt).toLocaleString() : '(无)'}`,
+            ...attachmentLines
           ].join('\n'), replyTo);
           return;
         }

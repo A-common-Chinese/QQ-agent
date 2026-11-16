@@ -602,6 +602,9 @@ export const DEFAULT_CONFIG = {
     transport: 'headless',     // headless = 每次起一个 dsh 进程；plugin = 走 dsh-qq 插件的常驻会话
     allowedSenderIds: [],      // 允许下指令的 QQ 号；**空 = 谁都不响应**（安全默认）
     requireMentionInGroup: true, // 群聊里必须 @ 本机器人 才认领 /dsh（私聊不受影响）
+    // 附件桥（第 1 步：运行时从 agentBridges 迁移或显式配置；前缀仍是 /wb、/codex）
+    // 每项字段与 agentBridges 项一致，另外可写 disabledReason（由解析器生成，不用手填）。
+    attachments: [],
     workdir: '',               // DSH 任务的工作目录；空 = QQ Agent 自己的目录
     exePath: '',               // DeepSeek Harness.exe；空 = 内置默认路径
     overlayPath: '',           // 模型 overlay（yml）；空 = 仓库根的 dsh-model-overlay.yml

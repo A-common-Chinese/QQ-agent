@@ -19,6 +19,7 @@ import { StickerManager } from './sticker-manager.js';
 import { SendQueue } from './sender.js';
 import { createDshBridge } from './dsh-bridge.js';
 import { createAgentBridges } from './agent-bridge.js';
+import { resolveAttachmentBridges } from './bridge-config.js';
 import { SessionRegistry } from './sessions.js';
 import { Orchestrator } from './orchestrator.js';
 import { maybeSilentAt } from './silent-at.js';
@@ -719,9 +720,29 @@ export function createApp({ log = console.log } = {}) {
   const reminders = new ReminderStore();
   const videoReader = new VideoReader(onebot, transport);
   // DSH 桥：/dsh 前缀命令绕过大模型，直接交给本机 dsh headless（详见 src/dsh-bridge.js）
-  const dshBridge = createDshBridge({ getConfig, sender, log, emit });
-  // 通用 Agent 桥（P1）：/codex 之类前缀交给别的 CLI，配置见 config.agentBridges
-  const agentBridges = createAgentBridges({ getConfig, sender, log, emit });
+  // 附件桥（第 1 步）：/wb、/codex 仍在 agent-bridge 里执行，但配置统一从 dsh.attachments
+  // 解析（为空时自动迁移旧 agentBridges）。getConfig 包一层，执行逻辑零改动。
+  let bridgeCfgRaw = null;
+  let bridgeCfgView = null;
+  const bridgeConfig = () => {
+    const raw = getConfig();
+    if (raw !== bridgeCfgRaw) {
+      const resolved = resolveAttachmentBridges(raw);
+      bridgeCfgRaw = raw;
+      bridgeCfgView = { ...raw, agentBridges: resolved.attachmentBridges };
+      if (resolved.migratedFrom) log(`[bridge] 附件桥配置迁移自 ${resolved.migratedFrom}（运行时，不写盘）`);
+    }
+    return bridgeCfgView;
+  };
+  const dshBridge = createDshBridge({
+    getConfig,
+    sender,
+    log,
+    emit,
+    getAttachments: () => resolveAttachmentBridges(getConfig()).attachmentBridges
+  });
+  // 通用 Agent 桥（P1）：/codex、/wb 等附件前缀交给别的 CLI
+  const agentBridges = createAgentBridges({ getConfig: bridgeConfig, sender, log, emit });
   const orchestrator = new Orchestrator({ store, memory, stickers, sender, sessions, onebot, transport, emit, reminders, videoReader });
 
   // 首次启动/重装后回填「曾经收到过官方通道消息」的时间戳：
