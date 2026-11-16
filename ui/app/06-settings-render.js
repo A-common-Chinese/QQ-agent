@@ -2397,8 +2397,8 @@ return `
     ${fold({
       id: 'card-agentbridge',
       icon: '🧩',
-      title: 'Agent 桥（实验）',
-      sub: '把任务交给别的 CLI agent',
+      title: 'DSH 桥 · 附件桥（实验）',
+      sub: '挂在 DSH 桥上的 CLI agent：/wb、/codex',
       open: false,
       body: ab0 ? `
       <div class="checkbox-row"><input type="checkbox" id="cfg-ab-enabled" ${ab0.enabled ? 'checked' : ''} />
@@ -2406,6 +2406,7 @@ return `
       <div class="hint">
         <b>开</b>：白名单里的 QQ 号发 <b>${esc(ab0.prefix || '/agent')} &lt;任务&gt;</b> 会绕过大模型直接交给本机 CLI 执行，
         结果原样回发；<b>关</b>：完全不认领。白名单为空 = 谁都不响应。
+        <br>附件没填白名单 / 群聊 @ / 超时等策略时，自动继承上面的 DSH 桥设置。
       </div>
       <div class="field-row">
         <div class="field"><label>命令前缀</label>
