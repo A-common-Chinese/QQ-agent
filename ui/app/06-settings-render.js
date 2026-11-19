@@ -3885,9 +3885,11 @@ function renderDecisionSection(c, fold) {
         <button class="btn btn-small" data-dec-chain="add">+ 添加通道</button>
         <span class="muted" style="font-size:12px">顺序即兜底顺序：失败/超时/429/JSON 解析失败会切到下一个</span>
       </div>
-      <h4 style="margin:14px 0 6px">每群覆盖（JSON）</h4>
-      <div class="hint">示例：{"group:123456":{"mode":"off"}}；mode 可为 off / observe / active；可加 thresholds/budget、corpusScope(group|interest)、live 等。</div>
-      <textarea id="dec-perchat" style="min-height:70px" placeholder='{"group:123456":{"mode":"off"}}'>${esc(JSON.stringify(d.perChat || {}, null, 0))}</textarea>
+      <h4 style="margin:14px 0 6px">每群覆盖</h4>
+      <div class="hint">一行一个群。mode：off=完全关闭 / observe=只记分不接话 / active=可按阈值接话。改动记得点保存。</div>
+      <div id="dec-perchat-rows">${decPerChatRowsHtml(d.perChat)}</div>
+      <div style="margin-top:6px"><button class="btn btn-small" data-dec-pc="add">+ 添加群</button>
+        <span class="muted" style="font-size:12px">「高级参数」可留空；填的话要写合法 JSON（如 {"thresholds":{"high":0.6}}）</span></div>
 
       <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
         <button class="btn btn-small btn-primary" id="dec-save">保存</button>
@@ -3905,6 +3907,23 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
   const dv = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
   const dc = (id) => { const el = document.getElementById(id); return !!(el && el.checked); };
   document.addEventListener('click', async (e) => {
+    const pcBtn = e.target && e.target.closest && e.target.closest('[data-dec-pc]');
+    if (pcBtn) {
+      const box = document.getElementById('dec-perchat-rows');
+      if (pcBtn.dataset.decPc === 'add' && box) {
+        // 首次添加时先清掉"还没有配置"的提示
+        if (!box.querySelector('.dec-pc-row')) box.innerHTML = '';
+        box.insertAdjacentHTML('beforeend', decPerChatRowHtml('', { mode: 'observe' }));
+      }
+      if (pcBtn.dataset.decPc === 'del') {
+        const row = pcBtn.closest('.dec-pc-row');
+        if (row) row.remove();
+        if (box && !box.querySelector('.dec-pc-row')) {
+          box.innerHTML = '<div class="hint">还没有按群覆盖的配置（不配 = 全部按上面的全局设置走）。</div>';
+        }
+      }
+      return;
+    }
     const chainBtn = e.target && e.target.closest && e.target.closest('[data-dec-chain]');
     if (chainBtn) {
       const act = chainBtn.dataset.decChain;
@@ -3924,7 +3943,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
       const hint = document.getElementById('dec-hint');
       const set = (t, c) => { if (hint) { hint.textContent = t || ''; hint.style.color = c || ''; } };
       let perChat = {};
-      try { perChat = JSON.parse(dv('dec-perchat') || '{}') || {}; } catch { set('每群覆盖不是合法 JSON', 'var(--red)'); return; }
+      try { perChat = readDecPerChatRows(); } catch (err) { set(String(err.message || err), 'var(--red)'); return; }
       const key = String(dv('dec-emb-key') || '').trim();
       const payload = {
         decision: {
@@ -4114,6 +4133,53 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
 }
 
 // ── L2 判定通道链编辑（模板 + 读写）──────────────────────────────
+/**
+ * 每群覆盖的行编辑器。
+ * 之前是一个 JSON textarea，一般人写不明白（少个引号就保存失败）。
+ * 现在按行编辑：群号 + 模式 + 实时接话，其余少用参数收进「高级参数」，
+ * 保存时原样合并回去 —— 高级键不会被吃掉。
+ */
+function decPerChatRowHtml(chatKey, val) {
+  const v = val && typeof val === 'object' ? val : {};
+  const { mode = 'observe', live = false, ...rest } = v;
+  const restText = Object.keys(rest).length ? JSON.stringify(rest) : '';
+  return `<div class="dec-pc-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+    <input type="text" data-pc="key" value="${esc(chatKey)}" placeholder="group:123456" style="flex:1;min-width:150px" />
+    <select data-pc="mode" style="width:110px">
+      ${['off', 'observe', 'active'].map((m) => `<option value="${m}"${m === mode ? ' selected' : ''}>${m}</option>`).join('')}
+    </select>
+    <label class="muted" style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" data-pc="live"${live ? ' checked' : ''} /> 实时接话</label>
+    <input type="text" data-pc="rest" value="${esc(restText)}" placeholder="高级参数（可留空）" style="flex:2;min-width:170px" />
+    <button class="btn btn-small" data-dec-pc="del">删除</button>
+  </div>`;
+}
+
+function decPerChatRowsHtml(perChat) {
+  const entries = Object.entries(perChat || {});
+  if (!entries.length) return '<div class="hint">还没有按群覆盖的配置（不配 = 全部按上面的全局设置走）。</div>';
+  return entries.map(([chatKey, val]) => decPerChatRowHtml(chatKey, val)).join('');
+}
+
+function readDecPerChatRows() {
+  const box = document.getElementById('dec-perchat-rows');
+  if (!box) return {};
+  const out = {};
+  box.querySelectorAll('.dec-pc-row').forEach((row) => {
+    const get = (k) => { const el = row.querySelector('[data-pc="' + k + '"]'); return el ? el.value : ''; };
+    const key = String(get('key')).trim();
+    if (!key) return;
+    const mode = String(get('mode') || 'observe');
+    const live = !!row.querySelector('[data-pc="live"]')?.checked;
+    const restRaw = String(get('rest')).trim();
+    let rest = {};
+    if (restRaw) {
+      try { rest = JSON.parse(restRaw); } catch { throw new Error(`「${key}」的高级参数不是合法 JSON`); }
+    }
+    out[key] = { ...rest, mode, ...(live ? { live: true } : {}) };
+  });
+  return out;
+}
+
 function decChainRowsHtml(chain) {
   const list = Array.isArray(chain) ? chain : [];
   if (!list.length) return '<div class="hint">还没有判定通道。至少加一个（例如本地 Ollama 或 SiliconFlow 的 Qwen2.5-14B）。</div>';
