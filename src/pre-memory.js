@@ -201,3 +201,13 @@ export function buildRefinePrompt({ name, userId, messages, cfg }) {
   ].join('\n');
   return { system, user };
 }
+
+/**
+ * 整理时选素材来源（A 方案，避免同一段消息被 pre-save 和整理各处理一次）：
+ *   新建 + 有候选 → 只用候选（原文仅取几条校准语气）
+ *   其余          → 读原文（增量取样；pre-save 关闭/老数据时行为不变）
+ */
+export function chooseSource({ isNew, candidateCount }) {
+  const candidateOnly = isNew === true && Number(candidateCount) > 0;
+  return { candidateOnly, mode: candidateOnly ? 'candidates' : 'messages' };
+}

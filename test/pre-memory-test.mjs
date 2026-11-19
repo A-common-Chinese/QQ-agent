@@ -104,6 +104,17 @@ const msg = (id, uid, text = 'x') => ({ id, senderId: String(uid), senderName: `
   check('内置提示词包含发言原文', p2.user.includes('我下周去成都') && p2.system.includes('JSON'));
 }
 
+
+// 11. 素材来源（A 方案）
+{
+  const a = m.chooseSource({ isNew: true, candidateCount: 3 });
+  check('新建+有候选 → 只用候选', a.candidateOnly === true && a.mode === 'candidates');
+  const b = m.chooseSource({ isNew: true, candidateCount: 0 });
+  check('新建+无候选 → 读原文', b.candidateOnly === false && b.mode === 'messages');
+  const c = m.chooseSource({ isNew: false, candidateCount: 5 });
+  check('已有印象 → 走合并模式（不读原文）', c.candidateOnly === false);
+}
+
 fs.rmSync(TMP, { recursive: true, force: true });
 console.log(`\n通过 ${pass}，失败 ${fail}`);
 process.exit(fail === 0 ? 0 : 1);

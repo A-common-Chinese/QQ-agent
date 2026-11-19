@@ -2364,8 +2364,12 @@ export class Orchestrator {
     const isNew = !!mem.isNew || (!existing.length && !!force);
 
     const cands = preMemory.candidatesFor(chatKey, mem.userId, 20);
+    // 素材来源（A 方案，避免同一段消息被 pre-save 和整理各处理一次）：
+    //   有候选 → 只喂候选 + 最近几条原话（校准语气），不再读整段原文
+    //   没候选 → 回退增量取样（老数据 / pre-save 关闭时行为不变）
+    const { candidateOnly } = preMemory.chooseSource({ isNew, candidateCount: cands.length });
     const prompt = isNew
-      ? this.#buildNewImpressionPrompt(chatKey, mem, stats, cands)
+      ? this.#buildNewImpressionPrompt(chatKey, mem, stats, cands, { candidateOnly })
       : this.#buildConsolidatePrompt(mem, cands);
     const { system, user } = prompt;
 
@@ -2406,7 +2410,7 @@ export class Orchestrator {
       }
     } catch { /* 清理失败不影响整理结果，最多下次重复合并 */ }
     // 新建模式真的读过消息 → 成功后推进取样水位；失败在上面已提前 return，不会误推进
-    if (isNew && Number(prompt.maxId) > 0 && mem.userId) {
+    if (isNew && !prompt.candidateOnly && Number(prompt.maxId) > 0 && mem.userId) {
       try { this.memory.setMemberCursor(chatKey, mem.userId, prompt.maxId); } catch { /* 游标失败不影响整理结果 */ }
     }
     return saved;
@@ -2439,7 +2443,8 @@ export class Orchestrator {
   }
 
   /** 新建模式：从聊天记录里提炼对某人的长期印象。 */
-  #buildNewImpressionPrompt(chatKey, mem, stats, cands = []) {
+  #buildNewImpressionPrompt(chatKey, mem, stats, cands = [], opts = {}) {
+    const candidateOnly = opts.candidateOnly === true;
     const maxKeep = Number(getConfig().memory?.maxImpressionsPerMember) || 5;
     const uid = String(mem.userId || '');
     // 取样：优先取「该成员自上次整理以来」的全部发言（按消息 id 水位），
@@ -2452,8 +2457,10 @@ export class Orchestrator {
       .filter((m) => !m.self && String(m.senderId) === uid);
     const after = since ? all.filter((m) => Number(m.id) > since) : [];
     const pool = after.length ? after : all.slice(-40);
-    const picked = pool.slice(-limit);
-    const maxId = picked.reduce((mx, m) => Math.max(mx, Number(m.id) || 0), 0);
+    // candidateOnly：候选已经覆盖这段增量，原文只取 5 条看语气；
+    // maxId 置 0 → 不推进游标（否则会把没读过的那段永久跳过）
+    const picked = candidateOnly ? all.slice(-5) : pool.slice(-limit);
+    const maxId = candidateOnly ? 0 : picked.reduce((mx, m) => Math.max(mx, Number(m.id) || 0), 0);
     const sample = picked
       .map((m) => String(m.text || '').slice(0, 200))
       .filter(Boolean);
@@ -2469,12 +2476,15 @@ export class Orchestrator {
         '5. 若实在提炼不出任何稳定特征，输出空数组。',
         '',
         ...(Array.isArray(cands) && cands.length
-          ? ['【预记录候选】更早的增量提炼，可与下面的发言互相印证，重复的合并：',
+          ? [candidateOnly
+            ? '【预记录候选】这是这段时间的主要素材（可能与已有印象重复，请合并去重）；后面几条原话只用于校准语气：'
+            : '【预记录候选】更早的增量提炼，可与下面的发言互相印证，重复的合并：',
             ...cands.flatMap((c) => (c.facts || []).map((f) => `- ${f}`)).slice(0, 20), '']
           : []),
         sample.length ? sample.join('\n') : '（没有抓到该群友的发言）'
       ].join('\n'),
       maxId,
+      candidateOnly,
       candidateIds: (cands || []).map((c) => c.id)
     };
   }
