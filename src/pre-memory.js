@@ -29,7 +29,6 @@ export function preSaveConfig(raw = null) {
   return {
     enabled: c.enabled !== false,
     everyMessages: Math.max(10, Number(c.everyMessages) || 80),
-    idleMinutes: Math.max(0, Number(c.idleMinutes) || 10),
     maxPending: Math.max(20, Number(c.maxPending) || 500),
     maxMembersPerRun: Math.max(1, Number(c.maxMembersPerRun) || 8),
     maxMsgsPerMember: Math.max(10, Number(c.maxMsgsPerMember) || 60),
@@ -121,9 +120,8 @@ export function pendingCount(chatKey) {
 /**
  * 判断这一轮要不要提炼（纯函数，便于测试）。
  *
- * 触发条件（二选一）：
- *   count —— 未处理增量总数 ≥ everyMessages（正常节奏）
- *   idle  —— 还有没合并的候选，且距上次提炼 ≥ idleMinutes（收尾，避免攒着不落盘）
+ * 触发条件（只有一条）：
+ *   count —— 未处理增量总数 ≥ everyMessages
  *
  * 返回每个成员待处理的增量消息（已按 minMsgsPerMember 过滤、按量排序、按
  * maxMembersPerRun 截断）。水位按成员独立推进，被截断的成员下轮继续，不会漏。
@@ -144,14 +142,9 @@ export function planRefine(messages, state, cfg, now = Date.now()) {
   }
 
   const total = [...byUser.values()].reduce((n, arr) => n + arr.length, 0);
-  const pending = Number(state?.pending) || 0;
-  const idleDue = pending > 0 && cfg.idleMinutes > 0
-    && now - (Number(state?.lastAt) || 0) >= cfg.idleMinutes * 60000;
-
-  let reason = '';
-  if (total >= cfg.everyMessages) reason = 'count';
-  else if (idleDue) reason = 'idle';
-  if (!reason) return { run: false, reason: 'none', total, groups: [] };
+  // 只按增量条数触发（不设空闲触发：空闲时继续攒着，等够 N 条再提炼）
+  if (total < cfg.everyMessages) return { run: false, reason: 'none', total, groups: [] };
+  const reason = 'count';
 
   const groups = [...byUser.entries()]
     .filter(([, arr]) => arr.length >= cfg.minMsgsPerMember)

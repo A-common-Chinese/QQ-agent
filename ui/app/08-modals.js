@@ -1270,7 +1270,6 @@ async function saveConfig({ quiet = false } = {}) {
         ...(c.memory?.preSave || {}),
         enabled: chk('#cfg-presave-enabled', c.memory?.preSave?.enabled !== false),
         everyMessages: Math.max(10, Number(val('#cfg-presave-every', c.memory?.preSave?.everyMessages ?? 80)) || 80),
-        idleMinutes: Math.max(0, Number(val('#cfg-presave-idle', c.memory?.preSave?.idleMinutes ?? 10)) || 0),
         maxPending: Math.max(20, Number(val('#cfg-presave-maxpending', c.memory?.preSave?.maxPending ?? 500)) || 500),
         maxMembersPerRun: Math.max(1, Number(val('#cfg-presave-members', c.memory?.preSave?.maxMembersPerRun ?? 8)) || 8),
         prompt: String(val('#cfg-presave-prompt', c.memory?.preSave?.prompt || '')).trim()

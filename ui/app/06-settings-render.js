@@ -568,13 +568,11 @@ function renderSearchSection(c) {
     <div class="hint">条数超过阈值且距上次整理超过该冷却时间后，才会在运行结束后后台整理。默认 6 小时（21600000 毫秒）。</div>
 
     <h3 style="margin-top:18px">预记录（pre-save）</h3>
-    <div class="hint">上下文溢出前，先把新增消息提炼成"候选"存起来，等下次整理再合并。候选不进提示词，所以不影响缓存。</div>
+    <div class="hint">上下文溢出前，先把新增消息提炼成"候选"存起来，等下次整理再合并。候选不进提示词，所以不影响缓存。只按新增条数触发，不设空闲触发。</div>
     <div class="checkbox-row"><input type="checkbox" id="cfg-presave-enabled" ${mem.preSave?.enabled !== false ? 'checked' : ''} />
       <label for="cfg-presave-enabled">启用预记录</label></div>
     <div class="field"><label>每新增多少条消息触发一次</label>
       <input type="number" id="cfg-presave-every" min="10" step="10" value="${esc(mem.preSave?.everyMessages ?? 80)}" /></div>
-    <div class="field"><label>空闲多少分钟后收尾（0=关闭）</label>
-      <input type="number" id="cfg-presave-idle" min="0" step="1" value="${esc(mem.preSave?.idleMinutes ?? 10)}" /></div>
     <div class="field"><label>每会话候选上限（超出淘汰最旧）</label>
       <input type="number" id="cfg-presave-maxpending" min="20" step="50" value="${esc(mem.preSave?.maxPending ?? 500)}" /></div>
     <div class="field"><label>单次最多提炼几人（控成本）</label>

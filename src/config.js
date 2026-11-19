@@ -513,8 +513,7 @@ export const DEFAULT_CONFIG = {
     // pre-save：上下文溢出前先把增量固化，等下次整理再合并（不注入提示词，保缓存）
     preSave: {
       enabled: true,
-      everyMessages: 80,                  // 会话新增多少条触发一次提炼
-      idleMinutes: 10,                    // 或空闲这么久后收尾提炼（0=关闭空闲触发）
+      everyMessages: 80,                  // 会话新增多少条触发一次提炼（唯一触发条件）
       maxPending: 500,                    // 每个会话待合并候选上限（超出淘汰最旧并记账）
       maxMembersPerRun: 8,                // 单次最多提炼几个人（控成本）
       maxMsgsPerMember: 60,               // 每人单次最多喂多少条发言
@@ -1065,6 +1064,9 @@ export function migrateLegacySkills(parsed) {
  * 与 stripDerivedFlags 一样在 loadConfig / updateConfig 时调用，删旧键不碰活键。
  */
 const OBSOLETE_PATHS = [
+  // 2026-11-19：pre-save 只按增量条数触发，空闲触发撤销；老配置里的存量字段清掉，
+  // 免得以后在配置里看到它以为还生效。
+  ['memory', 'preSave', 'idleMinutes'],
   ['api', 'stream'],
   ['api', 'priceRemoteUrl'],
   ['budget'],

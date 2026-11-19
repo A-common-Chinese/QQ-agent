@@ -46,11 +46,11 @@ const msg = (id, uid, text = 'x') => ({ id, senderId: String(uid), senderName: `
   check('已读 1~10 后只剩 2 条 → 不触发', plan.run === false && plan.total === 2, JSON.stringify(plan));
 }
 
-// 4. 空闲触发（有未合并候选时）
+// 4. 空闲不再触发（只按增量条数）
 {
   const msgs = [msg(1, 111), msg(2, 111), msg(3, 111)];
-  const plan = m.planRefine(msgs, { members: {}, pending: 4, lastAt: Date.now() - 11 * 60000 }, cfg);
-  check('空闲 11 分钟且有候选 → idle 触发', plan.run && plan.reason === 'idle', plan.reason);
+  const plan = m.planRefine(msgs, { members: {}, pending: 4, lastAt: Date.now() - 24 * 3600 * 1000 }, cfg);
+  check('空闲 24 小时也不触发（只认条数）', plan.run === false && plan.reason === 'none', JSON.stringify(plan));
 }
 
 // 5. 人数太少不提炼
