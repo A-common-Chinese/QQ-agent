@@ -23,6 +23,7 @@ import { buildToolDefs, toOpenAiTools, executeTool } from './tools.js';
 import { modelImageVerdict } from './vision-scan.js';
 import { currentProviders } from './providers.js';
 import { skillManager } from './skills/manager.js';
+import * as preMemory from './pre-memory.js';
 import { getToolAvailability } from './tool-registry.js';
 import { rescueUnsentReply } from './reply-rescue.js';
 import { asTransport } from './transport/index.js';
@@ -57,6 +58,7 @@ export class Orchestrator {
     this.pendingSessions = new Map();  // chatKey -> waiting sessionId（防抖期可见的“等待中”会话）
     this.verifiedWakes = new Set();    // 本轮 wake 由 onIncoming 触发判定排定的 chatKey（区别于 drain 等机械重排）
     this.consolidating = new Set();    // 正在整理记忆的 chatKey
+    this.preSaving = new Set();        // 正在做 pre-save 的 chatKey
     this.runningChats = new Set();     // 正在运行的 chatKey
     this.activeRuns = new Map();       // chatKey -> sessionId
     this.sessionAbortMarks = new Set(); // 用户请求中止的 sessionId（abortSession 打标记，#runAgent 每轮检查）
@@ -856,6 +858,8 @@ export class Orchestrator {
       }
     }
 
+    // 预记录：先把增量固化（不注入提示词，不影响缓存），再做低频整理
+    this.#maybePreSave(chatKey);
     // 记忆自动整理（后台静默，绝不阻塞/影响聊天主流程）
     this.#maybeConsolidateMemory(chatKey);
 
@@ -2018,6 +2022,72 @@ export class Orchestrator {
     try { return applyDynamicHistory(base, { store: this.store, chatKey, cfg: getConfig() }); } catch { return base; }
   }
 
+  /**
+   * pre-save 触发判断（不阻塞主流程）：增量够多或空闲够久就跑一次提炼。
+   * 只把增量落成候选，不进提示词 —— 目的是别让上午说的话被 40 条窗口挤掉。
+   */
+  #maybePreSave(chatKey) {
+    try {
+      const cfg = getConfig();
+      const pc = preMemory.preSaveConfig(cfg.memory?.preSave);
+      if (!pc.enabled) return;
+      if (isSilentChat(chatKey)) return;
+      if (this.paused || this.aborted) return;
+      if (!cfg.api?.model || !cfg.api?.baseUrl) return;
+      if (this.preSaving.has(chatKey)) return;
+      const messages = this.store.recent(chatKey, { limit: 2000 }) || [];
+      const plan = preMemory.planRefine(messages, preMemory.readState(chatKey), pc, Date.now());
+      if (!plan.run) return;
+      this.preSaving.add(chatKey);
+      this.#runPreSave(chatKey, plan, pc)
+        .catch((error) => console.error(`[memory] pre-save ${chatKey} 失败:`, error?.message ?? error))
+        .finally(() => this.preSaving.delete(chatKey));
+    } catch { /* 预记录是锦上添花，绝不影响聊天 */ }
+  }
+
+  async #runPreSave(chatKey, plan, pc) {
+    const advanced = [];
+    const items = [];
+    for (const g of plan.groups) {
+      try {
+        const { system, user } = preMemory.buildRefinePrompt({
+          name: g.name, userId: g.userId, messages: g.messages, cfg: pc
+        });
+        const res = await this.#memoryChat([
+          { role: 'system', content: system },
+          { role: 'user', content: user }
+        ]);
+        const parsed = extractJsonObject(String(res?.message?.content ?? ''));
+        const facts = (Array.isArray(parsed?.facts) ? parsed.facts : [])
+          .map((x) => String(x ?? '').trim())
+          .filter(Boolean)
+          .slice(0, 3);
+        // 没提炼出内容也要推进水位，否则同一段会每轮重复送模型
+        advanced.push({ userId: g.userId, maxId: g.maxId });
+        if (!facts.length) continue;
+        items.push({
+          id: `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+          at: Date.now(),
+          userId: g.userId,
+          name: g.name,
+          fromId: Number(g.messages[0]?.id) || 0,
+          toId: g.maxId,
+          facts
+        });
+      } catch (error) {
+        // 单人失败不推进该成员水位，下轮重试；其他人照常
+        console.warn(`[memory] pre-save ${chatKey}/${g.userId} 失败:`, error?.message ?? error);
+      }
+    }
+    if (items.length) {
+      const r = preMemory.appendCandidates(chatKey, items, { maxPending: pc.maxPending });
+      if (r.dropped > 0) {
+        console.warn(`[memory] pre-save ${chatKey} 候选超上限，淘汰 ${r.dropped} 条旧候选（dropped 累计 ${preMemory.readState(chatKey).dropped}）`);
+      }
+    }
+    if (advanced.length) preMemory.advanceWatermarks(chatKey, advanced);
+  }
+
   #maybeConsolidateMemory(chatKey) {
     try {
       const cfg = getConfig();
@@ -2293,9 +2363,11 @@ export class Orchestrator {
     const existing = mem.impressions || [];
     const isNew = !!mem.isNew || (!existing.length && !!force);
 
-    const { system, user } = isNew
-      ? this.#buildNewImpressionPrompt(chatKey, mem, stats)
-      : this.#buildConsolidatePrompt(mem);
+    const cands = preMemory.candidatesFor(chatKey, mem.userId, 20);
+    const prompt = isNew
+      ? this.#buildNewImpressionPrompt(chatKey, mem, stats, cands)
+      : this.#buildConsolidatePrompt(mem, cands);
+    const { system, user } = prompt;
 
     const res = await this.#memoryChat([
       { role: 'system', content: system },
@@ -2326,14 +2398,30 @@ export class Orchestrator {
       .slice(0, maxKeep)
       .map((content) => content.slice(0, 120));
 
-    return this.memory.replaceMember(chatKey, mem.userId, mem.name, clean);
+    const saved = this.memory.replaceMember(chatKey, mem.userId, mem.name, clean);
+    // 候选已经并进卡片 → 消费掉；失败会在上面提前 return，候选保留可重放
+    try {
+      if (Array.isArray(prompt.candidateIds) && prompt.candidateIds.length) {
+        preMemory.consumeCandidates(chatKey, prompt.candidateIds);
+      }
+    } catch { /* 清理失败不影响整理结果，最多下次重复合并 */ }
+    // 新建模式真的读过消息 → 成功后推进取样水位；失败在上面已提前 return，不会误推进
+    if (isNew && Number(prompt.maxId) > 0 && mem.userId) {
+      try { this.memory.setMemberCursor(chatKey, mem.userId, prompt.maxId); } catch { /* 游标失败不影响整理结果 */ }
+    }
+    return saved;
   }
 
   /** 整理模式：合并/删减已有印象。 */
-  #buildConsolidatePrompt(mem) {
+  #buildConsolidatePrompt(mem, cands = []) {
     const fmtTs = (t) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
     const lines = [`群友 QQ：${mem.userId}`, `当前名字：${mem.name}`];
     for (const e of mem.impressions) lines.push(`- ${e.content} (${fmtTs(e.createdAt)})`);
+    const candidateFacts = (cands || []).flatMap((c) => (c.facts || []).map((f) => String(f)));
+    if (candidateFacts.length) {
+      lines.push('', '【预记录候选】以下来自更早的增量提炼，可能与上面的印象重复，请合并去重：');
+      for (const f of candidateFacts.slice(0, 40)) lines.push(`- ${f}`);
+    }
     const maxKeep = Number(getConfig().memory?.maxImpressionsPerMember) || 5;
     return {
       system: '你是聊天机器人的记忆整理模块，负责整理对某一位群友的长期印象。你只做合并、改写与删除，绝不发明任何新事实。输出必须是严格的 JSON 对象，不要 Markdown 代码块，不要任何解释文字。格式：{"impressions":["…"]}',
@@ -2345,17 +2433,28 @@ export class Orchestrator {
         '原则：所有信息只能来自原文，语义不变，宁少勿错；没有可保留的时输出空数组。',
         '',
         ...lines
-      ].join('\n')
+      ].join('\n'),
+      candidateIds: (cands || []).map((c) => c.id)
     };
   }
 
   /** 新建模式：从聊天记录里提炼对某人的长期印象。 */
-  #buildNewImpressionPrompt(chatKey, mem, stats) {
+  #buildNewImpressionPrompt(chatKey, mem, stats, cands = []) {
     const maxKeep = Number(getConfig().memory?.maxImpressionsPerMember) || 5;
     const uid = String(mem.userId || '');
-    const sample = (this.store.recent(chatKey, { limit: 2000 }) || [])
-      .filter((m) => !m.self && String(m.senderId) === uid)
-      .slice(-40)
+    // 取样：优先取「该成员自上次整理以来」的全部发言（按消息 id 水位），
+    // 没有游标（老数据/首次）才回退最近 40 条。
+    // 旧逻辑固定 slice(-40)：群一热闹，上午说的话到晚上整理时早被挤出窗口，
+    // 消息明明还在盘上（maxMessagesPerChat=0），却再也提炼不到。
+    const limit = Math.max(20, Number(getConfig().memory?.incrementalSampleLimit) || 120);
+    const since = Number(mem.lastMsgId) || 0;
+    const all = (this.store.recent(chatKey, { limit: 2000 }) || [])
+      .filter((m) => !m.self && String(m.senderId) === uid);
+    const after = since ? all.filter((m) => Number(m.id) > since) : [];
+    const pool = after.length ? after : all.slice(-40);
+    const picked = pool.slice(-limit);
+    const maxId = picked.reduce((mx, m) => Math.max(mx, Number(m.id) || 0), 0);
+    const sample = picked
       .map((m) => String(m.text || '').slice(0, 200))
       .filter(Boolean);
 
@@ -2369,8 +2468,14 @@ export class Orchestrator {
         '4. 宁少勿错：信息不足就少写，不要脑补。',
         '5. 若实在提炼不出任何稳定特征，输出空数组。',
         '',
+        ...(Array.isArray(cands) && cands.length
+          ? ['【预记录候选】更早的增量提炼，可与下面的发言互相印证，重复的合并：',
+            ...cands.flatMap((c) => (c.facts || []).map((f) => `- ${f}`)).slice(0, 20), '']
+          : []),
         sample.length ? sample.join('\n') : '（没有抓到该群友的发言）'
-      ].join('\n')
+      ].join('\n'),
+      maxId,
+      candidateIds: (cands || []).map((c) => c.id)
     };
   }
 

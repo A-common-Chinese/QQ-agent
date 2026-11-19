@@ -1,4 +1,5 @@
 // memory 域路由（从 routes.js 拆出，路由体原样保留）。
+import * as preMemory from '../pre-memory.js';
 // 依赖统一从 C 取：C = { ...deps, ...导入的函数, 局部辅助函数 }。
 export function memoryRoutes(C) {
   const {
@@ -307,6 +308,22 @@ export function memoryRoutes(C) {
     },
     ],
     memoryCards: [
+    {
+      // 调试用：看某会话的 pre-save 水位/候选/淘汰计数（不触发提炼）
+      method: 'GET', pattern: '/api/memory/pre-save',
+      handler: async ({ res, json, url }) => {
+        const chat = String(url?.searchParams?.get('chat') || '').trim();
+        if (!chat) return json(res, 400, { error: '需要 chat 参数，例如 chat=group:123' });
+        const state = preMemory.readState(chat);
+        const candidates = preMemory.readCandidates(chat);
+        return json(res, 200, {
+          chat,
+          state,
+          pending: candidates.length,
+          recent: candidates.slice(-10)
+        });
+      }
+    },
     // ── 记忆卡（群聊 / 个人 / 基本事实）────────────────────────────
     {
       method: 'POST', pattern: '/api/memory-cards/batch',

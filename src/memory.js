@@ -66,7 +66,9 @@ function loadMember(chatKey, userId, name = '') {
     name: String(raw?.name ?? name ?? ''),
     impressions: Array.isArray(raw?.impressions) ? raw.impressions : [],
     updatedAt: Number(raw?.updatedAt) || 0,
-    lastConsolidatedAt: Number(raw?.lastConsolidatedAt) || 0
+    lastConsolidatedAt: Number(raw?.lastConsolidatedAt) || 0,
+    // 上次整理读到的消息 id（增量取样水位；0 = 还没有游标，回退旧逻辑）
+    lastMsgId: Number(raw?.lastMsgId) || 0
   };
 }
 
@@ -303,7 +305,8 @@ export class MemoryStore {
       name: finalName,
       impressions: entries,
       updatedAt: now,
-      lastConsolidatedAt: old.lastConsolidatedAt || 0
+      lastConsolidatedAt: old.lastConsolidatedAt || 0,
+      lastMsgId: Number(old.lastMsgId) || 0
     };
     writeJson(memberFile(chatKey, uid, finalName), member);
     map.set(uid, member);
@@ -322,6 +325,23 @@ export class MemoryStore {
       updatedAt: member.updatedAt,
       note: String(note ?? '').trim()
     };
+  }
+
+  /**
+   * 推进某成员的取样水位：记录"整理时已经读到哪条消息"。
+   * 只在整理成功后调用；失败不推进，下次同一段还能重读（幂等）。
+   */
+  setMemberCursor(chatKey, userId, msgId) {
+    const uid = String(userId ?? '').trim();
+    const id = Number(msgId) || 0;
+    if (!/^\d{1,15}$/.test(uid) || id <= 0) return false;
+    const map = this.#ensureChat(chatKey);
+    const m = map.get(uid);
+    if (!m) return false;
+    if (id <= (Number(m.lastMsgId) || 0)) return false;
+    m.lastMsgId = id;
+    try { writeJson(memberFile(chatKey, uid, m.name), m); } catch { return false; }
+    return true;
   }
 
   /** 手动替换某成员的全部印象（管理端编辑用）。返回更新后的成员。 */
@@ -343,7 +363,8 @@ export class MemoryStore {
       name: finalName,
       impressions,
       updatedAt: now,
-      lastConsolidatedAt: old.lastConsolidatedAt || 0
+      lastConsolidatedAt: old.lastConsolidatedAt || 0,
+      lastMsgId: Number(old.lastMsgId) || 0
     };
     // 单个成员替换也备份原文件（保留最近一次）
     try {

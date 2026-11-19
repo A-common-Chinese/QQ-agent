@@ -508,7 +508,19 @@ export const DEFAULT_CONFIG = {
     consolidateMinIntervalMs: 21600000,  // 默认 6 小时
     useChatModel: true,                   // true = 整理模型跟随聊天模型；false = 使用下方专用模型
     provider: '',                         // 专用模型所属提供商 id（useChatModel=false 时生效）
-    model: ''                             // 专用模型 id（useChatModel=false 时生效）
+    model: '',                            // 专用模型 id（useChatModel=false 时生效）
+    incrementalSampleLimit: 120,          // 单次整理每人最多取样多少条（增量窗口上限）
+    // pre-save：上下文溢出前先把增量固化，等下次整理再合并（不注入提示词，保缓存）
+    preSave: {
+      enabled: true,
+      everyMessages: 80,                  // 会话新增多少条触发一次提炼
+      idleMinutes: 10,                    // 或空闲这么久后收尾提炼（0=关闭空闲触发）
+      maxPending: 500,                    // 每个会话待合并候选上限（超出淘汰最旧并记账）
+      maxMembersPerRun: 8,                // 单次最多提炼几个人（控成本）
+      maxMsgsPerMember: 60,               // 每人单次最多喂多少条发言
+      minMsgsPerMember: 3,                // 少于这么多条不值得提炼
+      prompt: ''                          // 自定义提炼提示词（空=内置；调试用）
+    }
   },
   // 工具与技能（skill 化开关）
   //

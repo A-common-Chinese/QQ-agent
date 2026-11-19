@@ -1265,7 +1265,16 @@ async function saveConfig({ quiet = false } = {}) {
       useChatModel: chk('#cfg-mem-usechat', c.memory?.useChatModel !== false),
       provider: val('#cfg-mem-provider', c.memory?.provider || '').trim(),
       model: val('#cfg-mem-model', c.memory?.model || '').trim(),
-      consolidateMinIntervalMs: Number(val('#cfg-mem-interval', c.memory?.consolidateMinIntervalMs ?? 21600000)) || 21600000
+      consolidateMinIntervalMs: Number(val('#cfg-mem-interval', c.memory?.consolidateMinIntervalMs ?? 21600000)) || 21600000,
+      preSave: {
+        ...(c.memory?.preSave || {}),
+        enabled: chk('#cfg-presave-enabled', c.memory?.preSave?.enabled !== false),
+        everyMessages: Math.max(10, Number(val('#cfg-presave-every', c.memory?.preSave?.everyMessages ?? 80)) || 80),
+        idleMinutes: Math.max(0, Number(val('#cfg-presave-idle', c.memory?.preSave?.idleMinutes ?? 10)) || 0),
+        maxPending: Math.max(20, Number(val('#cfg-presave-maxpending', c.memory?.preSave?.maxPending ?? 500)) || 500),
+        maxMembersPerRun: Math.max(1, Number(val('#cfg-presave-members', c.memory?.preSave?.maxMembersPerRun ?? 8)) || 8),
+        prompt: String(val('#cfg-presave-prompt', c.memory?.preSave?.prompt || '')).trim()
+      }
     };
     // 在场判定里的"名字/外号文本反查"：默认关，只有勾了才开（误判实测见 config.js 注释）
     patch.memoryCards = {
