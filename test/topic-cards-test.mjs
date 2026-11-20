@@ -323,13 +323,13 @@ if (base) {
   });
 
   await check('没碰 /api/update/*（本任务禁区，只确认话题卡路由插在记忆卡区）', async () => {
-    // 只做静态确认：新路由在 /api/memory-cards/person 之后、/api/personas 之前
-    const src = fs.readFileSync(path.join(ROOT, 'src', 'routes.js'), 'utf8');
+    // 只做静态确认：话题卡路由和记忆卡路由在同一个域模块里，且排在 person 之后
+    // （v0.8.0 起 routes.js 按域拆成 routes/*.js，这里改读 routes/memory.js）
+    const src = fs.readFileSync(path.join(ROOT, 'src', 'routes', 'memory.js'), 'utf8');
     const at = src.indexOf("'/api/memory-cards/topics'");
     const person = src.indexOf("method: 'DELETE', pattern: /^\\/api\\/memory-cards\\/person\\/(\\d+)$/");
-    const personas = src.indexOf("'/api/personas'");
-    assert.ok(at > 0 && person > 0 && personas > 0);
-    assert.ok(at > person && at < personas, '话题卡路由应落在记忆卡路由区，不要挪到别处');
+    assert.ok(at > 0 && person > 0, `话题卡路由/人物删除路由缺失（at=${at}, person=${person}）`);
+    assert.ok(at > person, '话题卡路由应排在记忆卡 person 路由之后');
   });
 }
 

@@ -87,6 +87,7 @@
     "test:routes": "node test/routes-integrity-test.mjs",
     "test:searchkey": "node test/web-search-key-test.mjs",
     "test:bridgemerge": "node test/bridge-merge-test.mjs",
+    "test:topicexpiry": "node test/topic-expiry-test.mjs",
     "test:prememory": "node test/pre-memory-test.mjs"
   },
   "dependencies": {

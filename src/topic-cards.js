@@ -2,7 +2,7 @@
 //   · 模型判断每张话题的期限：short(短期) / long(长期) / permanent(永久)
 //   · 去重：标题归一化后相同 → 更新；关键词重叠 ≥2 也视为同一话题
 //   · 上限：每个会话最多 maxPerChat 张；超限时优先淘汰「已过期 → 短期最旧 → 最久未更新」
-import { listTopics, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
+import { listTopics, listTopicChatKeys, createTopic, updateTopic, deleteTopic } from './memory-cards.js';
 import { getConfig } from './config.js';
 
 const TERMS = ['ephemeral', 'halfday', 'day', 'week', 'month'];
@@ -92,9 +92,20 @@ export function upsertTopicCard(chatKey, item = {}) {
   patch.term = downgrade(patch.term, same?.id);
   if (same) {
     // 期限取更"长寿"的那个，避免长期话题被一次短期更新降级
-    const term = RANK[termOf(patch.term)] >= RANK[termOf(same.term)] ? patch.term : same.term;
-    const r = updateTopic(chatKey, same.id, { ...patch, term });
-    return { ok: !!r.ok, action: 'updated', id: same.id, term };
+    const oldTerm = termOf(same.term);
+    const newTerm = termOf(patch.term);
+    const oldRank = RANK[oldTerm] ?? 3;
+    const newRank = RANK[newTerm] ?? 3;
+    const term = newRank >= oldRank ? newTerm : oldTerm;
+    const next = { ...patch, term };
+    if (newRank <= oldRank) {
+      // 同期限/降级：**不续命**。再次提到同一话题只更新内容，
+      // 到期时间保持原样，否则热门话题会被无限延期、永远不过期。
+      next.at = same.at;
+      next.expiresAt = same.expiresAt;
+    }
+    const r = updateTopic(chatKey, same.id, next);
+    return { ok: !!r.ok, action: 'updated', id: same.id, term, extended: newRank > oldRank };
   }
   if (topics.length >= maxPerChat) {
     const victim = pickVictim(topics, maxPerChat);
@@ -114,4 +125,15 @@ export function pruneExpiredTopics(chatKey, now = Date.now()) {
     }
   }
   return removed;
+}
+
+/** 全量清理：扫描所有会话的过期话题卡（启动后 + 定时任务调用）。 */
+export function pruneAllExpiredTopics(now = Date.now()) {
+  let removed = 0;
+  let chats = 0;
+  for (const chatKey of listTopicChatKeys()) {
+    const n = pruneExpiredTopics(chatKey, now);
+    if (n > 0) { removed += n; chats += 1; }
+  }
+  return { removed, chats };
 }

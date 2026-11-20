@@ -14,6 +14,7 @@ import { OneBotClient, segmentsToText, extractMediaFromSegments, expandForwardNo
 import { isAtMe } from './prompt.js';
 import { ChatStore } from './store.js';
 import { ensureGroupCard, ensurePersonCard, purgeHiddenPersons } from './memory-cards.js';
+import { pruneAllExpiredTopics } from './topic-cards.js';
 import { MemoryStore } from './memory.js';
 import { StickerManager } from './sticker-manager.js';
 import { SendQueue } from './sender.js';
@@ -1664,6 +1665,17 @@ export function createApp({ log = console.log } = {}) {
   // 消息存档保留：启动后 65s 跑一次，之后每 12 小时一次（默认保留 7 天，只清消息不碰记忆卡）
   setTimeout(() => { try { purgeOldMessagesByConfig(); } catch { /* ignore */ } }, 65_000);
   setInterval(() => { try { purgeOldMessagesByConfig(); } catch { /* ignore */ } }, 12 * 60 * 60 * 1000);
+
+  // 话题卡过期清理：启动后 65s + 每小时（过期卡不再注入提示词，但盘上要真删，
+  // 否则记忆页会一直显示过期卡；之前只在注入侧过滤、从没真正删过）。
+  const pruneTopics = () => {
+    try {
+      const r = pruneAllExpiredTopics();
+      if (r.removed > 0) log(`[memory] 清理过期话题卡 ${r.removed} 张（${r.chats} 个会话）`);
+    } catch { /* 清理失败不影响主流程 */ }
+  };
+  setTimeout(pruneTopics, 65_000);
+  setInterval(pruneTopics, 60 * 60 * 1000);
 
   const heartbeat = setInterval(() => {
         try { res.write(': ping\n\n'); } catch { /* 下面 error/close 会清理 */ }

@@ -591,8 +591,7 @@ function findTopicFile(chatKey, id) {
 }
 
 /** 该会话的全部话题卡（按 updatedAt 倒序；chatKey 缺省补上，方便界面/导出使用） */
-export function listTopics(chatKey) {
-  if (!isChatKey(chatKey)) return [];
+export function listTopics(chatKey) {  if (!isChatKey(chatKey)) return [];
   const list = readTopicFiles(chatKey).map(({ card }) => {
     const term = normalizeTopicTerm(card.term);
     const at = Number(card.at) || timeOf(card.updatedAt) || Date.now();
@@ -601,6 +600,20 @@ export function listTopics(chatKey) {
   });
   list.sort((a, b) => timeOf(b.updatedAt) - timeOf(a.updatedAt) || String(a.title || '').localeCompare(String(b.title || ''), 'zh'));
   return list;
+}
+
+/** 枚举所有有记忆卡目录的会话键（话题卡清理用）。 */
+export function listTopicChatKeys() {
+  try {
+    return fs.readdirSync(ROOT, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => String(d.name))
+      .map((name) => (name.startsWith('group_') ? name.replace(/^group_/, 'group:')
+        : (name.startsWith('private_') ? name.replace(/^private_/, 'private:') : '')))
+      .filter((k) => k.startsWith('group:') || k.startsWith('private:'));
+  } catch {
+    return [];
+  }
 }
 
 /** 按 id 取一张话题卡（找不到返回 null） */
