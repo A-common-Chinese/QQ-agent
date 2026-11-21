@@ -2014,6 +2014,7 @@ try {
     }, 45_000).unref?.();
     if (getConfig().proactive?.enabled) orchestrator.startProactiveLoop();
     orchestrator.startReminderLoop();   // 提醒（闹钟）调度：到点往群里发提醒
+    orchestrator.startMemoryBatchLoop(); // 记忆卡批量整理（话题卡/群卡/个人卡）：启动 90s 先跑一次，之后按 batchIntervalMs 定时
     log(`控制台已就绪：http://127.0.0.1:${port}`);
     log(`OneBot（SnowLuma）: ws=${getConfig().snowluma?.wsUrl} http=${getConfig().snowluma?.httpUrl}`);
     log(`模型: ${getConfig().api.model || '（未设置，请在设置里选择）'} @ ${getConfig().api.baseUrl}`);
