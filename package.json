@@ -88,6 +88,7 @@
     "test:searchkey": "node test/web-search-key-test.mjs",
     "test:bridgemerge": "node test/bridge-merge-test.mjs",
     "test:topicexpiry": "node test/topic-expiry-test.mjs",
+    "test:cmdmute": "node test/command-mute-admin-test.mjs",
     "test:prememory": "node test/pre-memory-test.mjs"
   },
   "dependencies": {

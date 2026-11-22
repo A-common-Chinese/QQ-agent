@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { getConfig, updateConfig, ROOT, DATA_DIR, silentReason, ensurePersonaAssignment } from './config.js';
+import { getConfig, updateConfig, ROOT, DATA_DIR, silentReason, ensurePersonaAssignment, effectiveAdminQQ, isMuteAdmin } from './config.js';
 import { checkForUpdate as updateCheck, getDownloadState as updateStatus, downloadUpdate as updateDownload } from './updater.js';
 import { createTransport } from './transport/index.js';
 import { QqBotTransport } from './transport/qqbot.js';
@@ -1109,6 +1109,8 @@ export function createApp({ log = console.log } = {}) {
   function reportCommandMutes() {
     const cm = getConfig().commandMute || {};
     if (cm.enabled !== true) { log('[指令禁言] 未启用'); return; }
+    const admin = effectiveAdminQQ();
+    log(`[指令禁言] 管理员 QQ = ${admin || '(未配置：adminOnly 口令会被忽略)'}${admin && String(getConfig().forwardRules?.adminQQ || '').trim() !== admin ? '（回退 allow.private[0]）' : ''}`);
     const active = cleanupCommandMute();
     if (!active.length) { log('[指令禁言] 已启用，当前没有群处于禁言'); return; }
     const parts = active.map(([gid, until]) => until === 0
@@ -1162,10 +1164,10 @@ export function createApp({ log = console.log } = {}) {
       const key = String(groupId);
       if (Object.prototype.hasOwnProperty.call(activeNow, key)) {
         if (cm.releaseAdminOnly === true) {
-          const ownerQQ = String(getConfig().forwardRules?.adminQQ || '');
           const speaker = String(event?.user_id ?? '');
-          if (speaker !== ownerQQ) {
-            log(`[指令禁言] 群 ${groupId} 收到「${releaseCmd}」但设置了仅管理员可解除（说话人 ${speaker || '未知'}），忽略`);
+          if (!isMuteAdmin(speaker)) {
+            const admin = effectiveAdminQQ() || '(未配置)';
+            log(`[指令禁言] 群 ${groupId} 收到「${releaseCmd}」但设置了仅管理员可解除（说话人 ${speaker || '未知'}，管理员 ${admin}），忽略`);
             return;
           }
         }
@@ -1186,10 +1188,10 @@ export function createApp({ log = console.log } = {}) {
     if (!hitCmd) return;
     // 口令级权限：仅管理员可用的口令，普通群友发出来直接忽略
     if (hitCmd.adminOnly === true) {
-      const ownerQQ = String(getConfig().forwardRules?.adminQQ || '');
       const speaker = String(event?.user_id ?? '');
-      if (speaker !== ownerQQ) {
-        log(`[指令禁言] 群 ${groupId} 收到管理员专属口令「${hitCmd.command}」，说话人 ${speaker || '未知'} 不是管理员，忽略`);
+      if (!isMuteAdmin(speaker)) {
+        const admin = effectiveAdminQQ() || '(未配置)';
+        log(`[指令禁言] 群 ${groupId} 收到管理员专属口令「${hitCmd.command}」，说话人 ${speaker || '未知'} 不是管理员（管理员 ${admin}），忽略`);
         return;
       }
     }

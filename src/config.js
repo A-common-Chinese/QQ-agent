@@ -1421,6 +1421,24 @@ export function commandMuteTier(chatKey, at = Date.now()) {
 }
 
 /**
+ * 生效的管理员 QQ：显式配置优先，空则回退 allow.private 第一个（部署者）。
+ * 与 forwardRules.adminQQ 的注释语义保持一致 —— 之前只有 prompt.js 实现了回退，
+ * app.js 的指令禁言直接读 adminQQ，空字符串导致 adminOnly 口令永远被忽略。
+ */
+export function effectiveAdminQQ(cfg = getConfig()) {
+  const explicit = String(cfg?.forwardRules?.adminQQ || '').trim();
+  if (/^\d{4,12}$/.test(explicit)) return explicit;
+  const first = String((Array.isArray(cfg?.allow?.private) ? cfg.allow.private[0] : '') || '').trim();
+  return /^\d{4,12}$/.test(first) ? first : '';
+}
+
+/** 说话的 QQ 是否是管理员（指令禁言的口令级权限 / 解除权限共用）。 */
+export function isMuteAdmin(speaker, cfg = getConfig()) {
+  const admin = effectiveAdminQQ(cfg);
+  return Boolean(admin) && String(speaker ?? '') === admin;
+}
+
+/**
  * 峰谷切换的核心判定：当前时间落在哪个时段。
  * 2026-09-18 四象限改版后的语义：高峰窗口内 = peak.sliderPos，
  * 窗口外一律 = valley.sliderPos（低谷时段不再单独编辑）。
