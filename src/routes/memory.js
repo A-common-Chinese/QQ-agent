@@ -686,6 +686,10 @@ export function memoryRoutes(C) {
           examples: Array.isArray(body.examples) ? body.examples : [],
           scenarios: Array.isArray(body.scenarios) ? body.scenarios : [],
           useShared: body.useShared !== false,
+          // 共用段的两块可以分别关掉（core=身份 / voice=说话方式）；
+          // 之前创建时没落这两个字段 → 编辑器里关了也永远回到默认 true。
+          useSharedCore: body.useSharedCore !== false,
+          useSharedVoice: body.useSharedVoice !== false,
           meta: { source: 'manual', createdAt: Date.now() }
         };
         personas.push(card);
@@ -710,6 +714,11 @@ export function memoryRoutes(C) {
           ...(typeof body.generalCardId === 'string' ? { generalCardId: body.generalCardId } : {}),
           ...(Array.isArray(body.examples) ? { examples: body.examples } : {}),
           ...(Array.isArray(body.scenarios) ? { scenarios: body.scenarios } : {}),
+          // 三个共用开关必须能保存：前端编辑器会传 boolean，
+          // 之前 PUT 完全忽略它们，表现为"关掉共用 core/voice → 重开又变回开"。
+          ...(typeof body.useShared === 'boolean' ? { useShared: body.useShared } : {}),
+          ...(typeof body.useSharedCore === 'boolean' ? { useSharedCore: body.useSharedCore } : {}),
+          ...(typeof body.useSharedVoice === 'boolean' ? { useSharedVoice: body.useSharedVoice } : {}),
           updatedAt: Date.now()
         };
         updateConfig({ personas });

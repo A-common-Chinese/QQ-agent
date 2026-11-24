@@ -997,6 +997,8 @@ async function memSave(key, st) {
     const voice = (document.getElementById('pv2-shared-voice') || {}).value || '';
     try {
       await pv2Api('PUT', '/api/persona-shared', { core, voice });
+      // 重新拉一次共用段（loadSettings 不包含 persona-shared，不刷新会显示旧内容）
+      await pv2ReloadSharedPresets();
       pv2Hint('pv2-shared-hint', '共用部分已保存（core ' + core.length + ' / voice ' + voice.length + ' 字）✅', 'var(--green)');
     } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + e.message, 'var(--red)'); }
   }
@@ -3385,7 +3387,8 @@ async function refreshPromptPreview(overrides = null) {
         await pv2Api('POST', '/api/persona-shared/presets', { name: name || '默认共用段', core, voice, activate: true });
         pv2Hint('pv2-shared-hint', '已新建并设为当前使用 ✅', 'var(--green)');
       }
-      await pv2Reload();
+      // loadSettings 不拉 persona-shared，必须重新拉预设再重绘，否则输入框会回到旧文本
+      await pv2ReloadSharedPresets();
     } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
   }
   async function pv2NewShared() {
@@ -3395,7 +3398,7 @@ async function refreshPromptPreview(overrides = null) {
       const r = await pv2Api('POST', '/api/persona-shared/presets', { name: name || ('共用段 ' + new Date().toLocaleString('zh-CN')), core, voice, activate: true });
       if (typeof state !== 'undefined') state.pv2SharedPick = r?.item?.id || '';
       pv2Hint('pv2-shared-hint', '已另存为新预设并设为当前使用 ✅', 'var(--green)');
-      await pv2Reload();
+      await pv2ReloadSharedPresets();
     } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
   }
   /** 把某张人格卡的正文导入为一份新的共用段（core 用卡正文，voice 留空）。 */
@@ -3431,7 +3434,7 @@ async function refreshPromptPreview(overrides = null) {
       });
       if (typeof state !== 'undefined') state.pv2SharedPick = r?.item?.id || '';
       pv2Hint('pv2-shared-hint', '已导入为共用段：「' + (card.name || '') + '」' + String(card.variant || '').length + ' 字 ✅', 'var(--green)');
-      await pv2Reload();
+      await pv2ReloadSharedPresets();
     } catch (e) { pv2Hint('pv2-shared-hint', '导入失败：' + (e?.message || e), 'var(--red)'); }
   }
 
@@ -3453,7 +3456,7 @@ async function refreshPromptPreview(overrides = null) {
     try {
       await pv2Api('POST', '/api/persona-shared/presets/' + encodeURIComponent(pick) + '/activate', {});
       pv2Hint('pv2-shared-hint', '已设为当前使用 ✅', 'var(--green)');
-      await pv2Reload();
+      await pv2ReloadSharedPresets();
     } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
   }
   async function pv2DelShared() {
@@ -3466,7 +3469,7 @@ async function refreshPromptPreview(overrides = null) {
     try {
       await pv2Api('DELETE', '/api/persona-shared/presets/' + encodeURIComponent(pick), {});
       if (typeof state !== 'undefined') state.pv2SharedPick = '';
-      await pv2RefreshKeepScroll();
+      await pv2ReloadSharedPresets();
       pv2Hint('pv2-shared-hint', '已删除 ✅', 'var(--green)');
     } catch (e) { pv2Hint('pv2-shared-hint', '失败：' + (e?.message || e), 'var(--red)'); }
   }
