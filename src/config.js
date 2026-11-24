@@ -742,6 +742,44 @@ export function deepMerge(base, override) {
   return out;
 }
 
+/**
+ * 迁移过时的「轻量记忆」引导文案。
+ *
+ * 背景（2026-11-24）：memory_append 现在只支持 memberImpression（必须带群友 QQ 号），
+ * 话题/约定/想说的话已由后台记忆整理自动生成话题卡。旧文案却让模型记
+ * "进行中的话题、想说还没说的话" —— 工具根本不支持这些分类，模型要么报错要么不记。
+ * 只替换**固定旧句子**（不改用户自己写的内容），幂等。
+ */
+export function migrateMemoryGuidance(cfg) {
+  const OLD_A = '- 用 memory_append 记住值得长期保留的人和事：进行中的话题、想说还没说的话、对某位群友的印象。';
+  // 同一条旧文案在导入/复制过的模板里是"对对方的印象"，一并迁移
+  const OLD_A2 = '- 用 memory_append 记住值得长期保留的人和事：进行中的话题、想说还没说的话、对对方的印象。';
+  const NEW_A = [
+    '- 用 memory_append 只记对群友的长期印象（说话风格、爱玩的梗、雷点、身份关系）；必须带对方 QQ 号，内容要稳定、以后还用得上。',
+    '- 临时话题、约定、你想说但还没说的话不用记 —— 后台整理会自动生成话题卡/记忆卡。'
+  ].join('\n');
+  const OLD_B = '- memory_append 只记真的用得上的：谁话说一半消失、谁答应的事、谁的喜好、你自己想说还没说的话；过时就删。';
+  const NEW_B = '- memory_append 只记对群友的长期印象（说话风格、爱玩的梗、雷点、身份关系）；必须带对方 QQ 号，内容要稳定、以后还用得上；过时用 memory_remove 删。';
+  let changed = false;
+  const walk = (node) => {
+    if (!node || typeof node !== 'object') return;
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (typeof v === 'string') {
+        let next = v;
+        if (next.includes(OLD_A)) { next = next.split(OLD_A).join(NEW_A); changed = true; }
+        if (next.includes(OLD_A2)) { next = next.split(OLD_A2).join(NEW_A); changed = true; }
+        if (next.includes(OLD_B)) { next = next.split(OLD_B).join(NEW_B); changed = true; }
+        if (next !== v) node[k] = next;
+      } else if (v && typeof v === 'object') {
+        walk(v);
+      }
+    }
+  };
+  walk(cfg);
+  return changed;
+}
+
 export function loadConfig() {
   try {
     let text = fs.readFileSync(CONFIG_FILE, 'utf8');
@@ -755,7 +793,8 @@ export function loadConfig() {
       const _p3 = migrateDedupeBuiltinPersona(merged);
       const _p4 = migrateBuiltinUseSharedRules(merged);
       const _p5 = migrateAllowQqbotSplit(merged);
-      if (_p1 || _p2 || _p3 || _p4 || _p5) {
+      const _p6 = migrateMemoryGuidance(merged);
+      if (_p1 || _p2 || _p3 || _p4 || _p5 || _p6) {
         fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf8');
       }
     } catch { /* 迁移失败不影响启动，下次再试 */ }
